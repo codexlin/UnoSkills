@@ -1,0 +1,215 @@
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentCategory {
+    #[default]
+    Coding,
+    Assistant,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConfig {
+    pub key: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub category: AgentCategory,
+    pub relative_skills_dir: String,
+    pub relative_detect_dir: String,
+    #[serde(default)]
+    pub additional_scan_dirs: Vec<String>,
+    #[serde(default)]
+    pub project_relative_skills_dir: Option<String>,
+    #[serde(default)]
+    pub recursive_scan: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentInfo {
+    pub key: String,
+    pub display_name: String,
+    pub category: AgentCategory,
+    pub skills_dir: PathBuf,
+    pub detect_dir: PathBuf,
+    pub additional_scan_dirs: Vec<PathBuf>,
+    pub project_relative_skills_dir: String,
+    pub installed: bool,
+    pub enabled: bool,
+    pub is_custom: bool,
+    pub has_path_override: bool,
+    pub recursive_scan: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DeployMode {
+    #[default]
+    Symlink,
+    Copy,
+}
+
+impl DeployMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Symlink => "symlink",
+            Self::Copy => "copy",
+        }
+    }
+
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "copy" => Self::Copy,
+            _ => Self::Symlink,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceType {
+    #[default]
+    Local,
+    Git,
+    SkillsSh,
+    Adopted,
+}
+
+impl SourceType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Git => "git",
+            Self::SkillsSh => "skillssh",
+            Self::Adopted => "adopted",
+        }
+    }
+
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "git" => Self::Git,
+            "skillssh" => Self::SkillsSh,
+            "adopted" => Self::Adopted,
+            _ => Self::Local,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Skill {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub source_type: SourceType,
+    pub source_ref: Option<String>,
+    pub source_subpath: Option<String>,
+    pub source_branch: Option<String>,
+    pub central_path: PathBuf,
+    pub content_hash: Option<String>,
+    pub estimated_tokens: u32,
+    pub tags: Vec<String>,
+    pub deployments: Vec<Deployment>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl Skill {
+    pub fn is_deployed_to(&self, agent_key: &str) -> bool {
+        self.deployments.iter().any(|d| d.agent_key == agent_key)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Deployment {
+    pub id: String,
+    pub skill_id: String,
+    pub agent_key: String,
+    pub target_path: PathBuf,
+    pub mode: DeployMode,
+    pub synced_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillLintReport {
+    pub valid: bool,
+    pub entry_file: Option<String>,
+    pub estimated_tokens: u32,
+    pub file_count: usize,
+    pub warnings: Vec<String>,
+}
+
+/// Unified declarative manifest for a Skill Stack (used for local presets,
+/// backup/export, Gist sharing, and the community Stacks registry).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StackManifest {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub recommended_agents: Vec<String>,
+    #[serde(default)]
+    pub verified: bool,
+    #[serde(default)]
+    pub skills: Vec<StackSkillRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StackSkillRef {
+    pub name: String,
+    /// Canonical install ref: `owner/repo@skill`, git URL, or local path.
+    pub source: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StackInstallSummary {
+    pub stack_id: String,
+    pub installed: Vec<String>,
+    pub skipped_existing: Vec<String>,
+    pub failed: Vec<(String, String)>,
+    pub deployed_agents: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketplaceSkill {
+    pub id: String,
+    pub skill_id: String,
+    pub name: String,
+    pub source: String,
+    pub installs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MarketplacePage {
+    pub items: Vec<MarketplaceSkill>,
+    pub page: usize,
+    pub total: Option<usize>,
+    pub has_more: bool,
+}
+
+impl MarketplaceSkill {
+    pub fn install_ref(&self) -> String {
+        if self.source.is_empty() {
+            self.skill_id.clone()
+        } else {
+            format!("{}@{}", self.source, self.skill_id)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdoptCandidate {
+    pub agent_key: String,
+    pub agent_name: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub path: PathBuf,
+    pub estimated_tokens: u32,
+}

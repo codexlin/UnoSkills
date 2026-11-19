@@ -1,0 +1,74 @@
+# Built-in Featured Skill Stacks for UnoSkills.
+# Uses the exact same declarative manifest schema as community-submitted stacks.
+
+[[stacks]]
+id = "frontend-react-ship"
+name = "React & Next.js 高效出海栈"
+author = "unoskills"
+description = "适合 React / Next.js / Tailwind 全栈开发，涵盖性能优化、UI 审美与 PR 审查。"
+tags = ["frontend", "react", "nextjs", "web"]
+recommended_agents = ["claude_code", "cursor", "codex"]
+verified = true
+
+  [[stacks.skills]]
+  name = "vercel-react-best-practices"
+  source = "vercel-labs/agent-skills@vercel-react-best-practices"
+  note = "React/Next.js 渲染性能与服务端组件最佳实践"
+
+  [[stacks.skills]]
+  name = "web-design-guidelines"
+  source = "vercel-labs/agent-skills@web-design-guidelines"
+  note = "界面交互、无障碍与设计一致性审查"
+
+  [[stacks.skills]]
+  name = "frontend-design"
+  source = "anthropics/skills@frontend-design"
+  note = "生成高完成度、不流俗的前端视觉界面"
+
+[[stacks]]
+id = "anthropic-core-craft"
+name = "Anthropic 官方精品组合"
+author = "unoskills"
+description = "Anthropic 官方维护的高频技能组合，适合文档编写、技能创作与前端原型。"
+tags = ["official", "writing", "authoring"]
+recommended_agents = ["claude_code", "codex", "antigravity"]
+verified = true
+
+  [[stacks.skills]]
+  name = "skill-creator"
+  source = "anthropics/skills@skill-creator"
+  note = "按规范快速编写和评估你自己的 SKILL.md"
+
+  [[stacks.skills]]
+  name = "frontend-design"
+  source = "anthropics/skills@frontend-design"
+  note = "高质量视觉与交互设计引导"
+
+  [[stacks.skills]]
+  name = "mcp-builder"
+  source = "anthropics/skills@mcp-builder"
+  note = "快速构建高质量 MCP Server"
+
+[[stacks]]
+id = "superpowers-engineering"
+name = "Superpowers 工程纪律栈"
+author = "unoskills"
+description = "面向严肃软件工程：先头脑风暴与写计划，再测试驱动开发和系统排错。"
+tags = ["engineering", "tdd", "debugging", "workflow"]
+recommended_agents = ["claude_code", "codex", "opencode"]
+verified = true
+
+  [[stacks.skills]]
+  name = "brainstorming"
+  source = "obra/superpowers@brainstorming"
+  note = "动手写代码前先梳理需求与设计权衡"
+
+  [[stacks.skills]]
+  name = "systematic-debugging"
+  source = "obra/superpowers@systematic-debugging"
+  note = "根因定位方法论，避免盲目试错打补丁"
+
+  [[stacks.skills]]
+  name = "test-driven-development"
+  source = "obra/superpowers@test-driven-development"
+  note = "先红后绿的严格 TDD 开发节奏"

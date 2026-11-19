@@ -1,0 +1,161 @@
+# Built-in declarative AI Agent registry for UnoSkills.
+# Community contributors can add a new agent simply by appending an [[agent]] block.
+
+[[agent]]
+key = "claude_code"
+display_name = "Claude Code"
+category = "coding"
+relative_skills_dir = ".claude/skills"
+relative_detect_dir = ".claude"
+
+[[agent]]
+key = "codex"
+display_name = "Codex"
+category = "coding"
+relative_skills_dir = ".codex/skills"
+relative_detect_dir = ".codex"
+additional_scan_dirs = [".agents/skills"]
+
+[[agent]]
+key = "cursor"
+display_name = "Cursor"
+category = "coding"
+relative_skills_dir = ".cursor/skills"
+relative_detect_dir = ".cursor"
+
+[[agent]]
+key = "antigravity"
+display_name = "Antigravity"
+category = "coding"
+relative_skills_dir = ".gemini/config/skills"
+relative_detect_dir = ".gemini/antigravity"
+project_relative_skills_dir = ".agents/skills"
+
+[[agent]]
+key = "opencode"
+display_name = "OpenCode"
+category = "coding"
+relative_skills_dir = ".config/opencode/skills"
+relative_detect_dir = ".config/opencode"
+project_relative_skills_dir = ".opencode/skills"
+
+[[agent]]
+key = "gemini_cli"
+display_name = "Gemini CLI"
+category = "coding"
+relative_skills_dir = ".gemini/skills"
+relative_detect_dir = ".gemini"
+
+[[agent]]
+key = "github_copilot"
+display_name = "GitHub Copilot"
+category = "coding"
+relative_skills_dir = ".copilot/skills"
+relative_detect_dir = ".copilot"
+additional_scan_dirs = [".agents/skills"]
+
+[[agent]]
+key = "windsurf"
+display_name = "Windsurf"
+category = "coding"
+relative_skills_dir = ".codeium/windsurf/skills"
+relative_detect_dir = ".codeium/windsurf"
+
+[[agent]]
+key = "cline"
+display_name = "Cline"
+category = "coding"
+relative_skills_dir = ".agents/skills"
+relative_detect_dir = ".cline"
+
+[[agent]]
+key = "roo_code"
+display_name = "Roo Code"
+category = "coding"
+relative_skills_dir = ".roo/skills"
+relative_detect_dir = ".roo"
+
+[[agent]]
+key = "kilo_code"
+display_name = "Kilo Code"
+category = "coding"
+relative_skills_dir = ".kilocode/skills"
+relative_detect_dir = ".kilocode"
+
+[[agent]]
+key = "amp"
+display_name = "Amp"
+category = "coding"
+relative_skills_dir = ".config/agents/skills"
+relative_detect_dir = ".config/agents"
+
+[[agent]]
+key = "goose"
+display_name = "Goose"
+category = "coding"
+relative_skills_dir = ".config/goose/skills"
+relative_detect_dir = ".config/goose"
+
+[[agent]]
+key = "trae"
+display_name = "TRAE IDE"
+category = "coding"
+relative_skills_dir = ".trae/skills"
+relative_detect_dir = ".trae"
+
+[[agent]]
+key = "warp"
+display_name = "Warp"
+category = "coding"
+relative_skills_dir = ".agents/skills"
+relative_detect_dir = ".warp"
+
+[[agent]]
+key = "kimi"
+display_name = "Kimi Code CLI"
+category = "coding"
+relative_skills_dir = ".kimi-code/skills"
+relative_detect_dir = ".kimi-code"
+
+[[agent]]
+key = "grok"
+display_name = "Grok"
+category = "coding"
+relative_skills_dir = ".grok/skills"
+relative_detect_dir = ".grok"
+
+[[agent]]
+key = "droid"
+display_name = "Droid"
+category = "coding"
+relative_skills_dir = ".factory/skills"
+relative_detect_dir = ".factory"
+
+[[agent]]
+key = "augment"
+display_name = "Augment"
+category = "coding"
+relative_skills_dir = ".augment/skills"
+relative_detect_dir = ".augment"
+
+[[agent]]
+key = "replit"
+display_name = "Replit"
+category = "coding"
+relative_skills_dir = ".config/agents/skills"
+relative_detect_dir = ".replit"
+
+[[agent]]
+key = "openclaw"
+display_name = "OpenClaw"
+category = "assistant"
+relative_skills_dir = ".openclaw/skills"
+relative_detect_dir = ".openclaw"
+
+[[agent]]
+key = "omp_agent"
+display_name = "OMP Agent"
+category = "coding"
+relative_skills_dir = ".omp/agent/skills"
+relative_detect_dir = ".omp/agent"
+project_relative_skills_dir = ".omp/skills"
