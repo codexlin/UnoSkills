@@ -1,0 +1,50 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in UnoSkills
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug in **UnoSkills**! Please fill in the details below so we can reproduce and fix it quickly.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open UnoSkills
+        2. Navigate to ...
+        3. Click ...
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (Wayland)
+        - Linux (X11)
+        - Windows 11 / 10
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: UnoSkills Version
+      placeholder: e.g. v0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots / Logs
+      description: Drag and drop screenshots or paste relevant CLI `--json` error output.

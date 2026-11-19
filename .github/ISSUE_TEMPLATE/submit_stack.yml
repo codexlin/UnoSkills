@@ -1,0 +1,43 @@
+name: Submit a Curated Skill Stack
+description: Share your favorite AI skill combination for UnoSkills Featured Stacks
+title: "[Stack]: "
+labels: ["skill-stack"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Submit a declarative `.unoskills-stack.toml` generated via **Stacks → Copy Share TOML** or `unoskills stack export <id>`.
+  - type: input
+    id: stack_title
+    attributes:
+      label: Stack Name
+      placeholder: e.g. Rust + GPUI Native Stack
+    validations:
+      required: true
+  - type: textarea
+    id: manifest
+    attributes:
+      label: Stack TOML Manifest
+      render: toml
+      placeholder: |
+        [stack]
+        id = "my-stack"
+        name = "My Awesome Stack"
+        author = "your-github-handle"
+        description = "When and why to use these skills together"
+        tags = ["rust", "desktop"]
+        recommended_agents = ["claude_code", "codex"]
+
+        [[stack.skills]]
+        name = "skill-name"
+        source = "owner/repo@skill-name"
+        note = "Why this skill complements the others"
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: How do these skills work together?
+      description: Briefly share the real workflow where this combination shines.
+    validations:
+      required: true

@@ -1,0 +1,33 @@
+name: Feature Request
+description: Suggest an improvement or new capability for UnoSkills
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        UnoSkills aims to stay **fast, native, and focused (no bloat)**. Tell us about the real workflow problem you're solving!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Workflow Need
+      description: What are you trying to accomplish that UnoSkills doesn't handle well today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: How should it work in the GUI or CLI?
+    validations:
+      required: true
+  - type: checkboxes
+    id: area
+    attributes:
+      label: Area
+      options:
+        - label: Library & SKILL.md Workbench
+        - label: Skill Stacks (Presets & Sharing)
+        - label: Discover / Marketplace / Adopt
+        - label: CLI / Agent Automation
+        - label: Settings / Theme / Fonts / i18n

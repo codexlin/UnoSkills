@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-release:
+    name: Build Release (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_suffix: macos-arm64
+            ext: ""
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_suffix: linux-x64
+            ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_suffix: windows-x64
+            ext: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux GPUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shm0-dev \
+            libwayland-dev \
+            libfontconfig1-dev \
+            libssl-dev
+
+      - name: Build release binaries (app + cli)
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p unoskills-app -p unoskills-cli --locked
+
+      - name: Package release artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/unoskills-app${{ matrix.ext }}" "dist/unoskills-app-${{ matrix.artifact_suffix }}${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/unoskills${{ matrix.ext }}" "dist/unoskills-${{ matrix.artifact_suffix }}${{ matrix.ext }}"
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            tar -czf "dist/unoskills-${{ matrix.artifact_suffix }}.tar.gz" -C dist \
+              "unoskills-app-${{ matrix.artifact_suffix }}" \
+              "unoskills-${{ matrix.artifact_suffix }}"
+          else
+            7z a "dist/unoskills-${{ matrix.artifact_suffix }}.zip" \
+              "dist/unoskills-app-${{ matrix.artifact_suffix }}.exe" \
+              "dist/unoskills-${{ matrix.artifact_suffix }}.exe"
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.artifact_suffix }}
+          path: dist/*
+
+  publish:
+    name: Publish GitHub Release
+    needs: build-release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release-assets/*

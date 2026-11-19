@@ -1,0 +1,38 @@
+name: Add AI Agent Support
+description: Request or submit a new AI coding agent path for crates/unoskills-core/data/agents.toml
+title: "[Agent]: "
+labels: ["agent-registry"]
+body:
+  - type: input
+    id: agent_name
+    attributes:
+      label: Agent Display Name
+      placeholder: e.g. My Coding Agent
+    validations:
+      required: true
+  - type: input
+    id: global_path
+    attributes:
+      label: Global Skills Directory
+      description: Relative to `$HOME` (e.g. `.my-agent/skills` or `.config/my-agent/skills`)
+    validations:
+      required: true
+  - type: input
+    id: detect_path
+    attributes:
+      label: Installation Detection Directory
+      description: Directory used to detect if this agent is installed (e.g. `.my-agent`)
+    validations:
+      required: true
+  - type: input
+    id: project_path
+    attributes:
+      label: Project-Relative Skills Directory (Optional)
+      placeholder: Leave empty if same as global path (e.g. `.my-agent/skills`)
+  - type: input
+    id: docs_url
+    attributes:
+      label: Official Documentation URL
+      placeholder: https://...
+    validations:
+      required: true
