@@ -126,6 +126,13 @@ enum StackCommands {
     },
     /// Export a local stack (or featured stack) as shareable TOML
     Export { stack: String },
+    /// Publish a stack as a secret GitHub Gist (uses the stored GitHub token)
+    Share {
+        stack: String,
+        /// Use GitHub OAuth Device Flow instead of the stored PAT
+        #[arg(long)]
+        device: bool,
+    },
     /// Create a new local stack from installed skill slugs
     Create {
         name: String,
@@ -355,17 +362,26 @@ fn run(cli: Cli) -> Result<()> {
             StackCommands::List => {
                 let featured = mgr.featured_stacks()?;
                 let local = mgr.list_local_stacks()?;
+                let community = mgr.community_stacks().unwrap_or_default();
                 if cli.json {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(
-                            &json!({ "featured": featured, "local": local })
+                            &json!({ "featured": featured, "community": community, "local": local })
                         )?
                     );
                 } else {
                     println!("=== Featured Stacks ===");
                     for s in featured {
                         println!("  {:<26} ({} skills) — {}", s.id, s.skills.len(), s.name);
+                    }
+                    println!("\n=== Community Stacks ===");
+                    if community.is_empty() {
+                        println!("  (unavailable offline — no cached index)");
+                    } else {
+                        for s in &community {
+                            println!("  {:<26} ({} skills) — {}", s.id, s.skills.len(), s.name);
+                        }
                     }
                     println!("\n=== My Local Stacks ===");
                     if local.is_empty() {
@@ -382,9 +398,7 @@ fn run(cli: Cli) -> Result<()> {
                     let text = std::fs::read_to_string(&stack)?;
                     mgr.import_stack_toml(&text)?
                 } else {
-                    let all = [mgr.list_local_stacks()?, mgr.featured_stacks()?].concat();
-                    all.into_iter()
-                        .find(|s| s.id == stack || s.name.eq_ignore_ascii_case(&stack))
+                    mgr.find_any_stack(&stack)?
                         .ok_or_else(|| anyhow::anyhow!("Stack '{stack}' not found"))?
                 };
                 let summary = mgr.install_stack(&manifest, &agents)?;
@@ -401,12 +415,25 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
             StackCommands::Export { stack } => {
-                let all = [mgr.list_local_stacks()?, mgr.featured_stacks()?].concat();
-                let manifest = all
-                    .into_iter()
-                    .find(|s| s.id == stack || s.name.eq_ignore_ascii_case(&stack))
+                let manifest = mgr
+                    .find_any_stack(&stack)?
                     .ok_or_else(|| anyhow::anyhow!("Stack '{stack}' not found"))?;
                 println!("{}", mgr.export_stack_toml(&manifest)?);
+            }
+            StackCommands::Share { stack, device } => {
+                let manifest = mgr
+                    .find_any_stack(&stack)?
+                    .ok_or_else(|| anyhow::anyhow!("Stack '{stack}' not found"))?;
+                let url = if device {
+                    mgr.share_stack_via_device_flow(&manifest)?
+                } else {
+                    mgr.share_stack_to_gist(&manifest)?
+                };
+                if cli.json {
+                    println!("{}", json!({ "ok": true, "gist_url": url }));
+                } else {
+                    println!("Shared '{stack}' as a secret Gist: {url}");
+                }
             }
             StackCommands::Create {
                 name,

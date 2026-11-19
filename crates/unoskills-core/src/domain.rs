@@ -166,6 +166,19 @@ pub struct SkillLintReport {
     pub warnings: Vec<String>,
 }
 
+/// Provenance of a stack manifest. `Featured` is the serde default so all
+/// pre-existing TOML manifests and local stacks keep parsing unchanged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StackSource {
+    /// Built-in stack shipped inside the app (`featured_stacks.toml`).
+    #[default]
+    Featured,
+    /// Stack fetched from the remote community index (`index.json`).
+    Community,
+    /// Stack created locally by the user.
+    Local,
+}
+
 /// Unified declarative manifest for a Skill Stack (used for local presets,
 /// backup/export, Gist sharing, and the community Stacks registry).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,6 +195,8 @@ pub struct StackManifest {
     pub recommended_agents: Vec<String>,
     #[serde(default)]
     pub verified: bool,
+    #[serde(default)]
+    pub source: StackSource,
     #[serde(default)]
     pub skills: Vec<StackSkillRef>,
 }

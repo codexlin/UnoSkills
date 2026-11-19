@@ -42,6 +42,7 @@ impl StacksView {
 
         let stack_for_install = stack.clone();
         let stack_for_copy = stack.clone();
+        let stack_for_share = stack.clone();
         let stack_id_for_delete = stack.id.clone();
         let stack_name_for_delete = stack.name.clone();
         let lang = self.workspace.read(cx).lang();
@@ -130,6 +131,24 @@ impl StacksView {
                                                     ws.copy_stack_toml(&stack_for_copy, window, cx)
                                                 });
                                             })),
+                                    )
+                                    .child(
+                                        Button::new("share-stack-gist-btn")
+                                            .outline()
+                                            .small()
+                                            .icon(IconName::ExternalLink)
+                                            .label(s.btn_share_gist)
+                                            .on_click(cx.listener(
+                                                move |this, _, window, cx| {
+                                                    this.workspace.update(cx, |ws, cx| {
+                                                        ws.share_stack_to_gist(
+                                                            stack_for_share.clone(),
+                                                            window,
+                                                            cx,
+                                                        )
+                                                    });
+                                                },
+                                            )),
                                     )
                                     .when(is_local, |row| {
                                         row.child(

@@ -166,4 +166,10 @@ pub static STRINGS: Strings = Strings {
     toast_project_detached: "已移除项目关联并清理受管技能部署。",
     busy_loading_trending: "正在加载热门榜单...",
     busy_checking_updates: "正在检查新版本...",
+    ph_stack_search: "搜索组合名称、作者或标签...",
+    badge_community: "社区",
+    btn_share_gist: "分享到 Gist",
+    btn_refresh_community: "刷新社区组合",
+    busy_refreshing_community: "正在刷新社区组合索引...",
+    toast_community_failed: "获取社区组合失败",
 };

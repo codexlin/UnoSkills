@@ -166,4 +166,10 @@ pub static STRINGS: Strings = Strings {
     toast_project_detached: "プロジェクトを解除し、管理対象スキルの配備を整理しました。",
     busy_loading_trending: "トレンドを読み込み中...",
     busy_checking_updates: "アップデートを確認中...",
+    ph_stack_search: "名前・作成者・タグでスタックを検索...",
+    badge_community: "コミュニティ",
+    btn_share_gist: "Gist で共有",
+    btn_refresh_community: "コミュニティスタックを更新",
+    busy_refreshing_community: "コミュニティスタック指数を更新中...",
+    toast_community_failed: "コミュニティスタックの取得に失敗しました",
 };

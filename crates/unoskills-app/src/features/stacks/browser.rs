@@ -2,7 +2,9 @@ use gpui_kit::component::{
     ActiveTheme, Icon, IconName, Sizable, StyledExt,
     button::{Button, ButtonVariants},
     empty::{Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle},
-    h_flex, h_resizable, resizable_panel,
+    h_flex, h_resizable,
+    input::Input,
+    resizable_panel,
     scroll::ScrollableElement,
     v_flex,
 };
@@ -10,7 +12,7 @@ use gpui_kit::{
     Context, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
-use unoskills_core::StackManifest;
+use unoskills_core::{StackManifest, StackSource};
 
 use crate::components::badges::StatusBadge;
 
@@ -24,16 +26,93 @@ impl StacksView {
     ) -> impl IntoElement {
         let theme = cx.theme();
         let s = self.workspace.read(cx).t();
-        let stacks: &[StackManifest] = if is_local {
-            self.workspace.read(cx).local_stacks()
+        let stacks: Vec<StackManifest> = if is_local {
+            self.workspace.read(cx).local_stacks().to_vec()
         } else {
-            self.workspace.read(cx).featured_stacks()
+            self.merged_filtered_stacks(cx)
         };
         let selected_stack = stacks
             .iter()
             .find(|stack| self.selected_stack_id.as_deref() == Some(stack.id.as_str()))
             .or_else(|| stacks.first())
             .cloned();
+
+        let filter_row = if is_local {
+            None
+        } else {
+            let tags = self.available_tags(cx);
+            let active_tag = self.active_tag.clone();
+            let search_id = self.stack_search_input.entity_id();
+            Some(
+                v_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .gap_2()
+                    .p_3()
+                    .pb_0()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(Input::new(&self.stack_search_input).small()),
+                            )
+                            .child(
+                                div().flex_shrink_0().child(
+                                    Button::new("refresh-community-btn")
+                                        .outline()
+                                        .small()
+                                        .icon(IconName::RefreshCw)
+                                        .tooltip(s.btn_refresh_community)
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.workspace.update(cx, |ws, cx| {
+                                                ws.refresh_community_stacks(false, window, cx)
+                                            });
+                                        })),
+                                ),
+                            ),
+                    )
+                    .when(!tags.is_empty(), |this| {
+                        this.child(
+                            h_flex()
+                                .w_full()
+                                .flex_wrap()
+                                .gap_1()
+                                .id(SharedString::from(format!("stack-tag-row-{search_id:?}")))
+                                .children(tags.into_iter().map(|tag| {
+                                    let is_active = active_tag
+                                        .as_deref()
+                                        .is_some_and(|t| t.eq_ignore_ascii_case(&tag));
+                                    let tag_for_click = tag.clone();
+                                    Button::new(SharedString::from(format!(
+                                        "stack-tag-{}",
+                                        tag.to_lowercase()
+                                    )))
+                                    .outline()
+                                    .xsmall()
+                                    .when(is_active, |b| b.primary())
+                                    .label(tag)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if this
+                                            .active_tag
+                                            .as_deref()
+                                            .is_some_and(|t| t.eq_ignore_ascii_case(&tag_for_click))
+                                        {
+                                            this.active_tag = None;
+                                        } else {
+                                            this.active_tag = Some(tag_for_click.clone());
+                                        }
+                                        cx.notify();
+                                    }))
+                                })),
+                        )
+                    }),
+            )
+        };
 
         let list_pane = div()
             .size_full()
@@ -45,6 +124,7 @@ impl StacksView {
                     .w_full()
                     .p_3()
                     .gap_2()
+                    .when_some(filter_row, |this, row| this.child(row))
                     .when(stacks.is_empty(), |this| {
                         this.child(
                             Empty::new()
@@ -118,6 +198,8 @@ impl StacksView {
                                     )
                                     .child(div().flex_shrink_0().child(if stack.verified {
                                         StatusBadge::success(s.badge_verified).outline()
+                                    } else if stack.source == StackSource::Community {
+                                        StatusBadge::secondary(s.badge_community).outline()
                                     } else {
                                         StatusBadge::secondary(s.badge_local)
                                     })),
