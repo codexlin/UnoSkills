@@ -351,7 +351,7 @@ impl WorkspaceState {
                         .timeout(std::time::Duration::from_secs(10))
                         .build()?;
                     let resp = client
-                        .get("https://api.github.com/repos/unoskills/unoskills/releases/latest")
+                        .get("https://api.github.com/repos/codexlin/UnoSkills/releases/latest")
                         .send()?;
                     if resp.status().as_u16() == 404 {
                         return Ok(None);

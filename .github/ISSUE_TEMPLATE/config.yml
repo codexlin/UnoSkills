@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: UnoSkills Stacks Specification
-    url: https://github.com/unoskills/unoskills/blob/main/docs/STACKS_SPEC.md
+    url: https://github.com/codexlin/UnoSkills/blob/main/docs/STACKS_SPEC.md
     about: Learn how declarative Skill Stacks and community publishing work.
