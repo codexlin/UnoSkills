@@ -1,0 +1,48 @@
+# Changelog
+
+All notable changes to **UnoSkills** are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [v0.2.0] - 2026-11-20
+
+### ✨ Highlights / 核心更新
+
+- **Skill Upstream Update Check & One-Click Upgrade / 技能一键检查更新与升级**
+  - Re-fetch Git, `skills.sh`, and local-installed skills against SHA-256 directory hashes and update in place without breaking symlinks.
+  - Automatically refreshes all `Copy`-mode deployments (both global and project-scope).
+  - Available in both the Library inspector (**Update / 检查更新**) and CLI (`unoskills update <skill>`).
+- **Project-Scope Skills / 项目级技能作用域**
+  - Attach local project workspaces directly in the Library Deploy bar (**Global / Project switcher**) without adding extra top-level tabs.
+  - Deploy central library skills into repo-local `.claude/skills`, `.codex/skills`, `.cursor/skills`, `.opencode/skills`, etc. with shared-directory reference counting and clean detach cleanup.
+  - Full CLI parity via `unoskills project { list | add | remove | deploy | undeploy }`.
+- **Interactive Conflict Resolution (`ReplacePolicy::UserConfirmed`) / 交互式冲突覆盖确认**
+  - Deploying onto an unmanaged target folder safely pauses with a confirmation `AlertDialog` instead of silently clobbering user files, for both global and project-scope deployments.
+- **Network Proxy, GitHub Token & Custom Agent Registry / 网络代理、GitHub Token 与自定义 Agent**
+  - Configure optional HTTP/SOCKS proxy (applied to Git clones, `skills.sh` API, and GitHub update checks) and local-only GitHub PAT in **Settings**.
+  - Register and remove custom AI Agent skill directories directly from **Settings**.
+- **Native Desktop Conveniences & Keyboard Shortcuts / 原生桌面体验与快捷键**
+  - Native OS folder picker for local skill installs, custom agents, and project workspaces.
+  - **Reveal in File Manager** action on skills, attached projects, and the central library root.
+  - Keyboard shortcuts: `Cmd/Ctrl+K` (focus Library search), `Cmd/Ctrl+S` (save `SKILL.md` in edit mode), `Esc` (cancel edit mode).
+  - Confirmation `AlertDialog` before deleting a local Stack or detaching a Project Workspace.
+- **Full 3-Language i18n Parity / 中英日三语完整适配**
+  - Simplified Chinese (`zh-CN`), English (`en`), and Japanese (`ja`) across all new dialogs, settings, project scope controls, and toasts.
+
+### 🐛 Fixes & Cross-Platform Hardening / 修复与跨平台加固
+
+- Fixed Windows Clippy lint (`collapsible_if`) and switched integration tests to cross-platform deployment helpers so Ubuntu, macOS, and Windows CI all pass with zero warnings.
+- Upgraded `skills.sh` leaderboard to native paginated JSON API with infinite scroll in **Discover**.
+
+---
+
+## [v0.1.0] - 2026-11-19
+
+### ✨ Initial Foundation / 初始版本
+
+- Local-first central skill library (`~/.unoskills`) backed by SQLite WAL with strict `SKILL.md` parsing, CJK-aware token estimation, lint checks, and safe Symlink / Copy / Windows Junction sync engine.
+- Declarative 22-agent registry (`crates/unoskills-core/data/agents.toml`) with automatic installation detection and unmanaged skill adoption.
+- Declarative Skill Stacks (`.unoskills-stack.toml`): featured stacks, local creation, TOML import/export, and incremental one-click install.
+- Lean 4-tab native Rust GPUI desktop workbench (**Library / Stacks / Discover / Settings**) with Dark/Light themes, language-aware & custom font pickers, and `unoskills-cli` (`--json`).

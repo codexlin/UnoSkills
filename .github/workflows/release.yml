@@ -97,8 +97,27 @@ jobs:
           cd release-assets
           sha256sum * > SHA256SUMS.txt
 
+      - name: Extract Release Notes from CHANGELOG.md
+        run: |
+          python3 - <<'PY'
+          import os, re, pathlib
+
+          tag = os.environ.get("GITHUB_REF_NAME", "").strip()
+          changelog = pathlib.Path("CHANGELOG.md")
+          notes = ""
+          if changelog.is_file() and tag:
+              text = changelog.read_text(encoding="utf-8")
+              pattern = rf"^## \[{re.escape(tag)}\][^\n]*\n(.*?)(?=^## \[|\Z)"
+              m = re.search(pattern, text, flags=re.MULTILINE | re.DOTALL)
+              if m:
+                  notes = m.group(1).strip()
+
+          pathlib.Path("release-notes.md").write_text(notes + ("\n" if notes else ""), encoding="utf-8")
+          PY
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           generate_release_notes: true
           files: release-assets/*
