@@ -239,6 +239,90 @@ impl Lang {
             ),
         }
     }
+
+    pub fn confirm_delete_stack_desc(self, stack_name: &str) -> String {
+        match self {
+            Self::ZhCn => {
+                format!("将从「我的组合」中删除「{stack_name}」（不会卸载已安装的技能）。")
+            }
+            Self::En => {
+                format!("Delete '{stack_name}' from My Stacks (installed skills are kept).")
+            }
+            Self::Ja => format!(
+                "マイスタックから「{stack_name}」を削除します（導入済みスキルは残ります）。"
+            ),
+        }
+    }
+
+    pub fn confirm_conflict_desc(self, agent_name: &str, path: &str) -> String {
+        match self {
+            Self::ZhCn => format!(
+                "{agent_name} 目标路径已存在未托管的目录或文件：\n{path}\n\n是否替换为 UnoSkills 受管部署？"
+            ),
+            Self::En => format!(
+                "An unmanaged folder or file already exists for {agent_name} at:\n{path}\n\nReplace it with the UnoSkills managed deployment?"
+            ),
+            Self::Ja => format!(
+                "{agent_name} の配備先に未管理のフォルダまたはファイルが存在します：\n{path}\n\nUnoSkills の管理対象に置き換えますか？"
+            ),
+        }
+    }
+
+    pub fn busy_updating_skill(self, name: &str) -> String {
+        match self {
+            Self::ZhCn => format!("正在检查并更新「{name}」..."),
+            Self::En => format!("Updating '{name}'..."),
+            Self::Ja => format!("「{name}」を更新確認中..."),
+        }
+    }
+
+    pub fn toast_skill_updated(self, name: &str, tokens: u32, copies: usize) -> String {
+        match self {
+            Self::ZhCn => {
+                if copies > 0 {
+                    format!(
+                        "已更新「{name}」（约 {tokens} tokens，已同步刷新 {copies} 个副本部署）"
+                    )
+                } else {
+                    format!("已更新「{name}」（约 {tokens} tokens）")
+                }
+            }
+            Self::En => {
+                if copies > 0 {
+                    format!(
+                        "Updated '{name}' (~{tokens} tokens, refreshed {copies} copy deployment(s))."
+                    )
+                } else {
+                    format!("Updated '{name}' (~{tokens} tokens).")
+                }
+            }
+            Self::Ja => {
+                if copies > 0 {
+                    format!(
+                        "「{name}」を更新しました（約 {tokens} tokens・コピー配備 {copies} 件を同期）"
+                    )
+                } else {
+                    format!("「{name}」を更新しました（約 {tokens} tokens）")
+                }
+            }
+        }
+    }
+
+    pub fn toast_skill_up_to_date(self, name: &str) -> String {
+        match self {
+            Self::ZhCn => format!("「{name}」已是最新版本，无需更新。"),
+            Self::En => format!("'{name}' is already up to date."),
+            Self::Ja => format!("「{name}」はすでに最新です。"),
+        }
+    }
+
+    pub fn toast_custom_agent_added(self, name: &str) -> String {
+        match self {
+            Self::ZhCn => format!("已添加自定义 Agent「{name}」"),
+            Self::En => format!("Added custom agent '{name}'."),
+            Self::Ja => format!("カスタムエージェント「{name}」を追加しました"),
+        }
+    }
 }
 
 pub struct Strings {
@@ -268,11 +352,19 @@ pub struct Strings {
     pub empty_select_skill_title: &'static str,
     pub empty_select_skill_desc: &'static str,
     pub btn_edit_skill: &'static str,
+    pub btn_update_skill: &'static str,
     pub btn_save: &'static str,
     pub btn_cancel: &'static str,
     pub btn_delete: &'static str,
+    pub btn_replace: &'static str,
     pub tooltip_remove_skill: &'static str,
+    pub tooltip_reveal_folder: &'static str,
     pub confirm_delete_skill_title: &'static str,
+    pub confirm_delete_stack_title: &'static str,
+    pub confirm_conflict_title: &'static str,
+    pub btn_browse_folder: &'static str,
+    pub prompt_pick_skill_dir: &'static str,
+    pub prompt_pick_agent_dir: &'static str,
     pub deploy_to_agents: &'static str,
     pub no_installed_agents: &'static str,
     pub section_description: &'static str,
@@ -369,9 +461,20 @@ pub struct Strings {
     pub settings_current_version: &'static str,
     pub settings_updates_desc: &'static str,
     pub btn_check_updates: &'static str,
+    pub settings_network: &'static str,
+    pub settings_http_proxy: &'static str,
+    pub settings_http_proxy_desc: &'static str,
+    pub ph_http_proxy: &'static str,
+    pub settings_github_token: &'static str,
+    pub settings_github_token_desc: &'static str,
+    pub ph_github_token: &'static str,
     pub settings_root_dir: &'static str,
     pub settings_agents_registry: &'static str,
     pub settings_agents_registry_desc: &'static str,
+    pub settings_add_custom_agent: &'static str,
+    pub ph_custom_agent_name: &'static str,
+    pub ph_custom_agent_dir: &'static str,
+    pub btn_add_agent: &'static str,
     pub badge_detected: &'static str,
     pub badge_not_detected: &'static str,
 
@@ -383,6 +486,9 @@ pub struct Strings {
     pub toast_enter_stack_name: &'static str,
     pub toast_select_stack_skill: &'static str,
     pub toast_paste_toml: &'static str,
+    pub toast_network_saved: &'static str,
+    pub toast_custom_agent_removed: &'static str,
+    pub toast_custom_agent_required: &'static str,
     pub busy_loading_trending: &'static str,
     pub busy_checking_updates: &'static str,
 }

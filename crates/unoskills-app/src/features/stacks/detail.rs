@@ -1,6 +1,6 @@
 use gpui_kit::component::{
-    ActiveTheme, IconName, Sizable, StyledExt,
-    button::{Button, ButtonVariants},
+    ActiveTheme, IconName, Sizable, StyledExt, WindowExt,
+    button::{Button, ButtonVariant, ButtonVariants},
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle},
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,
@@ -43,6 +43,8 @@ impl StacksView {
         let stack_for_install = stack.clone();
         let stack_for_copy = stack.clone();
         let stack_id_for_delete = stack.id.clone();
+        let stack_name_for_delete = stack.name.clone();
+        let lang = self.workspace.read(cx).lang();
 
         div()
             .size_full()
@@ -136,16 +138,55 @@ impl StacksView {
                                                 .outline()
                                                 .small()
                                                 .icon(IconName::Delete)
+                                                .tooltip(s.btn_delete)
                                                 .on_click(cx.listener(
                                                     move |this, _, window, cx| {
-                                                        this.workspace.update(cx, |ws, cx| {
-                                                            ws.delete_local_stack(
-                                                                &stack_id_for_delete,
-                                                                window,
-                                                                cx,
-                                                            )
-                                                        });
-                                                        this.selected_stack_id = None;
+                                                        let view_entity = cx.entity().clone();
+                                                        let ws = this.workspace.clone();
+                                                        let stack_id = stack_id_for_delete.clone();
+                                                        let title = s.confirm_delete_stack_title;
+                                                        let desc = lang.confirm_delete_stack_desc(
+                                                            &stack_name_for_delete,
+                                                        );
+                                                        let ok_label = s.btn_delete;
+                                                        let cancel_label = s.btn_cancel;
+
+                                                        window.open_alert_dialog(
+                                                            cx,
+                                                            move |alert, _, _| {
+                                                                let view_entity =
+                                                                    view_entity.clone();
+                                                                let ws = ws.clone();
+                                                                let stack_id = stack_id.clone();
+                                                                alert
+                                                                    .confirm()
+                                                                    .centered()
+                                                                    .title(title)
+                                                                    .description(desc.clone())
+                                                                    .ok_text(ok_label)
+                                                                    .ok_variant(
+                                                                        ButtonVariant::Danger,
+                                                                    )
+                                                                    .cancel_text(cancel_label)
+                                                                    .on_ok(move |_, window, cx| {
+                                                                        ws.update(cx, |ws, cx| {
+                                                                            ws.delete_local_stack(
+                                                                                &stack_id, window,
+                                                                                cx,
+                                                                            );
+                                                                        });
+                                                                        view_entity.update(
+                                                                            cx,
+                                                                            |v, cx| {
+                                                                                v.selected_stack_id =
+                                                                                    None;
+                                                                                cx.notify();
+                                                                            },
+                                                                        );
+                                                                        true
+                                                                    })
+                                                            },
+                                                        );
                                                     },
                                                 )),
                                         )

@@ -1,15 +1,19 @@
 use gpui_kit::component::{
     ActiveTheme, IconName, Sizable, StyledExt, ThemeMode,
-    button::Button,
+    button::{Button, ButtonVariants},
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,
+    input::Input,
     select::Select,
     separator::Separator,
     switch::Switch,
     tab::{Tab, TabBar},
     v_flex,
 };
-use gpui_kit::{AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
+use gpui_kit::{
+    AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, div,
+    prelude::FluentBuilder, px,
+};
 use unoskills_core::{AgentInfo, DeployMode};
 
 use crate::components::badges::StatusBadge;
@@ -24,7 +28,8 @@ impl SettingsView {
         let s = ws.t();
         let is_dark = theme.is_dark();
         let deploy_mode = ws.deploy_mode();
-        let root_path = ws.manager().root_dir().to_string_lossy().to_string();
+        let root_dir = ws.manager().root_dir().to_path_buf();
+        let root_path = root_dir.to_string_lossy().to_string();
 
         GroupBox::new().outline().title(s.settings_general).child(
             v_flex()
@@ -111,9 +116,21 @@ impl SettingsView {
                                 ),
                         )
                         .child(
-                            div()
+                            h_flex()
                                 .flex_shrink_0()
-                                .child(StatusBadge::secondary("SQLite WAL")),
+                                .items_center()
+                                .gap_2()
+                                .child(StatusBadge::secondary("SQLite WAL"))
+                                .child(
+                                    Button::new("reveal-root-dir")
+                                        .outline()
+                                        .xsmall()
+                                        .icon(IconName::FolderOpen)
+                                        .tooltip(s.tooltip_reveal_folder)
+                                        .on_click(move |_, _, cx| {
+                                            cx.reveal_path(&root_dir);
+                                        }),
+                                ),
                         ),
                 ),
         )
@@ -173,6 +190,53 @@ impl SettingsView {
                             })),
                     ),
                 )),
+        )
+    }
+
+    pub(super) fn render_network_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let s = self.workspace.read(cx).t();
+
+        GroupBox::new().outline().title(s.settings_network).child(
+            v_flex()
+                .gap_4()
+                .child(setting_row(
+                    s.settings_http_proxy,
+                    s.settings_http_proxy_desc,
+                    theme.muted_foreground,
+                    div()
+                        .w(px(280.))
+                        .flex_shrink_0()
+                        .child(Input::new(&self.http_proxy_input).small().cleanable(true)),
+                ))
+                .child(Separator::horizontal())
+                .child(setting_row(
+                    s.settings_github_token,
+                    s.settings_github_token_desc,
+                    theme.muted_foreground,
+                    div().w(px(280.)).flex_shrink_0().child(
+                        Input::new(&self.github_token_input)
+                            .small()
+                            .cleanable(true)
+                            .mask_toggle(),
+                    ),
+                ))
+                .child(
+                    h_flex().justify_end().child(
+                        Button::new("save-network-settings-btn")
+                            .primary()
+                            .small()
+                            .icon(IconName::Check)
+                            .label(s.btn_save)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let proxy = this.http_proxy_input.read(cx).value().to_string();
+                                let token = this.github_token_input.read(cx).value().to_string();
+                                this.workspace.update(cx, |ws, cx| {
+                                    ws.save_network_settings(&proxy, &token, window, cx);
+                                });
+                            })),
+                    ),
+                ),
         )
     }
 
@@ -242,12 +306,132 @@ impl SettingsView {
             .title(format!("{} ({})", s.settings_agents_registry, agents.len()))
             .child(
                 v_flex()
-                    .gap_2()
+                    .gap_3()
                     .child(
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
                             .child(s.settings_agents_registry_desc),
+                    )
+                    // Inline Add Custom Agent bar
+                    .child(
+                        v_flex()
+                            .p_3()
+                            .gap_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.secondary.opacity(0.25))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_semibold()
+                                    .child(s.settings_add_custom_agent),
+                            )
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div().w(px(180.)).flex_shrink_0().child(
+                                            Input::new(&self.custom_agent_name_input).small(),
+                                        ),
+                                    )
+                                    .child(
+                                        div().flex_1().min_w_0().child(
+                                            Input::new(&self.custom_agent_dir_input).small(),
+                                        ),
+                                    )
+                                    .child(
+                                        div().flex_shrink_0().child(
+                                            Button::new("pick-custom-agent-dir")
+                                                .outline()
+                                                .small()
+                                                .icon(IconName::FolderOpen)
+                                                .tooltip(s.btn_browse_folder)
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    let prompt = this
+                                                        .workspace
+                                                        .read(cx)
+                                                        .t()
+                                                        .prompt_pick_agent_dir;
+                                                    let rx = cx.prompt_for_paths(
+                                                        gpui_kit::PathPromptOptions {
+                                                            files: false,
+                                                            directories: true,
+                                                            multiple: false,
+                                                            prompt: Some(SharedString::from(
+                                                                prompt,
+                                                            )),
+                                                        },
+                                                    );
+                                                    cx.spawn_in(window, async move |this, cx| {
+                                                        if let Ok(Ok(Some(paths))) = rx.await
+                                                            && let Some(dir) =
+                                                                paths.into_iter().next()
+                                                        {
+                                                            let p =
+                                                                dir.to_string_lossy().to_string();
+                                                            let _ = this.update_in(
+                                                                cx,
+                                                                |view, window, cx| {
+                                                                    view.custom_agent_dir_input
+                                                                        .update(cx, |input, cx| {
+                                                                            input.set_value(
+                                                                                p, window, cx,
+                                                                            );
+                                                                        });
+                                                                },
+                                                            );
+                                                        }
+                                                    })
+                                                    .detach();
+                                                })),
+                                        ),
+                                    )
+                                    .child(
+                                        div().flex_shrink_0().child(
+                                            Button::new("add-custom-agent-btn")
+                                                .primary()
+                                                .small()
+                                                .icon(IconName::Plus)
+                                                .label(s.btn_add_agent)
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    let name = this
+                                                        .custom_agent_name_input
+                                                        .read(cx)
+                                                        .value()
+                                                        .to_string();
+                                                    let dir = this
+                                                        .custom_agent_dir_input
+                                                        .read(cx)
+                                                        .value()
+                                                        .to_string();
+                                                    let added =
+                                                        this.workspace.update(cx, |ws, cx| {
+                                                            ws.add_custom_agent(
+                                                                &name, &dir, window, cx,
+                                                            )
+                                                        });
+                                                    if added {
+                                                        this.custom_agent_name_input.update(
+                                                            cx,
+                                                            |input, cx| {
+                                                                input.set_value("", window, cx);
+                                                            },
+                                                        );
+                                                        this.custom_agent_dir_input.update(
+                                                            cx,
+                                                            |input, cx| {
+                                                                input.set_value("", window, cx);
+                                                            },
+                                                        );
+                                                    }
+                                                })),
+                                        ),
+                                    ),
+                            ),
                     )
                     .children(agents.iter().map(|agent| self.render_agent_row(agent, cx))),
             )
@@ -257,7 +441,9 @@ impl SettingsView {
         let theme = cx.theme();
         let s = self.workspace.read(cx).t();
         let agent_key = agent.key.clone();
+        let agent_key_delete = agent.key.clone();
         let enabled = agent.enabled;
+        let is_custom = agent.is_custom;
 
         h_flex()
             .px_3()
@@ -299,16 +485,40 @@ impl SettingsView {
                     ),
             )
             .child(
-                div().flex_shrink_0().child(
-                    Switch::new(SharedString::from(format!("agent-en-{}", agent.key)))
-                        .small()
-                        .checked(enabled)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.workspace.update(cx, |ws, cx| {
-                                ws.set_agent_enabled(&agent_key, !enabled, cx)
-                            });
-                        })),
-                ),
+                h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_2()
+                    .when(is_custom, |row| {
+                        row.child(
+                            Button::new(SharedString::from(format!(
+                                "del-custom-agent-{}",
+                                agent.key
+                            )))
+                            .danger()
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::Delete)
+                            .tooltip(s.btn_delete)
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.workspace.update(cx, |ws, cx| {
+                                        ws.remove_custom_agent(&agent_key_delete, window, cx)
+                                    });
+                                },
+                            )),
+                        )
+                    })
+                    .child(
+                        Switch::new(SharedString::from(format!("agent-en-{}", agent.key)))
+                            .small()
+                            .checked(enabled)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.workspace.update(cx, |ws, cx| {
+                                    ws.set_agent_enabled(&agent_key, !enabled, cx)
+                                });
+                            })),
+                    ),
             )
             .into_any_element()
     }

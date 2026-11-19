@@ -1,11 +1,13 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{Theme, ThemeMode, WindowExt};
 use gpui_kit::{ClipboardItem, Context, EventEmitter, SharedString, Window};
 use unoskills_core::{
-    AdoptCandidate, AgentInfo, DeployMode, MarketplaceSkill, Skill, StackManifest, UnoSkillsManager,
+    AdoptCandidate, AgentCategory, AgentInfo, CustomAgentRecord, DeployMode, MarketplaceSkill,
+    Skill, StackManifest, UnoSkillsManager,
 };
 
 use crate::fonts::{self, DEFAULT_FONT_SIZE, FONT_AUTO, FontSettings};
@@ -57,6 +59,7 @@ pub struct WorkspaceState {
     deploy_mode: DeployMode,
     font_settings: FontSettings,
     checking_updates: bool,
+    updating_skill_id: Option<String>,
     adopting_all: bool,
     next_busy_token: u64,
     busy_tasks: Vec<(u64, String)>,
@@ -123,6 +126,7 @@ impl WorkspaceState {
                 font_size,
             },
             checking_updates: false,
+            updating_skill_id: None,
             adopting_all: false,
             next_busy_token: 1,
             busy_tasks: Vec::new(),
@@ -188,6 +192,10 @@ impl WorkspaceState {
 
     pub fn checking_updates(&self) -> bool {
         self.checking_updates
+    }
+
+    pub fn updating_skill_id(&self) -> Option<&str> {
+        self.updating_skill_id.as_deref()
     }
 
     pub fn adopting_all(&self) -> bool {
@@ -342,17 +350,19 @@ impl WorkspaceState {
         cx.emit(WorkspaceEvent::SettingsChanged);
 
         let current_ver = env!("CARGO_PKG_VERSION").to_string();
+        let proxy = self.manager.http_proxy();
+        let token = self.manager.github_token();
         let bg = cx.background_executor().clone();
         cx.spawn_in(window, async move |this, cx| {
             let res: anyhow::Result<Option<String>> = bg
                 .spawn(async move {
-                    let client = reqwest::blocking::Client::builder()
-                        .user_agent(concat!("unoskills/", env!("CARGO_PKG_VERSION")))
-                        .timeout(std::time::Duration::from_secs(10))
-                        .build()?;
-                    let resp = client
-                        .get("https://api.github.com/repos/codexlin/UnoSkills/releases/latest")
-                        .send()?;
+                    let client = unoskills_core::source::build_http_client(proxy.as_deref(), 10)?;
+                    let mut req = client
+                        .get("https://api.github.com/repos/codexlin/UnoSkills/releases/latest");
+                    if let Some(tok) = token.as_deref() {
+                        req = req.bearer_auth(tok);
+                    }
+                    let resp = req.send()?;
                     if resp.status().as_u16() == 404 {
                         return Ok(None);
                     }
@@ -420,6 +430,54 @@ impl WorkspaceState {
         }
     }
 
+    pub fn update_skill_async(
+        &mut self,
+        skill_id: String,
+        skill_name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.updating_skill_id.is_some() {
+            return;
+        }
+        self.updating_skill_id = Some(skill_id.clone());
+        let busy_label = self.lang.busy_updating_skill(&skill_name);
+        let busy_token = self.begin_busy(busy_label, cx);
+        cx.emit(WorkspaceEvent::SettingsChanged);
+
+        let mgr = self.manager.clone();
+        let bg = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let res = bg.spawn(async move { mgr.update_skill(&skill_id) }).await;
+            let _ = this.update_in(cx, |state, window, cx| {
+                state.updating_skill_id = None;
+                state.end_busy(busy_token, cx);
+                match res {
+                    Ok(outcome) => {
+                        if outcome.updated {
+                            state.reload_all(cx);
+                            let msg = state.lang.toast_skill_updated(
+                                &outcome.skill.name,
+                                outcome.skill.estimated_tokens,
+                                outcome.refreshed_copies,
+                            );
+                            state.notify_toast(false, msg, window, cx);
+                        } else {
+                            cx.emit(WorkspaceEvent::SettingsChanged);
+                            let msg = state.lang.toast_skill_up_to_date(&outcome.skill.name);
+                            state.notify_toast(false, msg, window, cx);
+                        }
+                    }
+                    Err(e) => {
+                        cx.emit(WorkspaceEvent::SettingsChanged);
+                        state.notify_toast(true, format!("{e}"), window, cx);
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     pub fn toggle_skill_deployment(
         &mut self,
         skill_id: &str,
@@ -440,6 +498,78 @@ impl WorkspaceState {
         match result {
             Ok(msg) => {
                 self.reload_all(cx);
+                self.notify_toast(false, msg, window, cx);
+            }
+            Err(e) => {
+                let err_str = format!("{e}");
+                if !currently_deployed && err_str.contains("TARGET_CONFLICT") {
+                    let agent_name = self
+                        .agents
+                        .iter()
+                        .find(|a| a.key == agent_key)
+                        .map(|a| a.display_name.clone())
+                        .unwrap_or_else(|| agent_key.to_string());
+                    let target_path =
+                        self.agents
+                            .iter()
+                            .find(|a| a.key == agent_key)
+                            .and_then(|a| {
+                                self.skills.iter().find(|s| s.id == skill_id).map(|s| {
+                                    a.skills_dir.join(&s.slug).to_string_lossy().to_string()
+                                })
+                            })
+                            .unwrap_or_else(|| err_str.clone());
+                    let ws_entity = cx.entity().clone();
+                    let skill_id_owned = skill_id.to_string();
+                    let agent_key_owned = agent_key.to_string();
+                    let s = self.t();
+                    let title = s.confirm_conflict_title;
+                    let desc = self.lang.confirm_conflict_desc(&agent_name, &target_path);
+                    let ok_label = s.btn_replace;
+                    let cancel_label = s.btn_cancel;
+
+                    window.open_alert_dialog(cx, move |alert, _, _| {
+                        let ws_entity = ws_entity.clone();
+                        let skill_id_owned = skill_id_owned.clone();
+                        let agent_key_owned = agent_key_owned.clone();
+                        alert
+                            .confirm()
+                            .centered()
+                            .title(title)
+                            .description(desc.clone())
+                            .ok_text(ok_label)
+                            .ok_variant(ButtonVariant::Danger)
+                            .cancel_text(cancel_label)
+                            .on_ok(move |_, window, cx| {
+                                ws_entity.update(cx, |ws, cx| {
+                                    ws.force_deploy_skill(
+                                        &skill_id_owned,
+                                        &agent_key_owned,
+                                        window,
+                                        cx,
+                                    );
+                                });
+                                true
+                            })
+                    });
+                } else {
+                    self.notify_toast(true, err_str, window, cx);
+                }
+            }
+        }
+    }
+
+    pub fn force_deploy_skill(
+        &mut self,
+        skill_id: &str,
+        agent_key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.manager.deploy_skill(skill_id, agent_key, None, true) {
+            Ok(dep) => {
+                self.reload_all(cx);
+                let msg = self.lang.toast_deployed(&dep.agent_key, dep.mode);
                 self.notify_toast(false, msg, window, cx);
             }
             Err(e) => self.notify_toast(true, format!("{e}"), window, cx),
@@ -717,6 +847,70 @@ impl WorkspaceState {
         cx.emit(WorkspaceEvent::SettingsChanged);
         let msg = self.lang.toast_deploy_mode(mode);
         self.notify_toast(false, msg, window, cx);
+    }
+
+    pub fn save_network_settings(
+        &mut self,
+        proxy: &str,
+        token: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.manager.set_http_proxy(Some(proxy));
+        let _ = self.manager.set_github_token(Some(token));
+        cx.emit(WorkspaceEvent::SettingsChanged);
+        let msg = self.t().toast_network_saved;
+        self.notify_toast(false, msg, window, cx);
+    }
+
+    pub fn add_custom_agent(
+        &mut self,
+        name: &str,
+        skills_dir: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let name = name.trim();
+        let skills_dir = skills_dir.trim();
+        if name.is_empty() || skills_dir.is_empty() {
+            let msg = self.t().toast_custom_agent_required;
+            self.notify_toast(true, msg, window, cx);
+            return false;
+        }
+        let slug = unoskills_core::parser::sanitize_slug(name)
+            .unwrap_or_else(|| "custom".to_string())
+            .to_lowercase()
+            .replace([' ', '-'], "_");
+        let key = format!("custom_{slug}");
+        let rec = CustomAgentRecord {
+            key,
+            display_name: name.to_string(),
+            skills_dir: skills_dir.to_string(),
+            category: AgentCategory::Coding,
+        };
+        match self.manager.add_custom_agent(&rec) {
+            Ok(()) => {
+                self.reload_all(cx);
+                let msg = self.lang.toast_custom_agent_added(name);
+                self.notify_toast(false, msg, window, cx);
+                true
+            }
+            Err(e) => {
+                self.notify_toast(true, format!("{e}"), window, cx);
+                false
+            }
+        }
+    }
+
+    pub fn remove_custom_agent(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        match self.manager.remove_custom_agent(key) {
+            Ok(()) => {
+                self.reload_all(cx);
+                let msg = self.t().toast_custom_agent_removed;
+                self.notify_toast(false, msg, window, cx);
+            }
+            Err(e) => self.notify_toast(true, format!("{e}"), window, cx),
+        }
     }
 }
 

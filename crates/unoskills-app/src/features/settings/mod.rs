@@ -2,6 +2,7 @@ mod sections;
 
 use gpui_kit::component::{
     IndexPath, StyledExt,
+    input::InputState,
     scroll::ScrollableElement,
     select::{SearchableVec, SelectEvent, SelectState},
     v_flex,
@@ -17,12 +18,17 @@ use crate::state::{WorkspaceEvent, WorkspaceState};
 
 /// Settings page: language dropdown (zh-CN / en / ja), searchable UI & Mono
 /// font pickers with language-aware Auto mode, base font size, deploy mode,
-/// persisted appearance, software updates, central library root, and AI agent registry.
+/// persisted appearance, network proxy / GitHub token, software updates,
+/// central library root, and AI agent registry (including custom agents).
 pub struct SettingsView {
     pub(super) workspace: Entity<WorkspaceState>,
     pub(super) lang_select: Entity<SelectState<Vec<SharedString>>>,
     pub(super) ui_font_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(super) mono_font_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    pub(super) http_proxy_input: Entity<InputState>,
+    pub(super) github_token_input: Entity<InputState>,
+    pub(super) custom_agent_name_input: Entity<InputState>,
+    pub(super) custom_agent_dir_input: Entity<InputState>,
     installed_fonts: Vec<String>,
     _subscriptions: Vec<Subscription>,
 }
@@ -34,12 +40,14 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) -> Self {
         let installed_fonts = installed_font_families(cx);
-        let (lang, ui_font_pref, mono_font_pref) = {
+        let (lang, ui_font_pref, mono_font_pref, saved_proxy, saved_token) = {
             let ws = workspace.read(cx);
             (
                 ws.lang(),
                 ws.font_settings().ui_font.clone(),
                 ws.font_settings().mono_font.clone(),
+                ws.manager().http_proxy().unwrap_or_default(),
+                ws.manager().github_token().unwrap_or_default(),
             )
         };
         let s = lang.t();
@@ -80,6 +88,25 @@ impl SettingsView {
             )
             .searchable(true)
         });
+
+        let http_proxy_input = cx.new(|cx| {
+            let mut input = InputState::new(window, cx).placeholder(s.ph_http_proxy);
+            if !saved_proxy.is_empty() {
+                input.set_value(saved_proxy, window, cx);
+            }
+            input
+        });
+        let github_token_input = cx.new(|cx| {
+            let mut input = InputState::new(window, cx).placeholder(s.ph_github_token);
+            if !saved_token.is_empty() {
+                input.set_value(saved_token, window, cx);
+            }
+            input
+        });
+        let custom_agent_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_custom_agent_name));
+        let custom_agent_dir_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_custom_agent_dir));
 
         let sub_lang = cx.subscribe_in(
             &lang_select,
@@ -165,6 +192,19 @@ impl SettingsView {
                             cx,
                         );
                     });
+
+                    this.http_proxy_input.update(cx, |input, cx| {
+                        input.set_placeholder(s.ph_http_proxy, window, cx);
+                    });
+                    this.github_token_input.update(cx, |input, cx| {
+                        input.set_placeholder(s.ph_github_token, window, cx);
+                    });
+                    this.custom_agent_name_input.update(cx, |input, cx| {
+                        input.set_placeholder(s.ph_custom_agent_name, window, cx);
+                    });
+                    this.custom_agent_dir_input.update(cx, |input, cx| {
+                        input.set_placeholder(s.ph_custom_agent_dir, window, cx);
+                    });
                     cx.notify();
                 }
                 WorkspaceEvent::Reloaded | WorkspaceEvent::SettingsChanged => cx.notify(),
@@ -177,6 +217,10 @@ impl SettingsView {
             lang_select,
             ui_font_select,
             mono_font_select,
+            http_proxy_input,
+            github_token_input,
+            custom_agent_name_input,
+            custom_agent_dir_input,
             installed_fonts,
             _subscriptions: vec![sub_lang, sub_ui_font, sub_mono_font, sub_ws],
         }
@@ -218,6 +262,7 @@ impl Render for SettingsView {
                     .child(div().text_lg().font_semibold().child(s.settings_title))
                     .child(self.render_general_section(cx))
                     .child(self.render_fonts_section(cx))
+                    .child(self.render_network_section(cx))
                     .child(self.render_updates_section(cx))
                     .child(self.render_agents_section(cx)),
             )

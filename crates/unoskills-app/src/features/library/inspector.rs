@@ -51,6 +51,12 @@ impl LibraryView {
         let skill_id_for_delete = skill.id.clone();
         let skill_name_for_delete = skill.name.clone();
         let deploy_count_for_delete = skill.deployments.len();
+        let can_update = skill.source_type != unoskills_core::SourceType::Adopted
+            && skill.source_ref.as_deref().is_some_and(|r| !r.is_empty());
+        let is_updating = self.workspace.read(cx).updating_skill_id() == Some(skill.id.as_str());
+        let skill_id_for_update = skill.id.clone();
+        let skill_name_for_update = skill.name.clone();
+        let central_path_for_reveal = skill.central_path.clone();
 
         v_flex()
             .size_full()
@@ -133,6 +139,36 @@ impl LibraryView {
                                         })),
                                 )
                             })
+                            .when(!editing && can_update, |row| {
+                                row.child(
+                                    Button::new("update-skill-btn")
+                                        .outline()
+                                        .small()
+                                        .icon(IconName::RefreshCw)
+                                        .loading(is_updating)
+                                        .label(s.btn_update_skill)
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.workspace.update(cx, |ws, cx| {
+                                                ws.update_skill_async(
+                                                    skill_id_for_update.clone(),
+                                                    skill_name_for_update.clone(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        })),
+                                )
+                            })
+                            .child(
+                                Button::new("reveal-skill-dir")
+                                    .ghost()
+                                    .small()
+                                    .icon(IconName::FolderOpen)
+                                    .tooltip(s.tooltip_reveal_folder)
+                                    .on_click(move |_, _, cx| {
+                                        cx.reveal_path(&central_path_for_reveal);
+                                    }),
+                            )
                             .child(
                                 Button::new("delete-skill")
                                     .danger()

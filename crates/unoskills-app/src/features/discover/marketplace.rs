@@ -84,6 +84,45 @@ impl DiscoverView {
                     )
                     .child(
                         div().flex_shrink_0().child(
+                            Button::new("browse-local-skill-btn")
+                                .outline()
+                                .small()
+                                .icon(IconName::FolderOpen)
+                                .tooltip(s.btn_browse_folder)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    let prompt = this.workspace.read(cx).t().prompt_pick_skill_dir;
+                                    let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+                                        files: false,
+                                        directories: true,
+                                        multiple: false,
+                                        prompt: Some(SharedString::from(prompt)),
+                                    });
+                                    cx.spawn_in(window, async move |this, cx| {
+                                        if let Ok(Ok(Some(paths))) = rx.await
+                                            && let Some(dir) = paths.into_iter().next()
+                                        {
+                                            let path_str = dir.to_string_lossy().to_string();
+                                            let _ = this.update_in(cx, |view, window, cx| {
+                                                view.install_source_input.update(
+                                                    cx,
+                                                    |input, cx| {
+                                                        input.set_value(
+                                                            path_str.clone(),
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    },
+                                                );
+                                                view.quick_install(path_str, window, cx);
+                                            });
+                                        }
+                                    })
+                                    .detach();
+                                })),
+                        ),
+                    )
+                    .child(
+                        div().flex_shrink_0().child(
                             Button::new("direct-install-btn")
                                 .primary()
                                 .small()
