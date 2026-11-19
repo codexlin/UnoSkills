@@ -15,7 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - Windows: Inno Setup installer `unoskills-setup-<version>-windows-x64.exe` with Start-menu entries, optional desktop shortcut, and uninstall support.
   - Linux: `.deb` package (`unoskills_<version>_amd64.deb`) installing both `unoskills-app` and the `unoskills` CLI with a `.desktop` entry and hicolor icon; runtime `Depends` auto-resolved from the binaries' ELF `NEEDED` entries.
 - **Stable Platform Identity / 稳定平台身份**: the app now calls `set_app_identity("dev.unoskills.UnoSkills", …)` so OS notifications and taskbar grouping use the same identifier as the installers (bundle ID / Inno `AppId` / `StartupWMClass` all aligned).
-- New `packaging/` asset tree: committed `unoskills.icns`, `unoskills.ico`, PNG icons, and per-platform templates (`Info.plist`, `unoskills.iss`, `.desktop`, deb `control`).
+### 📚 Documentation / 文档
+
+- **README revamp / README 全面改版**: centered brand header, CI/release/license badges, real app screenshots for all four tabs (Library / Stacks / Discover-Adopt / Settings, captured from the running app), benefit-oriented Features, user-facing Install & Quick Start, Supported Tools (22 agents), Tech Stack table, and a Troubleshooting section.
+- New `assets/` tree: `icon.png` + `demo/*.png` (1550×975 window captures).
 
 ---
 
