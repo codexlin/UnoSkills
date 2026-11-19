@@ -112,10 +112,10 @@ pub fn classify_target(src: &Path, dst: &Path) -> TargetState {
 
     #[cfg(windows)]
     if junction::exists(dst).unwrap_or(false) {
-        if let (Ok(src_c), Ok(dst_c)) = (src.canonicalize(), dst.canonicalize()) {
-            if src_c == dst_c {
-                return TargetState::LinkToSource;
-            }
+        if let (Ok(src_c), Ok(dst_c)) = (src.canonicalize(), dst.canonicalize())
+            && src_c == dst_c
+        {
+            return TargetState::LinkToSource;
         }
         return TargetState::ForeignLink;
     }

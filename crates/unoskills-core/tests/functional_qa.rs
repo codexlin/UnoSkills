@@ -30,8 +30,13 @@ fn adopt_symlinked_skill_preserves_files_and_does_not_create_empty_dir() {
     let agent_dir = tmp.path().join("agent-skills");
     std::fs::create_dir_all(&agent_dir).unwrap();
     let agent_link = agent_dir.join("my-linked-skill");
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&external_skill, &agent_link).unwrap();
+    unoskills_core::sync::deploy_skill_dir(
+        &external_skill,
+        &agent_link,
+        DeployMode::Symlink,
+        unoskills_core::sync::ReplacePolicy::UserConfirmed,
+    )
+    .unwrap();
 
     mgr.add_custom_agent(&CustomAgentRecord {
         key: "custom_link_agent".into(),
