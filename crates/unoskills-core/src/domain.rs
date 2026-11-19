@@ -213,3 +213,10 @@ pub struct AdoptCandidate {
     pub path: PathBuf,
     pub estimated_tokens: u32,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillUpdateResult {
+    pub skill: Skill,
+    pub updated: bool,
+    pub refreshed_copies: usize,
+}

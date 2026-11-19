@@ -332,6 +332,12 @@ impl Store {
         )?;
         Ok(())
     }
+
+    pub fn delete_custom_agent(&self, key: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM custom_agents WHERE key = ?1", params![key])?;
+        Ok(())
+    }
 }
 
 fn load_all_tags(conn: &Connection) -> Result<HashMap<String, Vec<String>>> {

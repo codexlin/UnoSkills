@@ -243,6 +243,83 @@ fn deploy_no_clobber_protects_unmanaged_dir_and_force_overrides() {
 }
 
 #[test]
+fn update_skill_detects_noop_and_refreshes_copy_deployments_on_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mgr = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+
+    let src = tmp.path().join("updatable-skill");
+    create_skill_dir(&src, "updatable-skill", "v1 description", &["v1"]);
+    let skill = mgr.install_from_ref(&src.to_string_lossy()).unwrap();
+
+    let copy_agent_dir = tmp.path().join("copy-agent-skills");
+    mgr.add_custom_agent(&CustomAgentRecord {
+        key: "copy_upd_agent".into(),
+        display_name: "Copy Update Agent".into(),
+        skills_dir: copy_agent_dir.to_string_lossy().into(),
+        category: AgentCategory::Coding,
+    })
+    .unwrap();
+    mgr.deploy_skill(&skill.id, "copy_upd_agent", Some(DeployMode::Copy), false)
+        .unwrap();
+
+    // Unchanged source -> updated == false
+    let noop = mgr.update_skill(&skill.id).unwrap();
+    assert!(!noop.updated);
+    assert_eq!(noop.refreshed_copies, 0);
+
+    // Mutate source -> updated == true and Copy deployment gets refreshed automatically!
+    create_skill_dir(&src, "updatable-skill", "v2 description", &["v2"]);
+    let upgraded = mgr.update_skill(&skill.id).unwrap();
+    assert!(upgraded.updated);
+    assert_eq!(upgraded.refreshed_copies, 1);
+    assert_eq!(
+        upgraded.skill.description.as_deref(),
+        Some("v2 description")
+    );
+
+    let deployed_md =
+        std::fs::read_to_string(copy_agent_dir.join(&skill.slug).join("SKILL.md")).unwrap();
+    assert!(deployed_md.contains("v2 description"));
+}
+
+#[test]
+fn custom_agent_and_network_settings_roundtrip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mgr = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+
+    mgr.set_http_proxy(Some("http://127.0.0.1:7890")).unwrap();
+    mgr.set_github_token(Some("ghp_example_token")).unwrap();
+    assert_eq!(mgr.http_proxy().as_deref(), Some("http://127.0.0.1:7890"));
+    assert_eq!(mgr.github_token().as_deref(), Some("ghp_example_token"));
+
+    mgr.set_http_proxy(None).unwrap();
+    assert_eq!(mgr.http_proxy(), None);
+
+    let dir = tmp.path().join("my-custom-agent-skills");
+    mgr.add_custom_agent(&CustomAgentRecord {
+        key: "my_custom".into(),
+        display_name: "My Custom Agent".into(),
+        skills_dir: dir.to_string_lossy().into(),
+        category: AgentCategory::Coding,
+    })
+    .unwrap();
+    assert!(
+        mgr.list_agents()
+            .unwrap()
+            .iter()
+            .any(|a| a.key == "my_custom" && a.is_custom)
+    );
+
+    mgr.remove_custom_agent("my_custom").unwrap();
+    assert!(
+        !mgr.list_agents()
+            .unwrap()
+            .iter()
+            .any(|a| a.key == "my_custom")
+    );
+}
+
+#[test]
 #[ignore = "hits live skills.sh and GitHub network endpoints"]
 fn live_network_marketplace_and_featured_stack_smoke() {
     let tmp = tempfile::tempdir().unwrap();

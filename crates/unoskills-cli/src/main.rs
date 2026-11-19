@@ -31,6 +31,8 @@ enum Commands {
     Show { skill: String },
     /// Install a skill from local path, Git URL, or owner/repo@skill
     Install { source: String },
+    /// Check upstream source and update an installed skill if changed
+    Update { skill: String },
     /// Remove a skill from the library and undeploy from all agents
     Remove {
         skill: String,
@@ -189,6 +191,22 @@ fn run(cli: Cli) -> Result<()> {
                     skill.estimated_tokens,
                     skill.central_path.display()
                 );
+            }
+        }
+        Commands::Update { skill } => {
+            let res = mgr.update_skill(&skill)?;
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({ "ok": true, "result": res }))?
+                );
+            } else if res.updated {
+                println!(
+                    "Updated '{}' (~{} tokens, {} copy deployment(s) refreshed)",
+                    res.skill.name, res.skill.estimated_tokens, res.refreshed_copies
+                );
+            } else {
+                println!("'{}' is already up to date.", res.skill.name);
             }
         }
         Commands::Remove { skill, yes } => {

@@ -126,10 +126,26 @@ pub struct FetchedSkillDir {
     pub suggested_slug: Option<String>,
 }
 
+pub fn build_http_client(
+    proxy_url: Option<&str>,
+    timeout_secs: u64,
+) -> Result<reqwest::blocking::Client> {
+    let mut builder = reqwest::blocking::Client::builder()
+        .user_agent(concat!("unoskills/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(timeout_secs));
+    if let Some(proxy) = proxy_url.map(str::trim).filter(|s| !s.is_empty()) {
+        let parsed = reqwest::Proxy::all(proxy)
+            .with_context(|| format!("Invalid HTTP proxy URL: '{proxy}'"))?;
+        builder = builder.proxy(parsed);
+    }
+    Ok(builder.build()?)
+}
+
 pub fn fetch_git_skill(
     repo_url: &str,
     branch: Option<&str>,
     subpath: Option<&str>,
+    proxy_url: Option<&str>,
 ) -> Result<FetchedSkillDir> {
     let temp = tempfile::Builder::new()
         .prefix("unoskills-git-")
@@ -137,10 +153,14 @@ pub fn fetch_git_skill(
         .context("Failed to create temp directory for git clone")?;
 
     let mut cmd = Command::new("git");
-    cmd.env("GIT_TERMINAL_PROMPT", "0")
-        .arg("clone")
-        .arg("--depth")
-        .arg("1");
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    if let Some(proxy) = proxy_url.map(str::trim).filter(|s| !s.is_empty()) {
+        cmd.arg("-c")
+            .arg(format!("http.proxy={proxy}"))
+            .arg("-c")
+            .arg(format!("https.proxy={proxy}"));
+    }
+    cmd.arg("clone").arg("--depth").arg("1");
     if let Some(b) = branch {
         cmd.arg("--branch").arg(b);
     }
@@ -326,17 +346,18 @@ pub fn scan_adoptable_skills(
 /// Fetch one page from the native skills.sh JSON leaderboard API
 /// (`GET /api/skills/{trending|hot|all-time}/{page}`), falling back to HTML
 /// scraping on page 0 if the JSON API ever changes.
-pub fn fetch_skillssh_leaderboard_page(board: &str, page: usize) -> Result<MarketplacePage> {
+pub fn fetch_skillssh_leaderboard_page(
+    board: &str,
+    page: usize,
+    proxy_url: Option<&str>,
+) -> Result<MarketplacePage> {
     let api_board = match board {
         "trending" => "trending",
         "hot" => "hot",
         _ => "all-time",
     };
     let api_url = format!("https://skills.sh/api/skills/{api_board}/{page}");
-    let client = reqwest::blocking::Client::builder()
-        .user_agent(concat!("unoskills/", env!("CARGO_PKG_VERSION")))
-        .timeout(std::time::Duration::from_secs(12))
-        .build()?;
+    let client = build_http_client(proxy_url, 12)?;
 
     let api_attempt = (|| -> Result<MarketplacePage> {
         let resp = client.get(&api_url).send()?.error_for_status()?;
@@ -385,8 +406,11 @@ pub fn fetch_skillssh_leaderboard_page(board: &str, page: usize) -> Result<Marke
 }
 
 /// Fetch skills.sh marketplace leaderboard (first page via JSON API, with HTML fallback).
-pub fn fetch_skillssh_leaderboard(board: &str) -> Result<Vec<MarketplaceSkill>> {
-    Ok(fetch_skillssh_leaderboard_page(board, 0)?.items)
+pub fn fetch_skillssh_leaderboard(
+    board: &str,
+    proxy_url: Option<&str>,
+) -> Result<Vec<MarketplaceSkill>> {
+    Ok(fetch_skillssh_leaderboard_page(board, 0, proxy_url)?.items)
 }
 
 fn fetch_skillssh_leaderboard_html(
@@ -402,11 +426,12 @@ fn fetch_skillssh_leaderboard_html(
     parse_skillssh_html(&html)
 }
 
-pub fn search_skillssh(query: &str, limit: usize) -> Result<Vec<MarketplaceSkill>> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent(concat!("unoskills/", env!("CARGO_PKG_VERSION")))
-        .timeout(std::time::Duration::from_secs(12))
-        .build()?;
+pub fn search_skillssh(
+    query: &str,
+    limit: usize,
+    proxy_url: Option<&str>,
+) -> Result<Vec<MarketplaceSkill>> {
+    let client = build_http_client(proxy_url, 12)?;
     let resp = client
         .get("https://skills.sh/api/search")
         .query(&[("q", query), ("limit", &limit.to_string())])
@@ -424,7 +449,7 @@ pub fn search_skillssh(query: &str, limit: usize) -> Result<Vec<MarketplaceSkill
     }
 
     // Fallback to filtering leaderboard if search API changes
-    let all = fetch_skillssh_leaderboard("all")?;
+    let all = fetch_skillssh_leaderboard("all", proxy_url)?;
     let q = query.to_lowercase();
     Ok(all
         .into_iter()

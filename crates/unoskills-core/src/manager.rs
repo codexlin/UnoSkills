@@ -6,7 +6,8 @@ use uuid::Uuid;
 
 use crate::domain::{
     AdoptCandidate, AgentInfo, DeployMode, Deployment, MarketplacePage, MarketplaceSkill, Skill,
-    SkillLintReport, SourceType, StackInstallSummary, StackManifest, StackSkillRef,
+    SkillLintReport, SkillUpdateResult, SourceType, StackInstallSummary, StackManifest,
+    StackSkillRef,
 };
 use crate::parser::{
     find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir, parse_skill_dir,
@@ -80,6 +81,34 @@ impl UnoSkillsManager {
         self.store.set_setting(key, value)
     }
 
+    pub fn http_proxy(&self) -> Option<String> {
+        self.store
+            .get_setting("http_proxy")
+            .ok()
+            .flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn set_http_proxy(&self, proxy: Option<&str>) -> Result<()> {
+        let val = proxy.map(str::trim).unwrap_or("");
+        self.store.set_setting("http_proxy", val)
+    }
+
+    pub fn github_token(&self) -> Option<String> {
+        self.store
+            .get_setting("github_token")
+            .ok()
+            .flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn set_github_token(&self, token: Option<&str>) -> Result<()> {
+        let val = token.map(str::trim).unwrap_or("");
+        self.store.set_setting("github_token", val)
+    }
+
     // ── Agents ──
 
     pub fn list_agents(&self) -> Result<Vec<AgentInfo>> {
@@ -99,6 +128,10 @@ impl UnoSkillsManager {
 
     pub fn add_custom_agent(&self, rec: &CustomAgentRecord) -> Result<()> {
         self.store.upsert_custom_agent(rec)
+    }
+
+    pub fn remove_custom_agent(&self, key: &str) -> Result<()> {
+        self.store.delete_custom_agent(key)
     }
 
     // ── Skills Library ──
@@ -177,7 +210,13 @@ impl UnoSkillsManager {
                 display_ref,
                 source_type,
             } => {
-                let fetched = fetch_git_skill(&repo_url, branch.as_deref(), subpath.as_deref())?;
+                let proxy = self.http_proxy();
+                let fetched = fetch_git_skill(
+                    &repo_url,
+                    branch.as_deref(),
+                    subpath.as_deref(),
+                    proxy.as_deref(),
+                )?;
                 self.import_directory(
                     &fetched.skill_dir,
                     fetched.suggested_slug.as_deref(),
@@ -188,6 +227,103 @@ impl UnoSkillsManager {
                 )
             }
         }
+    }
+
+    /// Re-fetches a skill from its recorded `source_ref` (Git / skills.sh / local
+    /// directory), compares SHA-256 directory hashes, updates the central copy if
+    /// upstream changed, and automatically refreshes any `Copy`-mode deployments.
+    pub fn update_skill(&self, skill_id_or_slug: &str) -> Result<SkillUpdateResult> {
+        let skill = self
+            .store
+            .find_skill(skill_id_or_slug)?
+            .context("Skill not found")?;
+
+        if skill.source_type == SourceType::Adopted {
+            bail!(
+                "Skill '{}' was adopted locally and has no upstream source URL to update from.",
+                skill.name
+            );
+        }
+        let source_ref = skill
+            .source_ref
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .with_context(|| format!("Skill '{}' has no recorded source_ref", skill.name))?;
+
+        let resolved = resolve_source_ref(&source_ref)?;
+        let proxy = self.http_proxy();
+
+        let (fetched_guard, src_dir, new_subpath, new_branch) = match resolved {
+            ResolvedSource::Local(path) => {
+                if !is_valid_skill_dir(&path) {
+                    bail!(
+                        "Original local source {} is no longer a valid skill directory",
+                        path.display()
+                    );
+                }
+                (None, path, None, None)
+            }
+            ResolvedSource::Git {
+                repo_url,
+                branch,
+                subpath,
+                ..
+            } => {
+                let eff_branch = branch.or_else(|| skill.source_branch.clone());
+                let eff_subpath = subpath.or_else(|| skill.source_subpath.clone());
+                let fetched = fetch_git_skill(
+                    &repo_url,
+                    eff_branch.as_deref(),
+                    eff_subpath.as_deref(),
+                    proxy.as_deref(),
+                )?;
+                let dir = fetched.skill_dir.clone();
+                (Some(fetched), dir, eff_subpath, eff_branch)
+            }
+        };
+
+        let new_hash = hash_directory(&src_dir)?;
+        if skill.content_hash.as_deref() == Some(new_hash.as_str()) {
+            drop(fetched_guard);
+            return Ok(SkillUpdateResult {
+                skill,
+                updated: false,
+                refreshed_copies: 0,
+            });
+        }
+
+        // Preserve the existing slug so central_path & all symlinks remain valid.
+        let updated_skill = self.import_directory(
+            &src_dir,
+            Some(&skill.slug),
+            skill.source_type,
+            Some(source_ref),
+            new_subpath,
+            new_branch,
+        )?;
+        drop(fetched_guard);
+
+        // Symlink deployments reflect changes immediately; Copy deployments must be refreshed.
+        let mut refreshed_copies = 0usize;
+        for dep in &updated_skill.deployments {
+            if dep.mode == DeployMode::Copy
+                && deploy_skill_dir(
+                    &updated_skill.central_path,
+                    &dep.target_path,
+                    DeployMode::Copy,
+                    ReplacePolicy::Recorded(DeployMode::Copy),
+                )
+                .is_ok()
+            {
+                refreshed_copies += 1;
+            }
+        }
+
+        Ok(SkillUpdateResult {
+            skill: updated_skill,
+            updated: true,
+            refreshed_copies,
+        })
     }
 
     pub fn import_directory(
@@ -547,7 +683,8 @@ impl UnoSkillsManager {
     // ── Marketplace (skills.sh) ──
 
     pub fn marketplace_leaderboard(&self, board: &str) -> Result<Vec<MarketplaceSkill>> {
-        fetch_skillssh_leaderboard(board)
+        let proxy = self.http_proxy();
+        fetch_skillssh_leaderboard(board, proxy.as_deref())
     }
 
     pub fn marketplace_leaderboard_page(
@@ -555,11 +692,13 @@ impl UnoSkillsManager {
         board: &str,
         page: usize,
     ) -> Result<MarketplacePage> {
-        fetch_skillssh_leaderboard_page(board, page)
+        let proxy = self.http_proxy();
+        fetch_skillssh_leaderboard_page(board, page, proxy.as_deref())
     }
 
     pub fn marketplace_search(&self, query: &str, limit: usize) -> Result<Vec<MarketplaceSkill>> {
-        search_skillssh(query, limit)
+        let proxy = self.http_proxy();
+        search_skillssh(query, limit, proxy.as_deref())
     }
 }
 
