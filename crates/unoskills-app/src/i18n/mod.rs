@@ -1,0 +1,388 @@
+mod en;
+mod ja;
+mod zh_cn;
+
+use unoskills_core::DeployMode;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    ZhCn,
+    En,
+    Ja,
+}
+
+impl Lang {
+    pub const ALL: [Lang; 3] = [Lang::ZhCn, Lang::En, Lang::Ja];
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::ZhCn => "zh-CN",
+            Self::En => "en",
+            Self::Ja => "ja",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::ZhCn => "简体中文",
+            Self::En => "English",
+            Self::Ja => "日本語",
+        }
+    }
+
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::ZhCn => "中",
+            Self::En => "EN",
+            Self::Ja => "日",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::ZhCn => Self::En,
+            Self::En => Self::Ja,
+            Self::Ja => Self::ZhCn,
+        }
+    }
+
+    pub fn index(self) -> usize {
+        match self {
+            Self::ZhCn => 0,
+            Self::En => 1,
+            Self::Ja => 2,
+        }
+    }
+
+    pub fn from_display_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|l| l.display_name() == name)
+    }
+
+    pub fn from_code(code: &str) -> Self {
+        match code.trim().to_ascii_lowercase().as_str() {
+            "en" | "en-us" | "en-gb" => Self::En,
+            "ja" | "ja-jp" => Self::Ja,
+            _ => Self::ZhCn,
+        }
+    }
+
+    pub fn t(self) -> &'static Strings {
+        match self {
+            Self::ZhCn => &zh_cn::STRINGS,
+            Self::En => &en::STRINGS,
+            Self::Ja => &ja::STRINGS,
+        }
+    }
+
+    // ── Formatted dynamic toast / dialog / status messages ──
+
+    pub fn toast_saved_skill(self, name: &str, tokens: u32) -> String {
+        match self {
+            Self::ZhCn => format!("已保存 {name}（约 {tokens} tokens）"),
+            Self::En => format!("Saved {name} (~{tokens} tokens)"),
+            Self::Ja => format!("{name} を保存しました（約 {tokens} tokens）"),
+        }
+    }
+
+    pub fn toast_undeployed(self, agent_key: &str) -> String {
+        match self {
+            Self::ZhCn => format!("已从 {agent_key} 取消部署"),
+            Self::En => format!("Undeployed from {agent_key}"),
+            Self::Ja => format!("{agent_key} からデプロイ解除しました"),
+        }
+    }
+
+    pub fn toast_deployed(self, agent_key: &str, mode: DeployMode) -> String {
+        match self {
+            Self::ZhCn => format!("已部署到 {agent_key}（{mode:?}）"),
+            Self::En => format!("Deployed to {agent_key} ({mode:?})"),
+            Self::Ja => format!("{agent_key} にデプロイしました（{mode:?}）"),
+        }
+    }
+
+    pub fn toast_deploy_mode(self, mode: DeployMode) -> String {
+        match self {
+            Self::ZhCn => format!("默认部署方式已切换为 {mode:?}"),
+            Self::En => format!("Deploy mode set to {mode:?}."),
+            Self::Ja => format!("既定のデプロイ方式を {mode:?} に変更しました"),
+        }
+    }
+
+    pub fn busy_installing(self, source: &str) -> String {
+        match self {
+            Self::ZhCn => format!("正在安装 {source}..."),
+            Self::En => format!("Installing {source}..."),
+            Self::Ja => format!("{source} をインストール中..."),
+        }
+    }
+
+    pub fn busy_adopting_all(self, count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("正在批量收编 {count} 个技能..."),
+            Self::En => format!("Adopting {count} skill(s)..."),
+            Self::Ja => format!("{count} 件のスキルを取り込み中..."),
+        }
+    }
+
+    pub fn toast_installed(self, name: &str, tokens: u32) -> String {
+        match self {
+            Self::ZhCn => format!("已安装「{name}」（约 {tokens} tokens）"),
+            Self::En => format!("Installed '{name}' (~{tokens} tokens)."),
+            Self::Ja => format!("「{name}」をインストールしました（約 {tokens} tokens）"),
+        }
+    }
+
+    pub fn toast_adopted(self, name: &str, agent: &str) -> String {
+        match self {
+            Self::ZhCn => format!("已从 {agent} 收编「{name}」到技能库"),
+            Self::En => format!("Adopted '{name}' from {agent} into Library."),
+            Self::Ja => format!("{agent} から「{name}」をライブラリに取り込みました"),
+        }
+    }
+
+    pub fn toast_adopted_all(self, ok: usize, failed: usize) -> String {
+        match self {
+            Self::ZhCn => format!("已批量收编 {ok} 个技能（跳过/失败 {failed} 个）"),
+            Self::En => format!("Adopted {ok} skill(s) into Library ({failed} skipped/failed)."),
+            Self::Ja => format!("{ok} 件のスキルを取り込みました（スキップ/失敗 {failed} 件）"),
+        }
+    }
+
+    pub fn busy_installing_stack(self, name: &str) -> String {
+        match self {
+            Self::ZhCn => format!("正在安装组合「{name}」..."),
+            Self::En => format!("Installing stack '{name}'..."),
+            Self::Ja => format!("スタック「{name}」をインストール中..."),
+        }
+    }
+
+    pub fn toast_stack_installed(
+        self,
+        name: &str,
+        installed: usize,
+        skipped: usize,
+        failed: usize,
+    ) -> String {
+        match self {
+            Self::ZhCn => {
+                format!("组合「{name}」：新装 {installed}，已有跳过 {skipped}，失败 {failed}")
+            }
+            Self::En => {
+                format!("Stack '{name}': installed {installed}, skipped {skipped}, failed {failed}")
+            }
+            Self::Ja => format!(
+                "スタック「{name}」：新規 {installed}、既存スキップ {skipped}、失敗 {failed}"
+            ),
+        }
+    }
+
+    pub fn toast_stack_toml_copied(self, stack_id: &str) -> String {
+        match self {
+            Self::ZhCn => format!("已复制「{stack_id}.unoskills-stack.toml」到剪贴板！"),
+            Self::En => format!("Copied '{stack_id}.unoskills-stack.toml' to clipboard!"),
+            Self::Ja => {
+                format!("「{stack_id}.unoskills-stack.toml」をクリップボードにコピーしました")
+            }
+        }
+    }
+
+    pub fn toast_stack_created(self, name: &str, skill_count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("已创建组合「{name}」（包含 {skill_count} 个技能）"),
+            Self::En => format!("Created Stack '{name}' ({skill_count} skills)!"),
+            Self::Ja => format!("スタック「{name}」を作成しました（{skill_count} 件のスキル）"),
+        }
+    }
+
+    pub fn toast_stack_imported(self, name: &str) -> String {
+        match self {
+            Self::ZhCn => format!("已导入组合「{name}」到我的组合"),
+            Self::En => format!("Imported Stack '{name}' into My Stacks."),
+            Self::Ja => format!("スタック「{name}」をマイスタックにインポートしました"),
+        }
+    }
+
+    pub fn busy_searching(self, query: &str) -> String {
+        match self {
+            Self::ZhCn => format!("正在搜索「{query}」..."),
+            Self::En => format!("Searching '{query}'..."),
+            Self::Ja => format!("「{query}」を検索中..."),
+        }
+    }
+
+    pub fn toast_update_available(self, latest: &str) -> String {
+        match self {
+            Self::ZhCn => format!("发现新版本 {latest}！可前往 GitHub Releases 下载更新。"),
+            Self::En => format!("New version {latest} is available on GitHub Releases!"),
+            Self::Ja => format!("新しいバージョン {latest} が利用可能です（GitHub Releases）。"),
+        }
+    }
+
+    pub fn toast_up_to_date(self, current: &str) -> String {
+        match self {
+            Self::ZhCn => format!("当前已是最新版本（v{current}）"),
+            Self::En => format!("You're up to date (v{current})."),
+            Self::Ja => format!("最新バージョンです（v{current}）"),
+        }
+    }
+
+    pub fn confirm_delete_skill_desc(self, skill_name: &str, deploy_count: usize) -> String {
+        match self {
+            Self::ZhCn => format!(
+                "将从中央技能库永久删除「{skill_name}」，并清理其在 {deploy_count} 个 Agent 中的部署。此操作不可撤销。"
+            ),
+            Self::En => format!(
+                "Permanently remove '{skill_name}' from the central library and clean up {deploy_count} agent deployment(s). This cannot be undone."
+            ),
+            Self::Ja => format!(
+                "「{skill_name}」を中央ライブラリから完全に削除し、{deploy_count} 件のエージェント配備も解除します。この操作は元に戻せません。"
+            ),
+        }
+    }
+}
+
+pub struct Strings {
+    // Navigation & Chrome
+    pub workspace_group: &'static str,
+    pub nav_library: &'static str,
+    pub nav_stacks: &'static str,
+    pub nav_discover: &'static str,
+    pub nav_settings: &'static str,
+    pub tooltip_refresh: &'static str,
+    pub tooltip_theme: &'static str,
+    pub tooltip_lang: &'static str,
+    pub agents_detected_suffix: &'static str,
+
+    // Library
+    pub my_skills: &'static str,
+    pub btn_install: &'static str,
+    pub ph_search_skills: &'static str,
+    pub empty_library_title: &'static str,
+    pub empty_library_desc: &'static str,
+    pub empty_search_title: &'static str,
+    pub empty_search_desc: &'static str,
+    pub btn_browse_stacks: &'static str,
+    pub btn_discover_adopt: &'static str,
+    pub library_only: &'static str,
+    pub agents_unit: &'static str,
+    pub empty_select_skill_title: &'static str,
+    pub empty_select_skill_desc: &'static str,
+    pub btn_edit_skill: &'static str,
+    pub btn_save: &'static str,
+    pub btn_cancel: &'static str,
+    pub btn_delete: &'static str,
+    pub tooltip_remove_skill: &'static str,
+    pub confirm_delete_skill_title: &'static str,
+    pub deploy_to_agents: &'static str,
+    pub no_installed_agents: &'static str,
+    pub section_description: &'static str,
+    pub ph_skill_md: &'static str,
+
+    // Stacks
+    pub stacks_title: &'static str,
+    pub stacks_subtitle: &'static str,
+    pub tab_featured: &'static str,
+    pub tab_my_stacks: &'static str,
+    pub tab_create_share: &'static str,
+    pub empty_local_stacks_title: &'static str,
+    pub empty_featured_stacks_title: &'static str,
+    pub empty_stacks_desc: &'static str,
+    pub btn_create_first_stack: &'static str,
+    pub badge_verified: &'static str,
+    pub badge_local: &'static str,
+    pub skills_unit: &'static str,
+    pub empty_select_stack_title: &'static str,
+    pub empty_select_stack_desc: &'static str,
+    pub btn_install_stack: &'static str,
+    pub btn_copy_toml: &'static str,
+    pub recommended_agents: &'static str,
+    pub included_skills: &'static str,
+    pub already_in_library: &'static str,
+    pub will_install: &'static str,
+    pub create_stack_title: &'static str,
+    pub create_stack_desc: &'static str,
+    pub field_stack_name: &'static str,
+    pub field_stack_author: &'static str,
+    pub field_stack_desc: &'static str,
+    pub field_select_skills: &'static str,
+    pub no_skills_to_bundle: &'static str,
+    pub btn_save_stack: &'static str,
+    pub import_stack_title: &'static str,
+    pub import_stack_desc: &'static str,
+    pub btn_import_stack: &'static str,
+    pub ph_stack_name: &'static str,
+    pub ph_stack_author: &'static str,
+    pub ph_stack_desc: &'static str,
+    pub ph_stack_import: &'static str,
+
+    // Discover
+    pub discover_title: &'static str,
+    pub discover_subtitle: &'static str,
+    pub tab_marketplace_install: &'static str,
+    pub tab_adopt_existing: &'static str,
+    pub quick_install_title: &'static str,
+    pub ph_install_source: &'static str,
+    pub ph_market_search: &'static str,
+    pub btn_search: &'static str,
+    pub btn_trending: &'static str,
+    pub board_trending: &'static str,
+    pub board_hot: &'static str,
+    pub board_all_time: &'static str,
+    pub market_loading: &'static str,
+    pub market_loading_more: &'static str,
+    pub btn_load_more: &'static str,
+    pub empty_market_title: &'static str,
+    pub empty_market_desc: &'static str,
+    pub installs_unit: &'static str,
+    pub ph_adopt_search: &'static str,
+    pub btn_rescan: &'static str,
+    pub btn_adopt_all: &'static str,
+    pub btn_adopt: &'static str,
+    pub empty_adopt_done_title: &'static str,
+    pub empty_adopt_done_desc: &'static str,
+    pub empty_adopt_filter_title: &'static str,
+    pub empty_adopt_filter_desc: &'static str,
+
+    // Settings
+    pub settings_title: &'static str,
+    pub settings_general: &'static str,
+    pub settings_deploy_mode: &'static str,
+    pub settings_deploy_mode_desc: &'static str,
+    pub mode_symlink: &'static str,
+    pub mode_copy: &'static str,
+    pub settings_appearance: &'static str,
+    pub settings_appearance_desc: &'static str,
+    pub theme_dark: &'static str,
+    pub theme_light: &'static str,
+    pub settings_language: &'static str,
+    pub settings_language_desc: &'static str,
+    pub settings_fonts: &'static str,
+    pub settings_ui_font: &'static str,
+    pub settings_ui_font_desc: &'static str,
+    pub settings_mono_font: &'static str,
+    pub settings_mono_font_desc: &'static str,
+    pub settings_font_size: &'static str,
+    pub settings_font_size_desc: &'static str,
+    pub font_auto_by_lang: &'static str,
+    pub font_auto_mono: &'static str,
+    pub settings_updates: &'static str,
+    pub settings_current_version: &'static str,
+    pub settings_updates_desc: &'static str,
+    pub btn_check_updates: &'static str,
+    pub settings_root_dir: &'static str,
+    pub settings_agents_registry: &'static str,
+    pub settings_agents_registry_desc: &'static str,
+    pub badge_detected: &'static str,
+    pub badge_not_detected: &'static str,
+
+    // Static Toasts & Busy messages
+    pub toast_refreshed: &'static str,
+    pub toast_removed_skill: &'static str,
+    pub toast_enter_source: &'static str,
+    pub toast_deleted_stack: &'static str,
+    pub toast_enter_stack_name: &'static str,
+    pub toast_select_stack_skill: &'static str,
+    pub toast_paste_toml: &'static str,
+    pub busy_loading_trending: &'static str,
+    pub busy_checking_updates: &'static str,
+}
