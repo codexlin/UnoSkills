@@ -46,11 +46,17 @@ impl LibraryView {
             .filter(|a| a.installed && a.enabled)
             .cloned()
             .collect();
+        let projects: Vec<_> = self.workspace.read(cx).projects().to_vec();
+        let active_project = self
+            .selected_project_id
+            .as_ref()
+            .and_then(|pid| projects.iter().find(|p| &p.id == pid))
+            .cloned();
         let lint = self.selected_lint.clone();
         let editing = self.editing_markdown;
         let skill_id_for_delete = skill.id.clone();
         let skill_name_for_delete = skill.name.clone();
-        let deploy_count_for_delete = skill.deployments.len();
+        let deploy_count_for_delete = skill.deployments.len() + skill.project_deployments.len();
         let can_update = skill.source_type != unoskills_core::SourceType::Adopted
             && skill.source_ref.as_deref().is_some_and(|r| !r.is_empty());
         let is_updating = self.workspace.read(cx).updating_skill_id() == Some(skill.id.as_str());
@@ -219,12 +225,162 @@ impl LibraryView {
                     .border_color(theme.border)
                     .bg(theme.secondary.opacity(0.4))
                     .child(
-                        div()
-                            .text_xs()
-                            .font_semibold()
-                            .text_color(theme.muted_foreground)
-                            .child(s.deploy_to_agents),
+                        h_flex()
+                            .w_full()
+                            .flex_wrap()
+                            .items_center()
+                            .justify_between()
+                            .gap_2()
+                            .child(
+                                h_flex()
+                                    .flex_wrap()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_semibold()
+                                            .text_color(theme.muted_foreground)
+                                            .child(s.deploy_to_agents),
+                                    )
+                                    .child({
+                                        let is_global = active_project.is_none();
+                                        let btn = Button::new("scope-global")
+                                            .xsmall()
+                                            .icon(IconName::Globe)
+                                            .label(s.scope_global)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.selected_project_id = None;
+                                                cx.notify();
+                                            }));
+                                        if is_global {
+                                            btn.primary()
+                                        } else {
+                                            btn.outline()
+                                        }
+                                    })
+                                    .children(projects.into_iter().map(|proj| {
+                                        let is_active = active_project
+                                            .as_ref()
+                                            .is_some_and(|ap| ap.id == proj.id);
+                                        let pid = proj.id.clone();
+                                        let path_tip = proj.path.to_string_lossy().to_string();
+                                        let btn = Button::new(SharedString::from(format!(
+                                            "scope-project-{}",
+                                            proj.id
+                                        )))
+                                        .xsmall()
+                                        .icon(IconName::Folder)
+                                        .label(proj.name)
+                                        .tooltip(path_tip)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.selected_project_id = Some(pid.clone());
+                                            cx.notify();
+                                        }));
+                                        if is_active {
+                                            btn.primary()
+                                        } else {
+                                            btn.outline()
+                                        }
+                                    }))
+                                    .child(
+                                        Button::new("scope-add-project")
+                                            .ghost()
+                                            .xsmall()
+                                            .icon(IconName::Plus)
+                                            .label(s.btn_add_project)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.pick_and_attach_project(window, cx);
+                                            })),
+                                    ),
+                            ),
                     )
+                    .when_some(active_project.clone(), |bar, proj| {
+                        let proj_path_str = proj.path.to_string_lossy().to_string();
+                        let proj_path_reveal = proj.path.clone();
+                        let proj_id_detach = proj.id.clone();
+                        let proj_name_detach = proj.name.clone();
+                        bar.child(
+                            h_flex()
+                                .w_full()
+                                .items_center()
+                                .justify_between()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .truncate()
+                                        .child(proj_path_str.clone()),
+                                )
+                                .child(
+                                    h_flex()
+                                        .flex_shrink_0()
+                                        .items_center()
+                                        .gap_1()
+                                        .child(
+                                            Button::new("reveal-project-dir")
+                                                .ghost()
+                                                .xsmall()
+                                                .icon(IconName::FolderOpen)
+                                                .tooltip(s.tooltip_reveal_folder)
+                                                .on_click(move |_, _, cx| {
+                                                    cx.reveal_path(&proj_path_reveal);
+                                                }),
+                                        )
+                                        .child(
+                                            Button::new("detach-project-btn")
+                                                .ghost()
+                                                .danger()
+                                                .xsmall()
+                                                .icon(IconName::Delete)
+                                                .label(s.btn_detach_project)
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        let ws = this.workspace.clone();
+                                                        let pid = proj_id_detach.clone();
+                                                        let title = s.confirm_detach_project_title;
+                                                        let desc = lang
+                                                            .confirm_detach_project_desc(
+                                                                &proj_name_detach,
+                                                                &proj_path_str,
+                                                            );
+                                                        let ok_label = s.btn_detach_project;
+                                                        let cancel_label = s.btn_cancel;
+
+                                                        window.open_alert_dialog(
+                                                            cx,
+                                                            move |alert, _, _| {
+                                                                let ws = ws.clone();
+                                                                let pid = pid.clone();
+                                                                alert
+                                                                    .confirm()
+                                                                    .centered()
+                                                                    .title(title)
+                                                                    .description(desc.clone())
+                                                                    .ok_text(ok_label)
+                                                                    .ok_variant(
+                                                                        ButtonVariant::Danger,
+                                                                    )
+                                                                    .cancel_text(cancel_label)
+                                                                    .on_ok(move |_, window, cx| {
+                                                                        ws.update(cx, |ws, cx| {
+                                                                            ws.remove_project(
+                                                                                &pid, window, cx,
+                                                                            );
+                                                                        });
+                                                                        true
+                                                                    })
+                                                            },
+                                                        );
+                                                    },
+                                                )),
+                                        ),
+                                ),
+                        )
+                    })
                     .child(
                         h_flex()
                             .flex_wrap()
@@ -238,7 +394,17 @@ impl LibraryView {
                                 )
                             })
                             .children(installed_agents.into_iter().map(|agent| {
-                                let deployed = skill.is_deployed_to(&agent.key);
+                                let active_pid = active_project.as_ref().map(|p| p.id.clone());
+                                let deployed = match active_pid.as_deref() {
+                                    Some(pid) => skill.is_deployed_to_project(pid, &agent.key),
+                                    None => skill.is_deployed_to(&agent.key),
+                                };
+                                let switch_id = match active_pid.as_deref() {
+                                    Some(pid) => {
+                                        format!("deploy-proj-{pid}-{}-{}", skill.id, agent.key)
+                                    }
+                                    None => format!("deploy-{}-{}", skill.id, agent.key),
+                                };
                                 let skill_id = skill.id.clone();
                                 let agent_key = agent.key.clone();
                                 h_flex()
@@ -254,22 +420,26 @@ impl LibraryView {
                                     .bg(theme.background)
                                     .items_center()
                                     .child(
-                                        Switch::new(SharedString::from(format!(
-                                            "deploy-{}-{}",
-                                            skill.id, agent.key
-                                        )))
-                                        .small()
-                                        .checked(deployed)
-                                        .label(agent.display_name.clone())
-                                        .on_click(
-                                            cx.listener(move |this, _, window, cx| {
+                                        Switch::new(SharedString::from(switch_id))
+                                            .small()
+                                            .checked(deployed)
+                                            .label(agent.display_name.clone())
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                let pid = active_pid.clone();
                                                 this.workspace.update(cx, |ws, cx| {
-                                                    ws.toggle_skill_deployment(
-                                                        &skill_id, &agent_key, deployed, window, cx,
-                                                    )
+                                                    if let Some(pid) = pid.as_deref() {
+                                                        ws.toggle_project_skill_deployment(
+                                                            &skill_id, pid, &agent_key, deployed,
+                                                            window, cx,
+                                                        );
+                                                    } else {
+                                                        ws.toggle_skill_deployment(
+                                                            &skill_id, &agent_key, deployed,
+                                                            window, cx,
+                                                        );
+                                                    }
                                                 });
-                                            }),
-                                        ),
+                                            })),
                                     )
                             })),
                     ),

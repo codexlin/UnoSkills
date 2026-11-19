@@ -308,6 +308,49 @@ impl Lang {
         }
     }
 
+    pub fn confirm_detach_project_desc(self, project_name: &str, project_path: &str) -> String {
+        match self {
+            Self::ZhCn => format!(
+                "将取消关联项目「{project_name}」（{project_path}），并移除 UnoSkills 在该项目内创建的受管技能部署（不会影响全局技能库及项目源码）。"
+            ),
+            Self::En => format!(
+                "Detach project '{project_name}' ({project_path}) and remove UnoSkills-managed skill deployments inside it (your global library and repo code are untouched)."
+            ),
+            Self::Ja => format!(
+                "プロジェクト「{project_name}」（{project_path}）の関連付けを解除し、プロジェクト内の UnoSkills 管理対象配備を削除します（中央ライブラリとソースコードは保持されます）。"
+            ),
+        }
+    }
+
+    pub fn toast_project_attached(self, project_name: &str) -> String {
+        match self {
+            Self::ZhCn => format!("已关联项目「{project_name}」，可单独勾选部署到该项目。"),
+            Self::En => format!("Attached project '{project_name}' for repo-local skills."),
+            Self::Ja => format!("プロジェクト「{project_name}」を関連付けました。"),
+        }
+    }
+
+    pub fn toast_project_deployed(
+        self,
+        project_name: &str,
+        agent_key: &str,
+        mode: DeployMode,
+    ) -> String {
+        match self {
+            Self::ZhCn => format!("已部署到项目「{project_name}」的 {agent_key}（{mode:?}）"),
+            Self::En => format!("Deployed to '{project_name}' -> {agent_key} ({mode:?})"),
+            Self::Ja => format!("「{project_name}」の {agent_key} に配備しました（{mode:?}）"),
+        }
+    }
+
+    pub fn toast_project_undeployed(self, project_name: &str, agent_key: &str) -> String {
+        match self {
+            Self::ZhCn => format!("已从项目「{project_name}」的 {agent_key} 取消部署"),
+            Self::En => format!("Undeployed from '{project_name}' ({agent_key})"),
+            Self::Ja => format!("「{project_name}」の {agent_key} から配備解除しました"),
+        }
+    }
+
     pub fn toast_skill_up_to_date(self, name: &str) -> String {
         match self {
             Self::ZhCn => format!("「{name}」已是最新版本，无需更新。"),
@@ -489,6 +532,12 @@ pub struct Strings {
     pub toast_network_saved: &'static str,
     pub toast_custom_agent_removed: &'static str,
     pub toast_custom_agent_required: &'static str,
+    pub scope_global: &'static str,
+    pub btn_add_project: &'static str,
+    pub btn_detach_project: &'static str,
+    pub confirm_detach_project_title: &'static str,
+    pub prompt_pick_project_folder: &'static str,
+    pub toast_project_detached: &'static str,
     pub busy_loading_trending: &'static str,
     pub busy_checking_updates: &'static str,
 }

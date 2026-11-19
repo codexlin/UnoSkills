@@ -36,15 +36,15 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 ## Upcoming Milestones
 
 ### `v0.2` — Daily Workflow & Sync Polish
-- [ ] **Skill Upstream Update Check & Upgrade**: check Git-installed skills for newer commits, preview changes, and update safely in one click
-- [ ] **Project-Scope Skills**: attach project workspaces to manage repo-local `.claude/skills`, `.cursor/skills`, `.codex/skills`, etc. alongside global skills
-- [ ] **Custom Agent Paths & Network Settings (in Settings)**: allow adding custom/unlisted AI agent skill directories, plus optional HTTP Proxy and local GitHub PAT (avoids 60 req/hr API rate limits & improves GitHub reachability)
-- [ ] **Interactive Conflict Resolution UI**: surface `ReplacePolicy::UserConfirmed` via an `AlertDialog` when deploying onto an unmanaged target folder
-- [ ] **Native Desktop Conveniences**:
-  - OS folder picker for local skill installation
-  - "Reveal in File Manager" action on skills and library root
+- [x] **Skill Upstream Update Check & Upgrade**: check Git / `skills.sh` / local skills for content changes via SHA-256 hash, update in one click, and automatically refresh `Copy`-mode deployments
+- [x] **Project-Scope Skills**: attach project workspaces to manage repo-local `.claude/skills`, `.cursor/skills`, `.codex/skills`, etc. alongside global skills (CLI + GUI Scope Bar)
+- [x] **Custom Agent Paths & Network Settings (in Settings)**: add/remove custom AI agent skill directories, plus optional HTTP/SOCKS Proxy and local GitHub PAT (avoids 60 req/hr API rate limits & improves GitHub reachability)
+- [x] **Interactive Conflict Resolution UI**: surface `ReplacePolicy::UserConfirmed` via an `AlertDialog` when deploying onto an unmanaged target folder (global & project scope)
+- [x] **Native Desktop Conveniences**:
+  - OS folder picker for local skill installation, custom agent paths, and project workspaces
+  - "Reveal in File Manager" action on skills, project workspaces, and library root
   - Keyboard shortcuts (`Cmd/Ctrl+K` focus search, `Cmd/Ctrl+S` save `SKILL.md`, `Esc` exit edit mode)
-  - Confirmation dialog before deleting a local Stack
+  - Confirmation dialog before deleting a local Stack or detaching a Project Workspace
 
 ### `v0.3` — Community Stacks & Lightweight Git Sync
 - [ ] **Stage 1 Remote Community Index**: fetch live curated stacks from a GitHub-hosted static `index.json` via `StackRegistry` with local ETag caching

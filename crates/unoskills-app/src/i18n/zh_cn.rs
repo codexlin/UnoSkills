@@ -158,6 +158,12 @@ pub static STRINGS: Strings = Strings {
     toast_network_saved: "网络代理与 Token 设置已保存。",
     toast_custom_agent_removed: "已移除自定义 Agent。",
     toast_custom_agent_required: "请填写自定义 Agent 名称和技能目录路径。",
+    scope_global: "全局",
+    btn_add_project: "添加项目",
+    btn_detach_project: "移除项目",
+    confirm_detach_project_title: "移除项目目录",
+    prompt_pick_project_folder: "选择要关联的本地项目目录",
+    toast_project_detached: "已移除项目关联并清理受管技能部署。",
     busy_loading_trending: "正在加载热门榜单...",
     busy_checking_updates: "正在检查新版本...",
 };

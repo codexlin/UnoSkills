@@ -158,6 +158,12 @@ pub static STRINGS: Strings = Strings {
     toast_network_saved: "Saved network proxy and GitHub token settings.",
     toast_custom_agent_removed: "Removed custom agent.",
     toast_custom_agent_required: "Enter both a custom agent name and skills folder path.",
+    scope_global: "Global",
+    btn_add_project: "Add Project",
+    btn_detach_project: "Detach",
+    confirm_detach_project_title: "Detach Project Workspace",
+    prompt_pick_project_folder: "Select a local project directory to attach",
+    toast_project_detached: "Detached project workspace and cleaned up managed skills.",
     busy_loading_trending: "Loading trending...",
     busy_checking_updates: "Checking for updates...",
 };

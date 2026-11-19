@@ -6,14 +6,28 @@ mod i18n;
 mod shell;
 mod state;
 
-use gpui_kit::{AppContext, Bounds, WindowBounds, WindowOptions, component::TitleBar, px, size};
-use shell::UnoSkillsShell;
+use gpui_kit::{
+    AppContext, Bounds, KeyBinding, WindowBounds, WindowOptions, component::TitleBar, px, size,
+};
+use shell::{CancelEdit, FocusSearch, SaveSkill, UnoSkillsShell};
 
 fn main() {
     gpui_kit::application()
         .with_assets(assets::UnoAssets)
         .run(|cx| {
             gpui_kit::init(cx);
+            #[cfg(target_os = "macos")]
+            cx.bind_keys([
+                KeyBinding::new("cmd-k", FocusSearch, None),
+                KeyBinding::new("cmd-s", SaveSkill, None),
+                KeyBinding::new("escape", CancelEdit, None),
+            ]);
+            #[cfg(not(target_os = "macos"))]
+            cx.bind_keys([
+                KeyBinding::new("ctrl-k", FocusSearch, None),
+                KeyBinding::new("ctrl-s", SaveSkill, None),
+                KeyBinding::new("escape", CancelEdit, None),
+            ]);
 
             let bounds = Bounds::centered(None, size(px(1240.), px(780.)), cx);
             let mut titlebar = TitleBar::title_bar_options();

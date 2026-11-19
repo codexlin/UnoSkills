@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui_kit::component::button::ButtonVariant;
@@ -7,7 +8,7 @@ use gpui_kit::component::{Theme, ThemeMode, WindowExt};
 use gpui_kit::{ClipboardItem, Context, EventEmitter, SharedString, Window};
 use unoskills_core::{
     AdoptCandidate, AgentCategory, AgentInfo, CustomAgentRecord, DeployMode, MarketplaceSkill,
-    Skill, StackManifest, UnoSkillsManager,
+    ProjectWorkspace, Skill, StackManifest, UnoSkillsManager,
 };
 
 use crate::fonts::{self, DEFAULT_FONT_SIZE, FONT_AUTO, FontSettings};
@@ -53,6 +54,7 @@ pub struct WorkspaceState {
     skills: Vec<Skill>,
     installed_skill_keys: HashSet<String>,
     agents: Vec<AgentInfo>,
+    projects: Vec<ProjectWorkspace>,
     featured_stacks: Vec<StackManifest>,
     local_stacks: Vec<StackManifest>,
     adopt_candidates: Vec<AdoptCandidate>,
@@ -116,6 +118,7 @@ impl WorkspaceState {
             skills: Vec::new(),
             installed_skill_keys: HashSet::new(),
             agents: Vec::new(),
+            projects: Vec::new(),
             featured_stacks: Vec::new(),
             local_stacks: Vec::new(),
             adopt_candidates: Vec::new(),
@@ -164,6 +167,10 @@ impl WorkspaceState {
 
     pub fn agents(&self) -> &[AgentInfo] {
         &self.agents
+    }
+
+    pub fn projects(&self) -> &[ProjectWorkspace] {
+        &self.projects
     }
 
     pub fn installed_agent_count(&self) -> usize {
@@ -282,6 +289,7 @@ impl WorkspaceState {
             }
         }
         self.agents = self.manager.list_agents().unwrap_or_default();
+        self.projects = self.manager.list_projects().unwrap_or_default();
         self.featured_stacks = self.manager.featured_stacks().unwrap_or_default();
         self.local_stacks = self.manager.list_local_stacks().unwrap_or_default();
         self.adopt_candidates = self.manager.scan_adoptable().unwrap_or_default();
@@ -570,6 +578,177 @@ impl WorkspaceState {
             Ok(dep) => {
                 self.reload_all(cx);
                 let msg = self.lang.toast_deployed(&dep.agent_key, dep.mode);
+                self.notify_toast(false, msg, window, cx);
+            }
+            Err(e) => self.notify_toast(true, format!("{e}"), window, cx),
+        }
+    }
+
+    pub fn add_project(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
+        match self.manager.add_project(&path, None) {
+            Ok(project) => {
+                let id = project.id.clone();
+                self.reload_all(cx);
+                let msg = self.lang.toast_project_attached(&project.name);
+                self.notify_toast(false, msg, window, cx);
+                Some(id)
+            }
+            Err(e) => {
+                self.notify_toast(true, format!("{e}"), window, cx);
+                None
+            }
+        }
+    }
+
+    pub fn remove_project(
+        &mut self,
+        project_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.manager.remove_project(project_id) {
+            Ok(()) => {
+                self.reload_all(cx);
+                let msg = self.t().toast_project_detached;
+                self.notify_toast(false, msg, window, cx);
+            }
+            Err(e) => self.notify_toast(true, format!("{e}"), window, cx),
+        }
+    }
+
+    pub fn toggle_project_skill_deployment(
+        &mut self,
+        skill_id: &str,
+        project_id: &str,
+        agent_key: &str,
+        currently_deployed: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let project_name = self
+            .projects
+            .iter()
+            .find(|p| p.id == project_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| project_id.to_string());
+
+        let result = if currently_deployed {
+            self.manager
+                .undeploy_skill_from_project(skill_id, project_id, agent_key)
+                .map(|_| self.lang.toast_project_undeployed(&project_name, agent_key))
+        } else {
+            self.manager
+                .deploy_skill_to_project(skill_id, project_id, agent_key, None, false)
+                .map(|dep| {
+                    self.lang
+                        .toast_project_deployed(&project_name, &dep.agent_key, dep.mode)
+                })
+        };
+
+        match result {
+            Ok(msg) => {
+                self.reload_all(cx);
+                self.notify_toast(false, msg, window, cx);
+            }
+            Err(e) => {
+                let err_str = format!("{e}");
+                if !currently_deployed && err_str.contains("TARGET_CONFLICT") {
+                    let agent_name = self
+                        .agents
+                        .iter()
+                        .find(|a| a.key == agent_key)
+                        .map(|a| a.display_name.clone())
+                        .unwrap_or_else(|| agent_key.to_string());
+                    let target_path = self
+                        .projects
+                        .iter()
+                        .find(|p| p.id == project_id)
+                        .and_then(|p| {
+                            self.agents
+                                .iter()
+                                .find(|a| a.key == agent_key)
+                                .and_then(|a| {
+                                    self.skills.iter().find(|s| s.id == skill_id).map(|s| {
+                                        p.path
+                                            .join(&a.project_relative_skills_dir)
+                                            .join(&s.slug)
+                                            .to_string_lossy()
+                                            .to_string()
+                                    })
+                                })
+                        })
+                        .unwrap_or_else(|| err_str.clone());
+                    let ws_entity = cx.entity().clone();
+                    let skill_id_owned = skill_id.to_string();
+                    let project_id_owned = project_id.to_string();
+                    let agent_key_owned = agent_key.to_string();
+                    let s = self.t();
+                    let title = s.confirm_conflict_title;
+                    let desc = self.lang.confirm_conflict_desc(&agent_name, &target_path);
+                    let ok_label = s.btn_replace;
+                    let cancel_label = s.btn_cancel;
+
+                    window.open_alert_dialog(cx, move |alert, _, _| {
+                        let ws_entity = ws_entity.clone();
+                        let skill_id_owned = skill_id_owned.clone();
+                        let project_id_owned = project_id_owned.clone();
+                        let agent_key_owned = agent_key_owned.clone();
+                        alert
+                            .confirm()
+                            .centered()
+                            .title(title)
+                            .description(desc.clone())
+                            .ok_text(ok_label)
+                            .ok_variant(ButtonVariant::Danger)
+                            .cancel_text(cancel_label)
+                            .on_ok(move |_, window, cx| {
+                                ws_entity.update(cx, |ws, cx| {
+                                    ws.force_deploy_skill_to_project(
+                                        &skill_id_owned,
+                                        &project_id_owned,
+                                        &agent_key_owned,
+                                        window,
+                                        cx,
+                                    );
+                                });
+                                true
+                            })
+                    });
+                } else {
+                    self.notify_toast(true, err_str, window, cx);
+                }
+            }
+        }
+    }
+
+    pub fn force_deploy_skill_to_project(
+        &mut self,
+        skill_id: &str,
+        project_id: &str,
+        agent_key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let project_name = self
+            .projects
+            .iter()
+            .find(|p| p.id == project_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| project_id.to_string());
+        match self
+            .manager
+            .deploy_skill_to_project(skill_id, project_id, agent_key, None, true)
+        {
+            Ok(dep) => {
+                self.reload_all(cx);
+                let msg = self
+                    .lang
+                    .toast_project_deployed(&project_name, &dep.agent_key, dep.mode);
                 self.notify_toast(false, msg, window, cx);
             }
             Err(e) => self.notify_toast(true, format!("{e}"), window, cx),

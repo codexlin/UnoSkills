@@ -7,8 +7,8 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window, div, prelude::FluentBuilder,
+    AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement,
+    Render, SharedString, Styled, Subscription, Window, actions, div, prelude::FluentBuilder,
 };
 
 use crate::assets::AppIcon;
@@ -17,11 +17,14 @@ use crate::features::DiscoverView;
 use crate::features::{LibraryView, SettingsView, StacksView};
 use crate::state::{NavTab, WorkspaceEvent, WorkspaceState};
 
+actions!(unoskills, [FocusSearch, SaveSkill, CancelEdit]);
+
 /// Desktop shell: owns the shared `WorkspaceState` entity, the active tab,
 /// the collapsible sidebar, and the four feature view entities. Navigation
 /// flows through `WorkspaceEvent::NavigateTo`, so every tab switch (sidebar,
 /// empty-state buttons, post-install jumps) funnels through one code path.
 pub struct UnoSkillsShell {
+    focus_handle: FocusHandle,
     workspace: Entity<WorkspaceState>,
     active_tab: NavTab,
     sidebar_collapsed: bool,
@@ -62,6 +65,7 @@ impl UnoSkillsShell {
         );
 
         Self {
+            focus_handle: cx.focus_handle(),
             workspace,
             active_tab: NavTab::Library,
             sidebar_collapsed: false,
@@ -115,6 +119,25 @@ impl Render for UnoSkillsShell {
         };
 
         v_flex()
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                this.active_tab = NavTab::Library;
+                this.library_view
+                    .update(cx, |view, cx| view.focus_search(window, cx));
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &SaveSkill, window, cx| {
+                if this.active_tab == NavTab::Library {
+                    this.library_view
+                        .update(cx, |view, cx| view.handle_save_shortcut(window, cx));
+                }
+            }))
+            .on_action(cx.listener(|this, _: &CancelEdit, window, cx| {
+                if this.active_tab == NavTab::Library {
+                    this.library_view
+                        .update(cx, |view, cx| view.handle_cancel_edit_shortcut(window, cx));
+                }
+            }))
             .size_full()
             .bg(bg)
             .text_color(fg)

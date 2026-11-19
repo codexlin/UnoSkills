@@ -158,6 +158,12 @@ pub static STRINGS: Strings = Strings {
     toast_network_saved: "プロキシと GitHub トークン設定を保存しました。",
     toast_custom_agent_removed: "カスタムエージェントを削除しました。",
     toast_custom_agent_required: "エージェント名とスキルディレクトリの両方を入力してください。",
+    scope_global: "グローバル",
+    btn_add_project: "プロジェクト追加",
+    btn_detach_project: "解除",
+    confirm_detach_project_title: "プロジェクトを解除",
+    prompt_pick_project_folder: "関連付けるローカルプロジェクトを選択",
+    toast_project_detached: "プロジェクトを解除し、管理対象スキルの配備を整理しました。",
     busy_loading_trending: "トレンドを読み込み中...",
     busy_checking_updates: "アップデートを確認中...",
 };

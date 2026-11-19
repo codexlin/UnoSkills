@@ -8,8 +8,8 @@ use gpui_kit::component::{
     text::TextViewState,
 };
 use gpui_kit::{
-    AppContext, Context, Entity, IntoElement, ParentElement, Render, Subscription,
-    UniformListScrollHandle, Window, px,
+    AppContext, Context, Entity, Focusable, IntoElement, ParentElement, PathPromptOptions, Render,
+    Subscription, UniformListScrollHandle, Window, px,
 };
 use unoskills_core::SkillLintReport;
 
@@ -26,6 +26,8 @@ pub struct LibraryView {
     pub(super) filtered_indices: Vec<usize>,
     pub(super) library_scroll_handle: UniformListScrollHandle,
     pub(super) selected_skill_id: Option<String>,
+    /// `None` = Global scope (`~/.claude/skills`, etc.), `Some(id)` = attached Project scope.
+    pub(super) selected_project_id: Option<String>,
     pub(super) markdown_preview_state: Entity<TextViewState>,
     pub(super) markdown_editor: Entity<TextareaState>,
     pub(super) editing_markdown: bool,
@@ -73,6 +75,7 @@ impl LibraryView {
             filtered_indices: Vec::new(),
             library_scroll_handle: UniformListScrollHandle::new(),
             selected_skill_id: None,
+            selected_project_id: None,
             markdown_preview_state,
             markdown_editor,
             editing_markdown: false,
@@ -107,6 +110,17 @@ impl LibraryView {
                     .first()
                     .map(|s| s.id.clone());
                 self.editing_markdown = false;
+            }
+        }
+        if let Some(proj_id) = self.selected_project_id.as_ref() {
+            let still_attached = self
+                .workspace
+                .read(cx)
+                .projects()
+                .iter()
+                .any(|p| &p.id == proj_id);
+            if !still_attached {
+                self.selected_project_id = None;
             }
         }
         self.refilter(cx);
@@ -209,6 +223,52 @@ impl LibraryView {
         if saved {
             self.editing_markdown = false;
         }
+    }
+
+    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let handle = self.library_search.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+        cx.notify();
+    }
+
+    pub fn handle_save_shortcut(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.editing_markdown {
+            self.save_markdown(window, cx);
+        }
+    }
+
+    pub fn handle_cancel_edit_shortcut(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.editing_markdown {
+            self.editing_markdown = false;
+            self.reload_selected_details(false, window, cx);
+            cx.notify();
+        }
+    }
+
+    pub(super) fn pick_and_attach_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let prompt = self.workspace.read(cx).t().prompt_pick_project_folder;
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(prompt.into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(dir) = paths.into_iter().next()
+            {
+                let _ = this.update_in(cx, |view, window, cx| {
+                    let attached_id = view
+                        .workspace
+                        .update(cx, |ws, cx| ws.add_project(dir, window, cx));
+                    if let Some(id) = attached_id {
+                        view.selected_project_id = Some(id);
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
     }
 
     pub(super) fn current_skill<'a>(
