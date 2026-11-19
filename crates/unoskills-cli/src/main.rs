@@ -67,6 +67,49 @@ enum Commands {
         #[command(subcommand)]
         action: StackCommands,
     },
+    /// Manage project-scope workspaces and repo-local skill deployments
+    Project {
+        #[command(subcommand)]
+        action: ProjectCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProjectCommands {
+    /// List attached project workspaces
+    List,
+    /// Attach a local project directory for repo-local skill deployment
+    Add {
+        path: PathBuf,
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Detach a project workspace and undeploy its managed skills
+    Remove {
+        project: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Deploy a skill into a project workspace's agent skills directory
+    Deploy {
+        skill: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long = "agent", required = true)]
+        agents: Vec<String>,
+        #[arg(long)]
+        copy: bool,
+        #[arg(long)]
+        force: bool,
+    },
+    /// Undeploy a skill from a project workspace's agent skills directory
+    Undeploy {
+        skill: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long = "agent", required = true)]
+        agents: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -380,6 +423,94 @@ fn run(cli: Cli) -> Result<()> {
                         "Created stack '{}' ({} skills)",
                         manifest.name,
                         manifest.skills.len()
+                    );
+                }
+            }
+        },
+        Commands::Project { action } => match action {
+            ProjectCommands::List => {
+                let projects = mgr.list_projects()?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&projects)?);
+                } else if projects.is_empty() {
+                    println!("No project workspaces attached. Try `unoskills project add <path>`.");
+                } else {
+                    for p in projects {
+                        println!("{:<24} {}", p.name, p.path.display());
+                    }
+                }
+            }
+            ProjectCommands::Add { path, name } => {
+                let proj = mgr.add_project(&path, name.as_deref())?;
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({ "ok": true, "project": proj }))?
+                    );
+                } else {
+                    println!(
+                        "Attached project '{}' -> {}",
+                        proj.name,
+                        proj.path.display()
+                    );
+                }
+            }
+            ProjectCommands::Remove { project, yes } => {
+                if !yes {
+                    anyhow::bail!("Refusing to detach project '{project}' without --yes");
+                }
+                mgr.remove_project(&project)?;
+                if cli.json {
+                    println!("{}", json!({ "ok": true, "removed": project }));
+                } else {
+                    println!("Detached project '{project}'");
+                }
+            }
+            ProjectCommands::Deploy {
+                skill,
+                project,
+                agents,
+                copy,
+                force,
+            } => {
+                let mode = if copy { Some(DeployMode::Copy) } else { None };
+                let mut results = Vec::new();
+                for agent in &agents {
+                    let dep = mgr.deploy_skill_to_project(&skill, &project, agent, mode, force)?;
+                    results.push(dep);
+                }
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(
+                            &json!({ "ok": true, "project_deployments": results })
+                        )?
+                    );
+                } else {
+                    for dep in results {
+                        println!(
+                            "Deployed to project ({}, {:?}) -> {}",
+                            dep.agent_key,
+                            dep.mode,
+                            dep.target_path.display()
+                        );
+                    }
+                }
+            }
+            ProjectCommands::Undeploy {
+                skill,
+                project,
+                agents,
+            } => {
+                for agent in &agents {
+                    mgr.undeploy_skill_from_project(&skill, &project, agent)?;
+                }
+                if cli.json {
+                    println!("{}", json!({ "ok": true, "undeployed": agents }));
+                } else {
+                    println!(
+                        "Undeployed '{skill}' from project '{project}' ({})",
+                        agents.join(", ")
                     );
                 }
             }

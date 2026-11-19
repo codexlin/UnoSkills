@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::domain::{
-    AdoptCandidate, AgentInfo, DeployMode, Deployment, MarketplacePage, MarketplaceSkill, Skill,
-    SkillLintReport, SkillUpdateResult, SourceType, StackInstallSummary, StackManifest,
-    StackSkillRef,
+    AdoptCandidate, AgentInfo, DeployMode, Deployment, MarketplacePage, MarketplaceSkill,
+    ProjectDeployment, ProjectWorkspace, Skill, SkillLintReport, SkillUpdateResult, SourceType,
+    StackInstallSummary, StackManifest, StackSkillRef,
 };
 use crate::parser::{
     find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir, parse_skill_dir,
@@ -318,6 +318,19 @@ impl UnoSkillsManager {
                 refreshed_copies += 1;
             }
         }
+        for dep in &updated_skill.project_deployments {
+            if dep.mode == DeployMode::Copy
+                && deploy_skill_dir(
+                    &updated_skill.central_path,
+                    &dep.target_path,
+                    DeployMode::Copy,
+                    ReplacePolicy::Recorded(DeployMode::Copy),
+                )
+                .is_ok()
+            {
+                refreshed_copies += 1;
+            }
+        }
 
         Ok(SkillUpdateResult {
             skill: updated_skill,
@@ -396,6 +409,10 @@ impl UnoSkillsManager {
                 .as_ref()
                 .map(|s| s.deployments.clone())
                 .unwrap_or_default(),
+            project_deployments: existing
+                .as_ref()
+                .map(|s| s.project_deployments.clone())
+                .unwrap_or_default(),
             created_at: existing.as_ref().map(|s| s.created_at).unwrap_or(now),
             updated_at: now,
         };
@@ -410,7 +427,7 @@ impl UnoSkillsManager {
             .find_skill(skill_id_or_slug)?
             .context("Skill not found")?;
 
-        // Undeploy from every agent first (respecting shared directories).
+        // Undeploy from every global agent first (respecting shared directories).
         let agent_keys: Vec<String> = skill
             .deployments
             .iter()
@@ -418,6 +435,16 @@ impl UnoSkillsManager {
             .collect();
         for agent_key in agent_keys {
             let _ = self.undeploy_skill(&skill.id, &agent_key);
+        }
+
+        // Also undeploy from every attached project workspace.
+        let proj_deps: Vec<(String, String)> = skill
+            .project_deployments
+            .iter()
+            .map(|d| (d.project_id.clone(), d.agent_key.clone()))
+            .collect();
+        for (project_id, agent_key) in proj_deps {
+            let _ = self.undeploy_skill_from_project(&skill.id, &project_id, &agent_key);
         }
 
         if skill.central_path.exists() {
@@ -499,6 +526,190 @@ impl UnoSkillsManager {
             remove_managed_target(&skill.central_path, &dep.target_path, dep.mode)?;
         }
         self.store.delete_deployment(&skill.id, agent_key)?;
+        Ok(())
+    }
+
+    // ── Project-Scope Workspaces & Deployments ──
+
+    pub fn list_projects(&self) -> Result<Vec<ProjectWorkspace>> {
+        self.store.list_projects()
+    }
+
+    pub fn add_project(
+        &self,
+        project_dir: &Path,
+        name_override: Option<&str>,
+    ) -> Result<ProjectWorkspace> {
+        let raw = project_dir.to_string_lossy();
+        let trimmed_path = if let Some(rest) = raw.trim().strip_prefix("~/") {
+            dirs::home_dir()
+                .map(|h| h.join(rest))
+                .unwrap_or_else(|| PathBuf::from(raw.trim()))
+        } else {
+            PathBuf::from(raw.trim())
+        };
+        if !trimmed_path.is_dir() {
+            bail!(
+                "Project directory does not exist: {}",
+                trimmed_path.display()
+            );
+        }
+        let canonical = std::fs::canonicalize(&trimmed_path).unwrap_or(trimmed_path);
+
+        let default_name = canonical
+            .file_name()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("project")
+            .to_string();
+        let name = name_override
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or(default_name);
+
+        if let Some(existing) = self.store.find_project(&canonical.to_string_lossy())? {
+            let updated = ProjectWorkspace { name, ..existing };
+            self.store.upsert_project(&updated)?;
+            return Ok(updated);
+        }
+
+        let workspace = ProjectWorkspace {
+            id: Uuid::new_v4().to_string(),
+            name,
+            path: canonical,
+            created_at: Utc::now().timestamp(),
+        };
+        self.store.upsert_project(&workspace)?;
+        Ok(workspace)
+    }
+
+    pub fn remove_project(&self, project_id_or_name: &str) -> Result<()> {
+        let project = self
+            .store
+            .find_project(project_id_or_name)?
+            .context("Project workspace not found")?;
+
+        // Cleanly undeploy every managed skill inside this project before detaching.
+        let deps = self
+            .store
+            .list_project_deployments_for_project(&project.id)?;
+        for dep in deps {
+            let _ = self.undeploy_skill_from_project(&dep.skill_id, &project.id, &dep.agent_key);
+        }
+
+        self.store.delete_project(&project.id)?;
+        Ok(())
+    }
+
+    pub fn deploy_skill_to_project(
+        &self,
+        skill_id_or_slug: &str,
+        project_id_or_name: &str,
+        agent_key: &str,
+        mode_override: Option<DeployMode>,
+        force: bool,
+    ) -> Result<ProjectDeployment> {
+        let skill = self
+            .store
+            .find_skill(skill_id_or_slug)?
+            .context("Skill not found")?;
+        let project = self
+            .store
+            .find_project(project_id_or_name)?
+            .context("Project workspace not found")?;
+        if !project.path.is_dir() {
+            bail!(
+                "Project directory no longer exists: {}",
+                project.path.display()
+            );
+        }
+
+        let agents = self.list_agents()?;
+        let agent = agents
+            .iter()
+            .find(|a| a.key == agent_key)
+            .with_context(|| format!("Unknown agent '{agent_key}'"))?;
+
+        let rel_dir = agent.project_relative_skills_dir.trim();
+        let rel_dir = if rel_dir.is_empty() {
+            ".agents/skills"
+        } else {
+            rel_dir
+        };
+        let target_path = project.path.join(rel_dir).join(&skill.slug);
+        let desired_mode = mode_override.unwrap_or_else(|| self.default_deploy_mode());
+        let existing_dep = skill
+            .project_deployments
+            .iter()
+            .find(|d| d.project_id == project.id && d.agent_key == agent_key);
+
+        let peer_mode = self.store.peer_project_deployment_mode_for_skill(
+            &skill.id,
+            &project.id,
+            &target_path,
+            agent_key,
+        )?;
+        let policy = if force {
+            ReplacePolicy::UserConfirmed
+        } else if let Some(dep) = existing_dep {
+            ReplacePolicy::Recorded(dep.mode)
+        } else if let Some(mode) = peer_mode {
+            ReplacePolicy::Recorded(mode)
+        } else {
+            ReplacePolicy::NoClobber
+        };
+
+        let actual_mode =
+            deploy_skill_dir(&skill.central_path, &target_path, desired_mode, policy)?;
+
+        let dep = ProjectDeployment {
+            id: existing_dep
+                .map(|d| d.id.clone())
+                .unwrap_or_else(|| Uuid::new_v4().to_string()),
+            skill_id: skill.id.clone(),
+            project_id: project.id.clone(),
+            agent_key: agent.key.clone(),
+            target_path,
+            mode: actual_mode,
+            synced_at: Utc::now().timestamp(),
+        };
+        self.store.upsert_project_deployment(&dep)?;
+        Ok(dep)
+    }
+
+    pub fn undeploy_skill_from_project(
+        &self,
+        skill_id_or_slug: &str,
+        project_id_or_name: &str,
+        agent_key: &str,
+    ) -> Result<()> {
+        let skill = self
+            .store
+            .find_skill(skill_id_or_slug)?
+            .context("Skill not found")?;
+        let project = self
+            .store
+            .find_project(project_id_or_name)?
+            .context("Project workspace not found")?;
+        let Some(dep) = skill
+            .project_deployments
+            .iter()
+            .find(|d| d.project_id == project.id && d.agent_key == agent_key)
+        else {
+            return Ok(());
+        };
+
+        let peer_count = self.store.count_project_deployments_at_path(
+            &project.id,
+            &dep.target_path,
+            agent_key,
+        )?;
+        if peer_count == 0 {
+            remove_managed_target(&skill.central_path, &dep.target_path, dep.mode)?;
+        }
+        self.store
+            .delete_project_deployment(&skill.id, &project.id, agent_key)?;
         Ok(())
     }
 

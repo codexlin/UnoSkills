@@ -110,6 +110,8 @@ pub struct Skill {
     pub estimated_tokens: u32,
     pub tags: Vec<String>,
     pub deployments: Vec<Deployment>,
+    #[serde(default)]
+    pub project_deployments: Vec<ProjectDeployment>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -118,12 +120,37 @@ impl Skill {
     pub fn is_deployed_to(&self, agent_key: &str) -> bool {
         self.deployments.iter().any(|d| d.agent_key == agent_key)
     }
+
+    pub fn is_deployed_to_project(&self, project_id: &str, agent_key: &str) -> bool {
+        self.project_deployments
+            .iter()
+            .any(|d| d.project_id == project_id && d.agent_key == agent_key)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Deployment {
     pub id: String,
     pub skill_id: String,
+    pub agent_key: String,
+    pub target_path: PathBuf,
+    pub mode: DeployMode,
+    pub synced_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectWorkspace {
+    pub id: String,
+    pub name: String,
+    pub path: PathBuf,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectDeployment {
+    pub id: String,
+    pub skill_id: String,
+    pub project_id: String,
     pub agent_key: String,
     pub target_path: PathBuf,
     pub mode: DeployMode,

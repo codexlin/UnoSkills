@@ -4,7 +4,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use crate::domain::{AgentCategory, DeployMode, Deployment, Skill, SourceType, StackManifest};
+use crate::domain::{
+    AgentCategory, DeployMode, Deployment, ProjectDeployment, ProjectWorkspace, Skill, SourceType,
+    StackManifest,
+};
 use crate::registry::CustomAgentRecord;
 
 pub struct Store {
@@ -99,6 +102,7 @@ impl Store {
                 estimated_tokens: row.get::<_, i64>(10)?.max(0) as u32,
                 tags: Vec::new(),
                 deployments: Vec::new(),
+                project_deployments: Vec::new(),
                 created_at: row.get(11)?,
                 updated_at: row.get(12)?,
             })
@@ -107,10 +111,12 @@ impl Store {
         let mut skills: Vec<Skill> = rows.collect::<std::result::Result<_, _>>()?;
         let mut tags_map = load_all_tags(&conn)?;
         let mut dep_map = load_all_deployments(&conn)?;
+        let mut proj_dep_map = load_all_project_deployments(&conn)?;
 
         for skill in &mut skills {
             skill.tags = tags_map.remove(&skill.id).unwrap_or_default();
             skill.deployments = dep_map.remove(&skill.id).unwrap_or_default();
+            skill.project_deployments = proj_dep_map.remove(&skill.id).unwrap_or_default();
         }
         Ok(skills)
     }
@@ -338,6 +344,151 @@ impl Store {
         conn.execute("DELETE FROM custom_agents WHERE key = ?1", params![key])?;
         Ok(())
     }
+
+    pub fn list_projects(&self) -> Result<Vec<ProjectWorkspace>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT id, name, path, created_at FROM projects ORDER BY LOWER(name) ASC")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ProjectWorkspace {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                path: PathBuf::from(row.get::<_, String>(2)?),
+                created_at: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    pub fn find_project(&self, id_or_name_or_path: &str) -> Result<Option<ProjectWorkspace>> {
+        let query = id_or_name_or_path.trim().to_lowercase();
+        let all = self.list_projects()?;
+        Ok(all.into_iter().find(|p| {
+            p.id.to_lowercase() == query
+                || p.name.to_lowercase() == query
+                || p.path.to_string_lossy().to_lowercase() == query
+        }))
+    }
+
+    pub fn upsert_project(&self, project: &ProjectWorkspace) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO projects (id, name, path, created_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(path) DO UPDATE SET
+                name = excluded.name",
+            params![
+                project.id,
+                project.name,
+                project.path.to_string_lossy().to_string(),
+                project.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_project(&self, project_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM projects WHERE id = ?1", params![project_id])?;
+        Ok(())
+    }
+
+    pub fn upsert_project_deployment(&self, dep: &ProjectDeployment) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO project_deployments (id, skill_id, project_id, agent_key, target_path, mode, synced_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(skill_id, project_id, agent_key) DO UPDATE SET
+                target_path = excluded.target_path,
+                mode = excluded.mode,
+                synced_at = excluded.synced_at",
+            params![
+                dep.id,
+                dep.skill_id,
+                dep.project_id,
+                dep.agent_key,
+                dep.target_path.to_string_lossy().to_string(),
+                dep.mode.as_str(),
+                dep.synced_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_project_deployment(
+        &self,
+        skill_id: &str,
+        project_id: &str,
+        agent_key: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM project_deployments WHERE skill_id = ?1 AND project_id = ?2 AND agent_key = ?3",
+            params![skill_id, project_id, agent_key],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_project_deployments_for_project(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<ProjectDeployment>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at
+             FROM project_deployments WHERE project_id = ?1 ORDER BY agent_key ASC",
+        )?;
+        let rows = stmt.query_map(params![project_id], |row| {
+            Ok(ProjectDeployment {
+                id: row.get(0)?,
+                skill_id: row.get(1)?,
+                project_id: row.get(2)?,
+                agent_key: row.get(3)?,
+                target_path: PathBuf::from(row.get::<_, String>(4)?),
+                mode: DeployMode::from_str_lossy(&row.get::<_, String>(5)?),
+                synced_at: row.get(6)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    pub fn count_project_deployments_at_path(
+        &self,
+        project_id: &str,
+        target_path: &Path,
+        exclude_agent_key: &str,
+    ) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let target_str = target_path.to_string_lossy().to_string();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM project_deployments
+             WHERE project_id = ?1 AND target_path = ?2 AND agent_key != ?3",
+            params![project_id, target_str, exclude_agent_key],
+            |row| row.get(0),
+        )?;
+        Ok(count.max(0) as usize)
+    }
+
+    pub fn peer_project_deployment_mode_for_skill(
+        &self,
+        skill_id: &str,
+        project_id: &str,
+        target_path: &Path,
+        exclude_agent_key: &str,
+    ) -> Result<Option<DeployMode>> {
+        let conn = self.conn.lock().unwrap();
+        let target_str = target_path.to_string_lossy().to_string();
+        let mode_str = conn
+            .query_row(
+                "SELECT mode FROM project_deployments
+                 WHERE skill_id = ?1 AND project_id = ?2 AND target_path = ?3 AND agent_key != ?4
+                 LIMIT 1",
+                params![skill_id, project_id, target_str, exclude_agent_key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(mode_str.map(|s| DeployMode::from_str_lossy(&s)))
+    }
 }
 
 fn load_all_tags(conn: &Connection) -> Result<HashMap<String, Vec<String>>> {
@@ -367,6 +518,32 @@ fn load_all_deployments(conn: &Connection) -> Result<HashMap<String, Vec<Deploym
             target_path: PathBuf::from(row.get::<_, String>(3)?),
             mode: DeployMode::from_str_lossy(&row.get::<_, String>(4)?),
             synced_at: row.get(5)?,
+        })
+    })?;
+    for row in rows {
+        let dep = row?;
+        map.entry(dep.skill_id.clone()).or_default().push(dep);
+    }
+    Ok(map)
+}
+
+fn load_all_project_deployments(
+    conn: &Connection,
+) -> Result<HashMap<String, Vec<ProjectDeployment>>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at
+         FROM project_deployments ORDER BY project_id ASC, agent_key ASC",
+    )?;
+    let mut map: HashMap<String, Vec<ProjectDeployment>> = HashMap::new();
+    let rows = stmt.query_map([], |row| {
+        Ok(ProjectDeployment {
+            id: row.get(0)?,
+            skill_id: row.get(1)?,
+            project_id: row.get(2)?,
+            agent_key: row.get(3)?,
+            target_path: PathBuf::from(row.get::<_, String>(4)?),
+            mode: DeployMode::from_str_lossy(&row.get::<_, String>(5)?),
+            synced_at: row.get(6)?,
         })
     })?;
     for row in rows {
@@ -427,6 +604,24 @@ fn migrate(conn: &Connection) -> Result<()> {
             display_name TEXT NOT NULL,
             skills_dir TEXT NOT NULL,
             category TEXT NOT NULL DEFAULT 'coding'
+        );
+
+        CREATE TABLE IF NOT EXISTS projects (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            path TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS project_deployments (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            agent_key TEXT NOT NULL,
+            target_path TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            synced_at INTEGER NOT NULL,
+            UNIQUE(skill_id, project_id, agent_key)
         );",
     )?;
     Ok(())

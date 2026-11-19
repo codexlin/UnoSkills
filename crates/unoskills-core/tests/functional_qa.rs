@@ -371,3 +371,79 @@ fn live_network_marketplace_and_featured_stack_smoke() {
     );
     assert!(installed.central_path.join("SKILL.md").is_file());
 }
+
+#[test]
+fn project_scope_deploy_shared_dir_update_and_detach_lifecycle() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mgr = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let src = tmp.path().join("src/proj-skill");
+    create_skill_dir(&src, "proj-skill", "Project scope skill v1", &["project"]);
+
+    let skill = mgr.install_from_ref(&src.to_string_lossy()).unwrap();
+
+    // Attach a mock repo directory as a Project Workspace
+    let repo_dir = tmp.path().join("my-repo");
+    std::fs::create_dir_all(&repo_dir).unwrap();
+    let proj = mgr.add_project(&repo_dir, None).unwrap();
+    assert_eq!(proj.name, "my-repo");
+    assert_eq!(mgr.list_projects().unwrap().len(), 1);
+
+    // Pre-create an unmanaged conflict in <repo>/.claude/skills/proj-skill
+    let claude_target = repo_dir.join(".claude/skills/proj-skill");
+    std::fs::create_dir_all(&claude_target).unwrap();
+    std::fs::write(claude_target.join("CUSTOM.md"), "user file").unwrap();
+
+    let err = mgr
+        .deploy_skill_to_project(
+            &skill.id,
+            &proj.id,
+            "claude_code",
+            Some(DeployMode::Copy),
+            false,
+        )
+        .expect_err("must refuse to overwrite unmanaged project target");
+    assert!(err.to_string().contains("TARGET_CONFLICT"));
+
+    // Force-deploy in Copy mode resolves the conflict
+    let dep_claude = mgr
+        .deploy_skill_to_project(
+            &skill.id,
+            &proj.id,
+            "claude_code",
+            Some(DeployMode::Copy),
+            true,
+        )
+        .unwrap();
+    assert_eq!(dep_claude.mode, DeployMode::Copy);
+    assert!(claude_target.join("SKILL.md").exists());
+
+    // Deploy two agents sharing `.config/agents/skills` inside the same project (amp & replit)
+    let dep_amp = mgr
+        .deploy_skill_to_project(&skill.id, &proj.id, "amp", Some(DeployMode::Copy), false)
+        .unwrap();
+    let dep_replit = mgr
+        .deploy_skill_to_project(&skill.id, &proj.id, "replit", Some(DeployMode::Copy), false)
+        .unwrap();
+    assert_eq!(dep_amp.target_path, dep_replit.target_path);
+    assert!(dep_amp.target_path.join("SKILL.md").exists());
+
+    // Upstream update refreshes project Copy deployments too
+    create_skill_dir(&src, "proj-skill", "Project scope skill v2", &["project"]);
+    let update = mgr.update_skill(&skill.id).unwrap();
+    assert!(update.updated);
+    assert!(update.refreshed_copies >= 2);
+    let refreshed = std::fs::read_to_string(claude_target.join("SKILL.md")).unwrap();
+    assert!(refreshed.contains("Project scope skill v2"));
+
+    // Undeploying one shared-dir agent keeps the directory for the sibling agent
+    mgr.undeploy_skill_from_project(&skill.id, &proj.id, "amp")
+        .unwrap();
+    assert!(dep_amp.target_path.exists());
+
+    // Detaching the project cleanly undeploys remaining project skills while keeping central skill
+    mgr.remove_project(&proj.id).unwrap();
+    assert!(mgr.list_projects().unwrap().is_empty());
+    assert!(!claude_target.exists());
+    assert!(!dep_amp.target_path.exists());
+    assert!(skill.central_path.join("SKILL.md").exists());
+}
