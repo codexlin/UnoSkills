@@ -1,0 +1,12 @@
+Package: unoskills
+Version: @APP_VERSION@
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: codexlin <codexlin@users.noreply.github.com>
+Depends: @DEPENDS@
+Description: Fast, native Rust AI agent skills & stacks workbench
+ UnoSkills manages AI agent skills (SKILL.md) across 22 supported agents
+ from a local-first central library, with declarative stacks, marketplace
+ discovery, and a GPUI desktop workbench. Includes both the desktop app
+ (unoskills-app) and the CLI (unoskills).

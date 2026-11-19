@@ -38,6 +38,18 @@ unoskills/
 - **[AGENTS.md](AGENTS.md)** — mandatory engineering & GPUI Kit rules for AI agents and reviewers
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to add new AI agents, languages, or featured Stacks
 
+## Download & Install
+
+Grab the latest artifacts from [**Releases**](https://github.com/codexlin/UnoSkills/releases) (all ships with `SHA256SUMS.txt`):
+
+| Platform | Recommended | Contents |
+|---|---|---|
+| macOS (Apple Silicon) | `unoskills-macos-arm64.dmg` | `UnoSkills.app` — drag into `/Applications` |
+| Windows x64 | `unoskills-setup-<version>-windows-x64.exe` | Inno Setup installer with Start-menu & uninstall support |
+| Linux (Debian/Ubuntu) | `unoskills_<version>_amd64.deb` | `apt install ./unoskills_...deb` — desktop entry & icon included |
+
+Power users can also grab the bare binaries (`unoskills-app-*` GUI, `unoskills-*` CLI) or the raw archives. On macOS, unsigned builds currently require a right-click → **Open** on first launch (Developer ID signing & notarization are on the roadmap).
+
 ## Quick Start
 
 ```bash

@@ -74,6 +74,81 @@ jobs:
               "dist/unoskills-${{ matrix.artifact_suffix }}.exe"
           fi
 
+      # ------------------------------------------------------------------ #
+      # User-facing packaging (see packaging/ for per-platform templates). #
+      # ------------------------------------------------------------------ #
+
+      - name: Build UnoSkills.app and DMG (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$VERSION" =~ ^[0-9] ]] || VERSION="0.0.0"
+          mkdir -p "dist/UnoSkills.app/Contents/MacOS" "dist/UnoSkills.app/Contents/Resources"
+          cp "dist/unoskills-app-macos-arm64" "dist/UnoSkills.app/Contents/MacOS/unoskills-app"
+          cp packaging/icons/unoskills.icns "dist/UnoSkills.app/Contents/Resources/AppIcon.icns"
+          sed -e "s/@APP_VERSION@/${VERSION}/" \
+              -e "s/@APP_BUILD@/${GITHUB_RUN_NUMBER}/" \
+              packaging/macos/Info.plist > "dist/UnoSkills.app/Contents/Info.plist"
+          plutil -lint "dist/UnoSkills.app/Contents/Info.plist"
+          # Ad-hoc signature keeps the bundle self-consistent for local testing.
+          # Replace with Developer ID signing + notarization when available.
+          codesign --force --sign - "dist/UnoSkills.app"
+          mkdir -p dist/dmg-root
+          cp -R "dist/UnoSkills.app" dist/dmg-root/UnoSkills.app
+          ln -sfh /Applications dist/dmg-root/Applications
+          hdiutil create -volname UnoSkills -srcfolder dist/dmg-root \
+            -format UDZO -ov "dist/unoskills-macos-arm64.dmg"
+
+      - name: Build Windows installer (Inno Setup)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$VERSION" =~ ^[0-9] ]] || VERSION="0.0.0"
+          mkdir -p dist/windows
+          cp "dist/unoskills-app-windows-x64.exe" dist/windows/unoskills-app.exe
+          cp "dist/unoskills-windows-x64.exe" dist/windows/unoskills.exe
+          choco install innosetup --no-progress -y
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "//DAppVersion=${VERSION}" packaging/windows/unoskills.iss
+          ls -la dist/
+
+      - name: Build Debian package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$VERSION" =~ ^[0-9] ]] || VERSION="0.0.0"
+          # Auto-resolve runtime Depends from the NEEDED entries of the built
+          # binaries against packages installed on this runner. Libraries that
+          # are not installed here are skipped; extend packaging/linux/control
+          # manually if users report missing runtime libraries.
+          NEEDED=$( { objdump -p "target/${{ matrix.target }}/release/unoskills-app"; \
+                      objdump -p "target/${{ matrix.target }}/release/unoskills"; } \
+            | awk '/NEEDED/ {print $2}' | sort -u \
+            | while read -r lib; do
+                path=$(ldconfig -p | grep -F "$lib (" | head -1 | awk '{print $NF}')
+                if [ -n "$path" ]; then
+                  dpkg -S "$path" 2>/dev/null | head -1 | cut -d: -f1
+                fi
+              done | sort -u | tr '\n' ',' | sed 's/,$//')
+          echo "Auto-detected Depends: ${NEEDED:-none}"
+          mkdir -p dist/deb-root/DEBIAN dist/deb-root/usr/bin \
+            dist/deb-root/usr/share/applications \
+            dist/deb-root/usr/share/icons/hicolor/256x256/apps
+          install -m 0755 "target/${{ matrix.target }}/release/unoskills-app" dist/deb-root/usr/bin/unoskills-app
+          install -m 0755 "target/${{ matrix.target }}/release/unoskills" dist/deb-root/usr/bin/unoskills
+          install -m 0644 packaging/icons/unoskills-256.png dist/deb-root/usr/share/icons/hicolor/256x256/apps/unoskills.png
+          install -m 0644 packaging/linux/unoskills.desktop dist/deb-root/usr/share/applications/unoskills.desktop
+          sed -e "s/@APP_VERSION@/${VERSION}/" -e "s/@DEPENDS@/${NEEDED:-}/" \
+            packaging/linux/control > dist/deb-root/DEBIAN/control
+          dpkg-deb --root-owner-group --build dist/deb-root "dist/unoskills_${VERSION}_amd64.deb"
+          dpkg-deb --info "dist/unoskills_${VERSION}_amd64.deb"
+
+      - name: Clean staging directories
+        shell: bash
+        run: rm -rf dist/deb-root dist/dmg-root dist/windows dist/UnoSkills.app
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
