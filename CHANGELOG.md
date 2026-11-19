@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### 📚 Documentation / 文档
 
 - **README revamp / README 全面改版**: centered brand header, CI/release/license badges, real app screenshots for all four tabs (Library / Stacks / Discover-Adopt / Settings, captured from the running app), benefit-oriented Features, user-facing Install & Quick Start, Supported Tools (22 agents), Tech Stack table, and a Troubleshooting section.
+- **Simplified Chinese README / 简体中文说明** (`README.zh-CN.md`): full-featured twin of the English page, cross-linked from both headers.
 - New `assets/` tree: `icon.png` + `demo/*.png` (1550×975 window captures).
 
 ---

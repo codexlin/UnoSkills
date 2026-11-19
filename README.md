@@ -21,6 +21,8 @@
 </p>
 
 <p align="center">
+  <a href="README.zh-CN.md">中文说明</a>
+  &nbsp;·&nbsp;
   <a href="#features">Features</a> &nbsp;·&nbsp;
   <a href="#install">Install</a> &nbsp;·&nbsp;
   <a href="#quick-start">Quick Start</a> &nbsp;·&nbsp;
