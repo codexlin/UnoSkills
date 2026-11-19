@@ -87,6 +87,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
@@ -97,7 +99,8 @@ jobs:
           cd release-assets
           sha256sum * > SHA256SUMS.txt
 
-      - name: Extract Release Notes from CHANGELOG.md
+      - name: Extract curated Release Notes from CHANGELOG.md (if present)
+        id: changelog
         run: |
           python3 - <<'PY'
           import os, re, pathlib
@@ -112,8 +115,21 @@ jobs:
               if m:
                   notes = m.group(1).strip()
 
-          pathlib.Path("release-notes.md").write_text(notes + ("\n" if notes else ""), encoding="utf-8")
+          if notes:
+              pathlib.Path("release-notes.md").write_text(notes + "\n", encoding="utf-8")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"has_manual={'true' if notes else 'false'}\n")
           PY
+
+      - name: Auto-generate Release Notes with git-cliff (fallback)
+        if: steps.changelog.outputs.has_manual != 'true'
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: release-notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
