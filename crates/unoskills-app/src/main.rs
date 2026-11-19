@@ -16,6 +16,9 @@ fn main() {
         .with_assets(assets::UnoAssets)
         .run(|cx| {
             gpui_kit::init(cx);
+            // Stable platform identity (notifications, taskbar/app grouping).
+            // Must match the bundle/installer identifiers in packaging/.
+            cx.set_app_identity("dev.unoskills.UnoSkills", "UnoSkills");
             #[cfg(target_os = "macos")]
             cx.bind_keys([
                 KeyBinding::new("cmd-k", FocusSearch, None),

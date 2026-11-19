@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [Unreleased]
+
+### ✨ Features / 新特性
+
+- **User-Facing Installers for All Platforms / 三端正式安装包**（following the GPUI Kit packaging guide）
+  - macOS: proper `UnoSkills.app` bundle (`Info.plist`, `.icns` icon, ad-hoc signature) shipped as a `.dmg` with drag-to-Applications layout.
+  - Windows: Inno Setup installer `unoskills-setup-<version>-windows-x64.exe` with Start-menu entries, optional desktop shortcut, and uninstall support.
+  - Linux: `.deb` package (`unoskills_<version>_amd64.deb`) installing both `unoskills-app` and the `unoskills` CLI with a `.desktop` entry and hicolor icon; runtime `Depends` auto-resolved from the binaries' ELF `NEEDED` entries.
+- **Stable Platform Identity / 稳定平台身份**: the app now calls `set_app_identity("dev.unoskills.UnoSkills", …)` so OS notifications and taskbar grouping use the same identifier as the installers (bundle ID / Inno `AppId` / `StartupWMClass` all aligned).
+- New `packaging/` asset tree: committed `unoskills.icns`, `unoskills.ico`, PNG icons, and per-platform templates (`Info.plist`, `unoskills.iss`, `.desktop`, deb `control`).
+
+---
+
 ## [v0.2.0] - 2026-11-20
 
 ### ✨ Highlights / 核心更新

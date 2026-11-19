@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=UnoSkills
+GenericName=AI Skills Manager
+Comment=Fast, native Rust workbench for AI agent skills & stacks
+Exec=/usr/bin/unoskills-app
+Icon=unoskills
+Terminal=false
+Categories=Development;Utility;
+Keywords=ai;skills;agent;stacks;claude;codex;cursor;
+StartupWMClass=dev.unoskills.UnoSkills
