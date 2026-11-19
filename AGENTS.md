@@ -154,8 +154,14 @@ These safety invariants are non-negotiable (informed by real-world production in
 
 ---
 
-## 8. Verification Checklist Before Completing Work
+## 8. Git Workflow & Verification Checklist Before Completing Work
 
+### Branch & Pull Request Workflow (Should)
+- **Should** develop features, fixes, and chore updates on dedicated branches (`feat/<topic>`, `fix/<topic>`, `chore/<topic>`) rather than committing directly to `main`.
+- **Should** use Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `chore(scope): ...`) so `git-cliff` and `.github/release.yml` automatically categorize Release Notes.
+- **Should** open a Pull Request against `main` and let 3-OS CI (`ubuntu-latest`, `macos-latest`, `windows-latest`) pass before merging.
+
+### Verification Checklist
 Before reporting any task complete:
 1. Run `cargo test --workspace` — all unit & integration tests **must** pass. Any new core behavior or bug fix **should** include a focused test.
 2. Run `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets -- -D warnings` — **must** finish with **0 errors and 0 warnings** (fix unused imports/dead fields immediately).
