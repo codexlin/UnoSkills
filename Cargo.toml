@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/unoskills-core",
+    "crates/unoskills-cli",
+    "crates/unoskills-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/unoskills/unoskills"
+description = "Fast, native Rust workbench to manage, share, and sync AI agent skills & stacks."
+
+[workspace.dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+dirs = "5.0"
+gpui-kit = "0.10.0"
+hex = "0.4"
+regex = "1.11"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+sha2 = "0.10"
+tempfile = "3.14"
+toml = "0.8"
+uuid = { version = "1.11", features = ["v4"] }
+walkdir = "2.5"
+
+# Compile GPUI, Taffy layout, cosmic-text, and wgpu with optimizations even in dev
+# builds so scrolling & rendering stay 120fps silky smooth while workspace crates compile fast.
+[profile.dev.package."*"]
+opt-level = 2
+
