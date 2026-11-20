@@ -1,5 +1,5 @@
 use unoskills_core::{
-    DeployMode, UnoSkillsManager, domain::AgentCategory, registry::CustomAgentRecord,
+    DeployMode, StackSkillRef, UnoSkillsManager, domain::AgentCategory, registry::CustomAgentRecord,
 };
 
 fn create_skill_dir(path: &std::path::Path, name: &str, desc: &str, tags: &[&str]) {
@@ -446,6 +446,96 @@ fn project_scope_deploy_shared_dir_update_and_detach_lifecycle() {
     assert!(!claude_target.exists());
     assert!(!dep_amp.target_path.exists());
     assert!(skill.central_path.join("SKILL.md").exists());
+}
+
+#[test]
+fn deploy_stack_to_project_skips_existing_and_preserves_unmanaged_skills() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    manager.set_default_deploy_mode(DeployMode::Copy).unwrap();
+
+    let agent_dir = tmp.path().join("agent-skills");
+    std::fs::create_dir(&agent_dir).unwrap();
+    let agent_key = "custom_stack_qa";
+    manager
+        .add_custom_agent(&CustomAgentRecord {
+            key: agent_key.into(),
+            display_name: "Stack QA".into(),
+            skills_dir: agent_dir.to_string_lossy().into(),
+            category: AgentCategory::Coding,
+        })
+        .unwrap();
+    let agent = manager
+        .list_agents()
+        .unwrap()
+        .into_iter()
+        .find(|agent| agent.key == agent_key)
+        .unwrap();
+    let project_dir = tmp.path().join("project");
+    std::fs::create_dir(&project_dir).unwrap();
+    let project = manager.add_project(&project_dir, None).unwrap();
+    let project_skills = project.path.join(&agent.project_relative_skills_dir);
+
+    for slug in ["review", "design", "conflict", "same-name"] {
+        let path = tmp.path().join("src").join(slug);
+        create_skill_dir(&path, slug, "Test skill", &["qa"]);
+        manager.install_from_ref(&path.to_string_lossy()).unwrap();
+    }
+    let mut stack = manager
+        .create_stack_from_skills(
+            "QA",
+            "",
+            "",
+            Vec::new(),
+            &["review".into(), "design".into(), "conflict".into()],
+        )
+        .unwrap();
+    stack.skills.push(StackSkillRef {
+        name: "same-name".into(),
+        source: "owner/other-repo@same-name".into(),
+        note: String::new(),
+    });
+    stack.skills.push(StackSkillRef {
+        name: "missing".into(),
+        source: "owner/other-repo@missing".into(),
+        note: String::new(),
+    });
+    manager
+        .deploy_skill_to_project(
+            "review",
+            &project.id,
+            agent_key,
+            Some(DeployMode::Copy),
+            false,
+        )
+        .unwrap();
+    let unmanaged = project_skills.join("conflict");
+    std::fs::create_dir(&unmanaged).unwrap();
+    let custom = unmanaged.join("SKILL.md");
+    std::fs::write(&custom, "user skill").unwrap();
+
+    let result = manager
+        .deploy_stack_to_project(&stack, &project.id, agent_key)
+        .unwrap();
+    assert_eq!(
+        (result.deployed, result.already_deployed, result.unavailable),
+        (1, 1, 2)
+    );
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].0, "conflict");
+    assert!(result.failed[0].1.contains("TARGET_CONFLICT"));
+    assert_eq!(std::fs::read_to_string(custom).unwrap(), "user skill");
+    assert!(project_skills.join("design/SKILL.md").is_file());
+    assert!(!project_skills.join("same-name").exists());
+    assert!(std::fs::read_dir(agent_dir).unwrap().next().is_none());
+
+    let retry = manager
+        .deploy_stack_to_project(&stack, &project.id, agent_key)
+        .unwrap();
+    assert_eq!(
+        (retry.deployed, retry.already_deployed, retry.failed.len()),
+        (0, 2, 1)
+    );
 }
 
 #[test]

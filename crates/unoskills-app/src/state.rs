@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{Theme, WindowExt};
-use gpui_kit::{ClipboardItem, Context, EventEmitter, SharedString, Window};
+use gpui_kit::{
+    App, ClipboardItem, Context, EventEmitter, PathPromptOptions, SharedString, Window,
+};
 use unoskills_core::updater::{DownloadedUpdate, UpdateCheckOutcome, launch_platform_installer};
 use unoskills_core::{
     AdoptCandidate, AgentCategory, AgentInfo, CustomAgentRecord, DeployMode, MarketplacePage,
@@ -964,25 +965,54 @@ impl WorkspaceState {
         }
     }
 
-    pub fn add_project(
+    pub fn pick_and_attach_project(
         &mut self,
-        path: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Option<String> {
-        match self.manager.add_project(&path, None) {
-            Ok(project) => {
-                let id = project.id.clone();
-                self.reload_all(cx);
-                let msg = self.lang.toast_project_attached(&project.name);
-                self.notify_toast(false, msg, window, cx);
-                Some(id)
+        on_attached: impl FnOnce(String, &mut Window, &mut App) + 'static,
+    ) {
+        let selection = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(self.t().prompt_pick_project_folder.into()),
+        });
+        let manager = self.manager.clone();
+        let background = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let paths = match selection.await {
+                Ok(Ok(Some(paths))) => paths,
+                Ok(Err(error)) => {
+                    let _ = this.update_in(cx, |state, window, cx| {
+                        state.notify_toast(true, error.to_string(), window, cx);
+                    });
+                    return;
+                }
+                _ => return,
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let result = background
+                .spawn(async move { manager.add_project(&path, None) })
+                .await;
+            let attached = this.update_in(cx, |state, window, cx| match result {
+                Ok(project) => {
+                    state.reload_all(cx);
+                    let message = state.lang.toast_project_attached(&project.name);
+                    state.notify_toast(false, message, window, cx);
+                    Some(project.id)
+                }
+                Err(error) => {
+                    state.notify_toast(true, error.to_string(), window, cx);
+                    None
+                }
+            });
+            if let Ok(Some(id)) = attached {
+                let _ = cx.update(|window, cx| on_attached(id, window, cx));
             }
-            Err(e) => {
-                self.notify_toast(true, format!("{e}"), window, cx);
-                None
-            }
-        }
+        })
+        .detach();
     }
 
     pub fn remove_project(

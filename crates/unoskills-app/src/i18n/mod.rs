@@ -191,6 +191,39 @@ impl Lang {
         }
     }
 
+    pub fn stack_project_progress(self, deployed: usize, total: usize, pending: usize) -> String {
+        match self {
+            Self::ZhCn => format!("已部署 {deployed}/{total}，待部署 {pending} 项"),
+            Self::En => format!("{deployed}/{total} deployed · {pending} pending"),
+            Self::Ja => format!("配備済み {deployed}/{total} 件、配備待ち {pending} 件"),
+        }
+    }
+
+    pub fn stack_project_unavailable(self, count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("{count} 项未入库或来源不符。可在组合详情检查。"),
+            Self::En => format!(
+                "{count} skills are missing or have a different source. Check the stack details."
+            ),
+            Self::Ja => format!(
+                "{count} 件はライブラリにないか、ソースが異なります。スタックの詳細を確認してください。"
+            ),
+        }
+    }
+
+    pub fn stack_project_result(
+        self,
+        summary: &unoskills_core::StackProjectDeploySummary,
+    ) -> String {
+        let deployed = summary.deployed;
+        let failed = summary.failed.len();
+        match self {
+            Self::ZhCn => format!("本次部署 {deployed} 项，失败 {failed} 项"),
+            Self::En => format!("{deployed} deployed · {failed} failed"),
+            Self::Ja => format!("配備 {deployed} 件、失敗 {failed} 件"),
+        }
+    }
+
     pub fn toast_stack_toml_copied(self, stack_id: &str) -> String {
         match self {
             Self::ZhCn => format!("已复制「{stack_id}.unoskills-stack.toml」到剪贴板！"),
@@ -645,6 +678,7 @@ pub struct Strings {
     pub btn_update_skill: &'static str,
     pub btn_save: &'static str,
     pub btn_cancel: &'static str,
+    pub btn_close: &'static str,
     pub btn_delete: &'static str,
     pub btn_replace: &'static str,
     pub tooltip_reveal_folder: &'static str,
@@ -665,6 +699,13 @@ pub struct Strings {
     pub stacks_title: &'static str,
     pub tab_featured: &'static str,
     pub tab_my_stacks: &'static str,
+    pub stack_deploy_project: &'static str,
+    pub stack_pick_project: &'static str,
+    pub stack_pick_agent: &'static str,
+    pub stack_no_deploy_agents: &'static str,
+    pub stack_deploy_apply: &'static str,
+    pub stack_deploy_busy: &'static str,
+    pub stack_project_target_conflict: &'static str,
     pub empty_local_stacks_title: &'static str,
     pub empty_featured_stacks_title: &'static str,
     pub empty_stacks_desc: &'static str,

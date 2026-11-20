@@ -239,6 +239,25 @@ impl StackSkillRef {
                 })
             })
     }
+
+    pub fn has_source_conflict(&self, skill: &Skill) -> bool {
+        skill.source_ref.as_ref().is_some_and(|source| {
+            !source.eq_ignore_ascii_case(self.source.trim()) && !self.matches_source(source)
+        })
+    }
+
+    pub fn deployable_in<'a>(&self, skills: &'a [Skill]) -> Option<&'a Skill> {
+        self.installed_in(skills)
+            .filter(|skill| !self.has_source_conflict(skill))
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct StackProjectDeploySummary {
+    pub deployed: usize,
+    pub already_deployed: usize,
+    pub unavailable: usize,
+    pub failed: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

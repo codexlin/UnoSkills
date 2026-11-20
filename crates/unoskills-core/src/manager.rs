@@ -12,7 +12,7 @@ use crate::domain::{
     AdoptCandidate, AgentInfo, DeployMode, Deployment, GitBackupPullResult, GitBackupPushResult,
     GitBackupStatus, MarketplacePage, MarketplaceSkill, ProjectDeployment, ProjectWorkspace, Skill,
     SkillLintReport, SkillUpdateResult, SourceType, StackInstallSummary, StackManifest,
-    StackSkillRef, StackSource,
+    StackProjectDeploySummary, StackSkillRef, StackSource,
 };
 use crate::parser::{
     find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir, parse_skill_dir,
@@ -1042,6 +1042,58 @@ impl UnoSkillsManager {
             failed,
             deployed_agents: deploy_agents.to_vec(),
         })
+    }
+
+    /// Deploy the stack's installed skills to one project and Agent. Skip
+    /// existing placements and let the project deployment policy handle conflicts.
+    pub fn deploy_stack_to_project(
+        &self,
+        stack: &StackManifest,
+        project_id: &str,
+        agent_key: &str,
+    ) -> Result<StackProjectDeploySummary> {
+        let project = self
+            .store
+            .find_project(project_id)?
+            .context("Project workspace not found")?;
+        if !project.path.is_dir() {
+            bail!(
+                "Project directory no longer exists: {}",
+                project.path.display()
+            );
+        }
+        if !self
+            .list_agents()?
+            .iter()
+            .any(|agent| agent.key == agent_key && agent.installed && agent.enabled)
+        {
+            bail!("Agent '{agent_key}' is no longer available");
+        }
+
+        let skills = self.list_skills()?;
+        let mut completed = HashSet::new();
+        let mut summary = StackProjectDeploySummary::default();
+        for item in &stack.skills {
+            let Some(skill) = item.deployable_in(&skills) else {
+                summary.unavailable += 1;
+                continue;
+            };
+            if skill.is_deployed_to_project(&project.id, agent_key) || completed.contains(&skill.id)
+            {
+                summary.already_deployed += 1;
+                continue;
+            }
+            match self.deploy_skill_to_project(&skill.id, &project.id, agent_key, None, false) {
+                Ok(_) => {
+                    completed.insert(&skill.id);
+                    summary.deployed += 1;
+                }
+                Err(error) => summary
+                    .failed
+                    .push((item.name.clone(), format!("{error:#}"))),
+            }
+        }
+        Ok(summary)
     }
 
     // ── Marketplace (skills.sh) ──

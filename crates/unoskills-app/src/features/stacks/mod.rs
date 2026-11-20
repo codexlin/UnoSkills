@@ -1,4 +1,5 @@
 mod browser;
+mod deploy;
 mod detail;
 mod editor;
 

@@ -65,6 +65,7 @@ impl StacksView {
             s.btn_save_stack
         };
         let install_stack = stack.clone();
+        let deploy_stack = stack.clone();
 
         v_flex()
             .size_full()
@@ -144,11 +145,7 @@ impl StacksView {
                                             installed.is_none() && !pending && name == &item.name
                                         });
                                         let member_action = if let Some(skill) = installed {
-                                            let conflict =
-                                                skill.source_ref.as_ref().is_some_and(|source| {
-                                                    !source.eq_ignore_ascii_case(item.source.trim())
-                                                        && !item.matches_source(source)
-                                                });
+                                            let conflict = item.has_source_conflict(skill);
                                             div()
                                                 .flex_shrink_0()
                                                 .text_xs()
@@ -238,6 +235,7 @@ impl StacksView {
                     .px_5()
                     .py_2()
                     .gap_2()
+                    .flex_wrap()
                     .border_t_1()
                     .border_color(border)
                     .child(
@@ -248,6 +246,22 @@ impl StacksView {
                             .text_color(muted)
                             .child(summary),
                     )
+                    .when(is_local && !stack.skills.is_empty(), |footer| {
+                        footer.child(
+                            Button::new("deploy-stack-project")
+                                .flex_shrink_0()
+                                .icon(IconName::FolderOpen)
+                                .label(s.stack_deploy_project)
+                                .when_else(
+                                    to_install == 0,
+                                    |button| button.primary(),
+                                    |button| button.outline(),
+                                )
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.open_project_deploy(deploy_stack.clone(), window, cx);
+                                })),
+                        )
+                    })
                     .when(to_install > 0 || !saved || installing, |footer| {
                         footer.child(
                             Button::new("install-stack-btn")

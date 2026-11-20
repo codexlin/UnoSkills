@@ -11,8 +11,8 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    AppContext, Context, Entity, Focusable, IntoElement, ParentElement, PathPromptOptions, Render,
-    Styled, Subscription, UniformListScrollHandle, Window, div, px,
+    AppContext, Context, Entity, Focusable, IntoElement, ParentElement, Render, Styled,
+    Subscription, UniformListScrollHandle, Window, div, px,
 };
 use unoskills_core::SkillLintReport;
 
@@ -321,28 +321,14 @@ impl LibraryView {
     }
 
     pub(super) fn pick_and_attach_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let prompt = self.workspace.read(cx).t().prompt_pick_project_folder;
-        let rx = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some(prompt.into()),
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await
-                && let Some(dir) = paths.into_iter().next()
-            {
-                let _ = this.update_in(cx, |view, window, cx| {
-                    let attached_id = view
-                        .workspace
-                        .update(cx, |ws, cx| ws.add_project(dir, window, cx));
-                    if let Some(id) = attached_id {
-                        view.set_scope(Some(id), cx);
-                    }
+        let view = cx.weak_entity();
+        self.workspace.update(cx, |ws, cx| {
+            ws.pick_and_attach_project(window, cx, move |id, _, cx| {
+                let _ = view.update(cx, |view, cx| {
+                    view.set_scope(Some(id), cx);
                 });
-            }
-        })
-        .detach();
+            });
+        });
     }
 
     pub(super) fn current_skill<'a>(
