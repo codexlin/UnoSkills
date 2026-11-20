@@ -116,6 +116,12 @@ impl Render for UnoSkillsShell {
         };
         let adopt_count = self.workspace.read(cx).adopt_candidates().len();
         let busy_label = self.workspace.read(cx).busy_label().map(str::to_string);
+        let available_update_tag = self
+            .workspace
+            .read(cx)
+            .available_update()
+            .and_then(|u| u.latest.as_ref())
+            .map(|r| r.tag_name.clone());
 
         let active_view = match self.active_tab {
             NavTab::Library => self.library_view.clone().into_any_element(),
@@ -163,7 +169,21 @@ impl Render for UnoSkillsShell {
                                 .child(StatusBadge::secondary(concat!(
                                     "v",
                                     env!("CARGO_PKG_VERSION")
-                                ))),
+                                )))
+                                .when_some(available_update_tag, |row, tag| {
+                                    row.child(
+                                        Button::new("titlebar-update-btn")
+                                            .primary()
+                                            .xsmall()
+                                            .icon(IconName::ArrowUp)
+                                            .label(format!("{} {tag}", s.badge_update_available))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.workspace.update(cx, |ws, cx| {
+                                                    ws.navigate(NavTab::Settings, cx);
+                                                });
+                                            })),
+                                    )
+                                }),
                         )
                         .child(
                             h_flex()

@@ -28,6 +28,11 @@ use crate::sync::{
     ReplacePolicy, copy_dir_recursive, deploy_skill_dir, ensure_dst_not_overlapping_src,
     remove_managed_target,
 };
+use crate::updater::{
+    DEFAULT_RELEASES_API_URL, DownloadedUpdate, PlatformKind, ReleaseAsset, UpdateCheckOutcome,
+    download_and_verify_update, fetch_latest_release, find_checksums_asset, is_newer_semver,
+    select_platform_asset, should_run_startup_check,
+};
 
 pub struct UnoSkillsManager {
     root_dir: PathBuf,
@@ -1053,6 +1058,72 @@ impl UnoSkillsManager {
     pub fn marketplace_search(&self, query: &str, limit: usize) -> Result<Vec<MarketplaceSkill>> {
         let proxy = self.http_proxy();
         search_skillssh(query, limit, proxy.as_deref())
+    }
+
+    // ── Guided App Updater (v1) ──
+
+    pub fn should_auto_check_updates(&self) -> bool {
+        let last = self
+            .store
+            .get_setting("last_update_check_at")
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse::<i64>().ok());
+        should_run_startup_check(last, Utc::now().timestamp())
+    }
+
+    pub fn check_app_update(
+        &self,
+        current_version: &str,
+        record_timestamp: bool,
+    ) -> Result<UpdateCheckOutcome> {
+        let proxy = self.http_proxy();
+        let token = self.github_token();
+        let latest =
+            fetch_latest_release(DEFAULT_RELEASES_API_URL, proxy.as_deref(), token.as_deref())?;
+        if record_timestamp {
+            let _ = self
+                .store
+                .set_setting("last_update_check_at", &Utc::now().timestamp().to_string());
+        }
+        let Some(release) = latest else {
+            return Ok(UpdateCheckOutcome {
+                current_version: current_version.to_string(),
+                latest: None,
+                update_available: false,
+                recommended_asset: None,
+                checksums_asset: None,
+            });
+        };
+        let update_available = is_newer_semver(&release.tag_name, current_version);
+        let recommended_asset = select_platform_asset(&release.assets, PlatformKind::current());
+        let checksums_asset = find_checksums_asset(&release.assets);
+        Ok(UpdateCheckOutcome {
+            current_version: current_version.to_string(),
+            latest: Some(release),
+            update_available,
+            recommended_asset,
+            checksums_asset,
+        })
+    }
+
+    pub fn download_app_update(
+        &self,
+        version: &str,
+        asset: &ReleaseAsset,
+        checksums_asset: Option<&ReleaseAsset>,
+    ) -> Result<DownloadedUpdate> {
+        let proxy = self.http_proxy();
+        let token = self.github_token();
+        let updates_dir = self.root_dir.join("updates");
+        download_and_verify_update(
+            version,
+            asset,
+            checksums_asset,
+            &updates_dir,
+            proxy.as_deref(),
+            token.as_deref(),
+        )
     }
 }
 

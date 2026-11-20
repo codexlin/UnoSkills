@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Stack Search & Tag Filtering / 组合搜索与标签过滤**: live search (name / author / description / tag) plus clickable tag pills above the Stacks list.
 - **GitHub Gist Sharing / 分享到 Gist**: publish any stack as a **secret Gist** from the Stacks detail view (uses the stored GitHub PAT; CLI: `unoskills stack share <id>`, with `--device` for the OAuth Device Flow when a client id is configured). Core local features never require login.
 - New `StackSource` provenance (`Featured` / `Community` / `Local`) on every stack manifest, with serde defaults keeping all legacy TOML files parsing unchanged.
+- **In-App Guided Updater v1 / 应用内引导式更新**: 24-hour rate-limited silent startup check, TitleBar update pill, explicit download & install confirmation `AlertDialog`, automatic `SHA256SUMS.txt` digest verification (tampered downloads deleted immediately), per-platform guided install paths (Windows Inno Setup launcher, macOS DMG mount, Linux `.deb` file reveal & Release page), and CLI `unoskills check-update`.
 
 ### 📚 Documentation / 文档
 

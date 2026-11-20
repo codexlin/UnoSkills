@@ -242,6 +242,116 @@ impl Lang {
         }
     }
 
+    pub fn confirm_download_update_desc(
+        self,
+        tag: &str,
+        asset_name: &str,
+        has_checksums: bool,
+    ) -> String {
+        match self {
+            Self::ZhCn => {
+                if has_checksums {
+                    format!(
+                        "即将从 GitHub Releases 下载 {tag} 安装包（{asset_name}），并在下载完成后自动校验 SHA256SUMS.txt 完整性。校验通过后再由你确认是否安装。"
+                    )
+                } else {
+                    format!(
+                        "即将从 GitHub Releases 下载 {tag} 安装包（{asset_name}）。下载完成后再由你确认是否安装。"
+                    )
+                }
+            }
+            Self::En => {
+                if has_checksums {
+                    format!(
+                        "Download {tag} ({asset_name}) from GitHub Releases and verify its SHA-256 digest against SHA256SUMS.txt. Nothing is installed without your confirmation."
+                    )
+                } else {
+                    format!(
+                        "Download {tag} ({asset_name}) from GitHub Releases. Nothing is installed without your confirmation."
+                    )
+                }
+            }
+            Self::Ja => {
+                if has_checksums {
+                    format!(
+                        "GitHub Releases から {tag}（{asset_name}）をダウンロードし、SHA256SUMS.txt で整合性を検証します。確認なしに自動インストールされることはありません。"
+                    )
+                } else {
+                    format!(
+                        "GitHub Releases から {tag}（{asset_name}）をダウンロードします。確認なしに自動インストールされることはありません。"
+                    )
+                }
+            }
+        }
+    }
+
+    pub fn confirm_install_update_desc(
+        self,
+        version: &str,
+        file_path: &str,
+        sha_short: &str,
+    ) -> String {
+        #[cfg(target_os = "windows")]
+        let hint = match self {
+            Self::ZhCn => "点击「启动安装程序」将运行官方 Inno Setup 升级向导。",
+            Self::En => "Click 'Run Installer' to launch the Inno Setup upgrade wizard.",
+            Self::Ja => {
+                "「インストーラーを起動」をクリックすると Inno Setup の更新ウィザードが開きます。"
+            }
+        };
+        #[cfg(target_os = "macos")]
+        let hint = match self {
+            Self::ZhCn => {
+                "点击「打开 DMG」挂载镜像后，将 UnoSkills.app 拖入 Applications 覆盖即可。"
+            }
+            Self::En => {
+                "Click 'Open DMG' to mount the disk image, then drag UnoSkills.app into Applications."
+            }
+            Self::Ja => {
+                "「DMG を開く」でイメージをマウントし、UnoSkills.app を Applications にドラッグしてください。"
+            }
+        };
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        let hint = match self {
+            Self::ZhCn => {
+                "Linux .deb 安装包需通过包管理器安装（如 sudo apt install ./安装包.deb）。点击按钮可在文件管理器中定位该文件。"
+            }
+            Self::En => {
+                "Install the downloaded .deb via your package manager (e.g. sudo apt install ./package.deb). Click below to reveal the file."
+            }
+            Self::Ja => {
+                "Linux の .deb はパッケージマネージャ（例: sudo apt install ./package.deb）で導入してください。下のボタンでファイルを表示します。"
+            }
+        };
+        match self {
+            Self::ZhCn => format!(
+                "{version} 已下载并通过 SHA-256 校验（{sha_short}...）。\n文件位置：{file_path}\n\n{hint}"
+            ),
+            Self::En => format!(
+                "{version} downloaded and passed SHA-256 verification ({sha_short}...).\nSaved to: {file_path}\n\n{hint}"
+            ),
+            Self::Ja => format!(
+                "{version} をダウンロードし SHA-256 検証に合格しました（{sha_short}...）。\n保存先：{file_path}\n\n{hint}"
+            ),
+        }
+    }
+
+    pub fn busy_downloading_update(self, tag: &str) -> String {
+        match self {
+            Self::ZhCn => format!("正在下载并校验 {tag} 安装包..."),
+            Self::En => format!("Downloading & verifying {tag}..."),
+            Self::Ja => format!("{tag} をダウンロード・検証中..."),
+        }
+    }
+
+    pub fn toast_update_verified(self, tag: &str) -> String {
+        match self {
+            Self::ZhCn => format!("{tag} 已下载并通过 SHA-256 校验。"),
+            Self::En => format!("{tag} downloaded and SHA-256 verified."),
+            Self::Ja => format!("{tag} のダウンロードと SHA-256 検証が完了しました。"),
+        }
+    }
+
     pub fn confirm_delete_skill_desc(self, skill_name: &str, deploy_count: usize) -> String {
         match self {
             Self::ZhCn => format!(
@@ -562,4 +672,13 @@ pub struct Strings {
     pub btn_refresh_community: &'static str,
     pub busy_refreshing_community: &'static str,
     pub toast_community_failed: &'static str,
+    pub confirm_download_update_title: &'static str,
+    pub confirm_install_update_title: &'static str,
+    pub btn_download_update: &'static str,
+    pub btn_open_release: &'static str,
+    pub btn_install_update_win: &'static str,
+    pub btn_install_update_mac: &'static str,
+    pub btn_install_update_linux: &'static str,
+    pub badge_update_available: &'static str,
+    pub badge_sha256_verified: &'static str,
 }

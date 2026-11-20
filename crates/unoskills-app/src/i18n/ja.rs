@@ -172,4 +172,13 @@ pub static STRINGS: Strings = Strings {
     btn_refresh_community: "コミュニティスタックを更新",
     busy_refreshing_community: "コミュニティスタックのインデックスを更新中...",
     toast_community_failed: "コミュニティスタックの取得に失敗しました",
+    confirm_download_update_title: "アップデートをダウンロード・検証",
+    confirm_install_update_title: "インストーラー検証完了",
+    btn_download_update: "ダウンロードして検証",
+    btn_open_release: "リリースページ",
+    btn_install_update_win: "インストーラーを起動",
+    btn_install_update_mac: "DMG を開く",
+    btn_install_update_linux: ".deb を表示",
+    badge_update_available: "更新あり",
+    badge_sha256_verified: "SHA-256 検証済み",
 };

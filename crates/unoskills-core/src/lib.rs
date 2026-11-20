@@ -6,6 +6,7 @@ pub mod source;
 pub mod stacks;
 pub mod store;
 pub mod sync;
+pub mod updater;
 
 pub use domain::*;
 pub use manager::UnoSkillsManager;

@@ -6,6 +6,7 @@ use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{Theme, ThemeMode, WindowExt};
 use gpui_kit::{ClipboardItem, Context, EventEmitter, SharedString, Window};
+use unoskills_core::updater::{DownloadedUpdate, UpdateCheckOutcome, launch_platform_installer};
 use unoskills_core::{
     AdoptCandidate, AgentCategory, AgentInfo, CustomAgentRecord, DeployMode, MarketplaceSkill,
     ProjectWorkspace, Skill, StackManifest, UnoSkillsManager,
@@ -62,6 +63,9 @@ pub struct WorkspaceState {
     deploy_mode: DeployMode,
     font_settings: FontSettings,
     checking_updates: bool,
+    downloading_update: bool,
+    available_update: Option<UpdateCheckOutcome>,
+    downloaded_update: Option<DownloadedUpdate>,
     updating_skill_id: Option<String>,
     adopting_all: bool,
     next_busy_token: u64,
@@ -131,6 +135,9 @@ impl WorkspaceState {
                 font_size,
             },
             checking_updates: false,
+            downloading_update: false,
+            available_update: None,
+            downloaded_update: None,
             updating_skill_id: None,
             adopting_all: false,
             next_busy_token: 1,
@@ -149,6 +156,10 @@ impl WorkspaceState {
         fonts::apply_fonts_to_theme(&self.font_settings, self.lang, cx);
         // Fetch the remote community stacks index once at startup, silently.
         self.refresh_community_stacks(true, window, cx);
+        // Rate-limited (24h) silent startup update check — never downloads silently.
+        if self.manager.should_auto_check_updates() {
+            self.check_for_updates_async(true, window, cx);
+        }
     }
 
     // ── Read accessors ──
@@ -207,6 +218,18 @@ impl WorkspaceState {
 
     pub fn checking_updates(&self) -> bool {
         self.checking_updates
+    }
+
+    pub fn downloading_update(&self) -> bool {
+        self.downloading_update
+    }
+
+    pub fn available_update(&self) -> Option<&UpdateCheckOutcome> {
+        self.available_update.as_ref()
+    }
+
+    pub fn downloaded_update(&self) -> Option<&DownloadedUpdate> {
+        self.downloaded_update.as_ref()
     }
 
     pub fn updating_skill_id(&self) -> Option<&str> {
@@ -357,66 +380,209 @@ impl WorkspaceState {
         cx.emit(WorkspaceEvent::SettingsChanged);
     }
 
-    pub fn check_for_updates_async(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn check_for_updates_async(
+        &mut self,
+        silent: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.checking_updates {
             return;
         }
         self.checking_updates = true;
-        let busy_token = self.begin_busy(self.t().busy_checking_updates, cx);
+        let busy_token = if silent {
+            0
+        } else {
+            self.begin_busy(self.t().busy_checking_updates, cx)
+        };
         cx.emit(WorkspaceEvent::SettingsChanged);
 
         let current_ver = env!("CARGO_PKG_VERSION").to_string();
-        let proxy = self.manager.http_proxy();
-        let token = self.manager.github_token();
+        let mgr = self.manager.clone();
         let bg = cx.background_executor().clone();
         cx.spawn_in(window, async move |this, cx| {
-            let res: anyhow::Result<Option<String>> = bg
-                .spawn(async move {
-                    let client = unoskills_core::source::build_http_client(proxy.as_deref(), 10)?;
-                    let mut req = client
-                        .get("https://api.github.com/repos/codexlin/UnoSkills/releases/latest");
-                    if let Some(tok) = token.as_deref() {
-                        req = req.bearer_auth(tok);
-                    }
-                    let resp = req.send()?;
-                    if resp.status().as_u16() == 404 {
-                        return Ok(None);
-                    }
-                    let resp = resp.error_for_status()?;
-                    let json: serde_json::Value = resp.json()?;
-                    let tag = json
-                        .get("tag_name")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    Ok(tag)
-                })
+            let res = bg
+                .spawn(async move { mgr.check_app_update(&current_ver, true) })
                 .await;
 
             let _ = this.update_in(cx, |this, window, cx| {
                 this.checking_updates = false;
-                this.end_busy(busy_token, cx);
+                if !silent {
+                    this.end_busy(busy_token, cx);
+                }
                 match res {
-                    Ok(Some(tag)) => {
-                        if is_newer_semver(&tag, &current_ver) {
+                    Ok(outcome) => {
+                        if outcome.update_available
+                            && let Some(release) = &outcome.latest
+                        {
+                            let tag = release.tag_name.clone();
+                            this.available_update = Some(outcome);
                             let msg = this.lang.toast_update_available(&tag);
                             this.notify_toast(false, msg, window, cx);
                         } else {
-                            let msg = this.lang.toast_up_to_date(&current_ver);
-                            this.notify_toast(false, msg, window, cx);
+                            this.available_update = None;
+                            if !silent {
+                                let msg = this.lang.toast_up_to_date(env!("CARGO_PKG_VERSION"));
+                                this.notify_toast(false, msg, window, cx);
+                            }
                         }
                     }
-                    Ok(None) => {
-                        let msg = this.lang.toast_up_to_date(&current_ver);
-                        this.notify_toast(false, msg, window, cx);
+                    Err(e) if !silent => {
+                        this.notify_toast(true, format!("{e}"), window, cx);
+                    }
+                    Err(_) => {}
+                }
+                cx.emit(WorkspaceEvent::SettingsChanged);
+            });
+        })
+        .detach();
+    }
+
+    /// Prompts for explicit user consent via an `AlertDialog` before downloading
+    /// and SHA-256 verifying the platform installer.
+    pub fn prompt_download_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(outcome) = self.available_update.clone() else {
+            return;
+        };
+        let Some(release) = outcome.latest.clone() else {
+            return;
+        };
+        let Some(asset) = outcome.recommended_asset.clone() else {
+            if !release.html_url.is_empty() {
+                cx.open_url(&release.html_url);
+            }
+            return;
+        };
+        let has_checksums = outcome.checksums_asset.is_some();
+        let ws_entity = cx.entity().clone();
+        let s = self.t();
+        let title = s.confirm_download_update_title;
+        let desc =
+            self.lang
+                .confirm_download_update_desc(&release.tag_name, &asset.name, has_checksums);
+        let ok_label = s.btn_download_update;
+        let cancel_label = s.btn_cancel;
+
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let ws_entity = ws_entity.clone();
+            alert
+                .confirm()
+                .centered()
+                .title(title)
+                .description(desc.clone())
+                .ok_text(ok_label)
+                .ok_variant(ButtonVariant::Primary)
+                .cancel_text(cancel_label)
+                .on_ok(move |_, window, cx| {
+                    ws_entity.update(cx, |ws, cx| {
+                        ws.download_update_async(window, cx);
+                    });
+                    true
+                })
+        });
+    }
+
+    fn download_update_async(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.downloading_update {
+            return;
+        }
+        let Some(outcome) = self.available_update.clone() else {
+            return;
+        };
+        let Some(release) = outcome.latest else {
+            return;
+        };
+        let Some(asset) = outcome.recommended_asset else {
+            return;
+        };
+        let checksums = outcome.checksums_asset;
+
+        self.downloading_update = true;
+        let busy_token = self.begin_busy(self.lang.busy_downloading_update(&release.tag_name), cx);
+        cx.emit(WorkspaceEvent::SettingsChanged);
+
+        let mgr = self.manager.clone();
+        let tag = release.tag_name.clone();
+        let bg = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let res = bg
+                .spawn(async move { mgr.download_app_update(&tag, &asset, checksums.as_ref()) })
+                .await;
+            let _ = this.update_in(cx, |state, window, cx| {
+                state.downloading_update = false;
+                state.end_busy(busy_token, cx);
+                match res {
+                    Ok(downloaded) => {
+                        let version = downloaded.version.clone();
+                        state.downloaded_update = Some(downloaded.clone());
+                        let msg = state.lang.toast_update_verified(&version);
+                        state.notify_toast(false, msg, window, cx);
+                        state.prompt_install_downloaded_update(&downloaded, window, cx);
                     }
                     Err(e) => {
-                        this.notify_toast(true, format!("{e}"), window, cx);
+                        state.notify_toast(true, format!("{e}"), window, cx);
                     }
                 }
                 cx.emit(WorkspaceEvent::SettingsChanged);
             });
         })
         .detach();
+    }
+
+    fn prompt_install_downloaded_update(
+        &self,
+        downloaded: &DownloadedUpdate,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ws_entity = cx.entity().clone();
+        let s = self.t();
+        let title = s.confirm_install_update_title;
+        let sha_short = downloaded.sha256.get(..12).unwrap_or(&downloaded.sha256);
+        let desc = self.lang.confirm_install_update_desc(
+            &downloaded.version,
+            &downloaded.file_path.to_string_lossy(),
+            sha_short,
+        );
+        let ok_label = platform_install_button_label(s);
+        let cancel_label = s.btn_cancel;
+
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let ws_entity = ws_entity.clone();
+            alert
+                .confirm()
+                .centered()
+                .title(title)
+                .description(desc.clone())
+                .ok_text(ok_label)
+                .ok_variant(ButtonVariant::Primary)
+                .cancel_text(cancel_label)
+                .on_ok(move |_, window, cx| {
+                    ws_entity.update(cx, |ws, cx| {
+                        ws.apply_downloaded_update(window, cx);
+                    });
+                    true
+                })
+        });
+    }
+
+    /// Executes the platform-appropriate install guidance for a verified download:
+    /// Windows launches Inno Setup `.exe`, macOS mounts `.dmg`, Linux reveals `.deb`.
+    pub fn apply_downloaded_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(downloaded) = self.downloaded_update.clone() else {
+            return;
+        };
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        {
+            if let Err(e) = launch_platform_installer(&downloaded.file_path) {
+                self.notify_toast(true, format!("{e}"), window, cx);
+            }
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            let _ = (window, launch_platform_installer);
+            cx.reveal_path(&downloaded.file_path);
+        }
     }
 
     pub fn navigate(&mut self, tab: NavTab, cx: &mut Context<Self>) {
@@ -1173,52 +1339,18 @@ impl WorkspaceState {
     }
 }
 
-struct Semver<'a> {
-    core: (u64, u64, u64),
-    pre: Option<&'a str>,
-}
-
-/// Parses a `v?MAJOR.MINOR.PATCH(-prerelease)?` tag and returns whether `latest`
-/// is strictly newer than `current`.
-pub(crate) fn is_newer_semver(latest: &str, current: &str) -> bool {
-    let Some(l) = parse_semver(latest) else {
-        return false;
-    };
-    let Some(c) = parse_semver(current) else {
-        return false;
-    };
-    if l.core != c.core {
-        return l.core > c.core;
+pub fn platform_install_button_label(s: &'static Strings) -> &'static str {
+    match unoskills_core::updater::PlatformKind::current() {
+        unoskills_core::updater::PlatformKind::WindowsX64 => s.btn_install_update_win,
+        unoskills_core::updater::PlatformKind::MacosArm64 => s.btn_install_update_mac,
+        unoskills_core::updater::PlatformKind::LinuxX64
+        | unoskills_core::updater::PlatformKind::Other => s.btn_install_update_linux,
     }
-    // Same numeric triple: stable release (None) is newer than any pre-release (Some).
-    match (l.pre, c.pre) {
-        (None, Some(_)) => true,
-        (Some(_), None) => false,
-        (Some(lp), Some(cp)) => lp > cp,
-        (None, None) => false,
-    }
-}
-
-fn parse_semver(raw: &str) -> Option<Semver<'_>> {
-    let trimmed = raw.trim().trim_start_matches(['v', 'V']);
-    let without_build = trimmed.split('+').next()?;
-    let (core, pre) = match without_build.split_once('-') {
-        Some((c, p)) => (c, Some(p)),
-        None => (without_build, None),
-    };
-    let mut parts = core.split('.');
-    let major = parts.next()?.parse::<u64>().ok()?;
-    let minor = parts.next().unwrap_or("0").parse::<u64>().ok()?;
-    let patch = parts.next().unwrap_or("0").parse::<u64>().ok()?;
-    Some(Semver {
-        core: (major, minor, patch),
-        pre,
-    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_newer_semver;
+    use unoskills_core::updater::is_newer_semver;
 
     #[test]
     fn compares_semver_versions_correctly() {

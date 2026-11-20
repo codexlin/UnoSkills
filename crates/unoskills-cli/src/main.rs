@@ -72,6 +72,8 @@ enum Commands {
         #[command(subcommand)]
         action: ProjectCommands,
     },
+    /// Check GitHub Releases for a newer UnoSkills version
+    CheckUpdate,
 }
 
 #[derive(Subcommand)]
@@ -547,6 +549,27 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
         },
+        Commands::CheckUpdate => {
+            let outcome = mgr.check_app_update(env!("CARGO_PKG_VERSION"), false)?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&outcome)?);
+            } else if outcome.update_available
+                && let Some(release) = &outcome.latest
+            {
+                println!(
+                    "Update available: v{} -> {}",
+                    outcome.current_version, release.tag_name
+                );
+                if let Some(asset) = &outcome.recommended_asset {
+                    println!("Installer: {}", asset.name);
+                }
+                if !release.html_url.is_empty() {
+                    println!("Release:   {}", release.html_url);
+                }
+            } else {
+                println!("UnoSkills v{} is up to date.", outcome.current_version);
+            }
+        }
     }
 
     Ok(())
