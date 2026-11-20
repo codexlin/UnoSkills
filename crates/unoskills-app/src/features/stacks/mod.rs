@@ -147,8 +147,26 @@ impl StacksView {
         cx.notify();
     }
 
-    /// Featured + community stacks filtered by the current search text and the
-    /// active tag pill. Community stacks always sort after built-in ones.
+    /// Featured + community stacks deduplicated by `id` (built-in featured
+    /// stacks win on collision). Community stacks sort after built-in ones.
+    pub(super) fn merged_all_stacks(&self, cx: &Context<Self>) -> Vec<StackManifest> {
+        let ws = self.workspace.read(cx);
+        let mut seen = HashSet::new();
+        let mut merged = Vec::new();
+        for stack in ws
+            .featured_stacks()
+            .iter()
+            .chain(ws.community_stacks().iter())
+        {
+            if seen.insert(stack.id.clone()) {
+                merged.push(stack.clone());
+            }
+        }
+        merged
+    }
+
+    /// Deduplicated featured + community stacks filtered by the current search
+    /// text and active tag pill.
     pub(super) fn merged_filtered_stacks(&self, cx: &Context<Self>) -> Vec<StackManifest> {
         let query = self
             .stack_search_input
@@ -157,13 +175,7 @@ impl StacksView {
             .trim()
             .to_lowercase();
         let active_tag = self.active_tag.clone();
-        let ws = self.workspace.read(cx);
-        let mut merged: Vec<StackManifest> = ws
-            .featured_stacks()
-            .iter()
-            .chain(ws.community_stacks().iter())
-            .cloned()
-            .collect();
+        let mut merged = self.merged_all_stacks(cx);
         merged.retain(|stack| {
             if let Some(tag) = &active_tag
                 && !stack.tags.iter().any(|t| t.eq_ignore_ascii_case(tag))
@@ -220,7 +232,16 @@ impl Render for StacksView {
             StacksSubTab::Mine => 1,
             StacksSubTab::CreateImport => 2,
         };
-        let featured_count = self.merged_filtered_stacks(cx).len();
+        let featured_count = {
+            let ws = self.workspace.read(cx);
+            let featured = ws.featured_stacks();
+            let extra_community = ws
+                .community_stacks()
+                .iter()
+                .filter(|c| !featured.iter().any(|f| f.id == c.id))
+                .count();
+            featured.len() + extra_community
+        };
         let local_count = self.workspace.read(cx).local_stacks().len();
 
         v_flex()

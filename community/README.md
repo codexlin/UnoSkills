@@ -31,9 +31,10 @@ app release**.
 }
 ```
 
-3. Open a pull request. CI validates that every `source` ref resolves via
-   UnoSkills' strict `SKILL.md` detection. Reviewers check:
-   - every skill ref is publicly installable (`owner/repo@skill`, git URL, or local path)
+3. Open a pull request. CI validates the `index.json` schema, non-empty skill
+   entries, and unique stack `id`s (including zero collisions with built-in
+   featured stacks). Reviewers check:
+   - every skill ref is publicly installable (`owner/repo@skill` or git URL) and resolves via UnoSkills' strict `SKILL.md` detection
    - no duplicate `id`s
    - description says what the combo is *for*, not a skill list
 

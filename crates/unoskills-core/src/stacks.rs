@@ -251,7 +251,7 @@ pub fn poll_github_device_token(
 ) -> Result<String> {
     let client = build_http_client(proxy_url, 15)?;
     let started = std::time::Instant::now();
-    let poll_period = Duration::from_secs(interval.max(1));
+    let mut poll_period = Duration::from_secs(interval.max(1));
     loop {
         if started.elapsed() >= Duration::from_secs(expires_in.max(1)) {
             anyhow::bail!("Device-flow confirmation timed out");
@@ -272,6 +272,8 @@ pub fn poll_github_device_token(
             access_token: Option<String>,
             #[serde(default)]
             error: Option<String>,
+            #[serde(default)]
+            interval: Option<u64>,
         }
         let parsed: TokenResponse = response.json()?;
         if let Some(token) = parsed.access_token {
@@ -281,7 +283,11 @@ pub fn poll_github_device_token(
             // The user has not approved yet; keep polling.
             Some("authorization_pending") => continue,
             Some("slow_down") => {
-                std::thread::sleep(poll_period);
+                // RFC 8628 / GitHub Device Flow: permanently back off by +5s
+                // (or honor server-provided `interval` if larger).
+                let min_next = poll_period.as_secs().saturating_add(5);
+                let next_secs = parsed.interval.unwrap_or(min_next).max(min_next);
+                poll_period = Duration::from_secs(next_secs);
                 continue;
             }
             Some(err) => anyhow::bail!("Device flow failed: {err}"),
@@ -359,5 +365,14 @@ skills = []
         ids.sort();
         ids.dedup();
         assert_eq!(before, ids.len(), "duplicate stack ids in community index");
+
+        let featured = load_builtin_featured_stacks().unwrap();
+        for f in &featured {
+            assert!(
+                !stacks.iter().any(|c| c.id == f.id),
+                "community stack id '{}' collides with built-in featured stack",
+                f.id
+            );
+        }
     }
 }

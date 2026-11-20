@@ -993,6 +993,7 @@ impl WorkspaceState {
                 state.end_busy(busy_token, cx);
                 match res {
                     Ok(url) => {
+                        cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
                         let msg = state.lang.toast_gist_shared(&url);
                         state.notify_toast(false, msg, window, cx);
                     }

@@ -425,7 +425,12 @@ fn run(cli: Cli) -> Result<()> {
                     .find_any_stack(&stack)?
                     .ok_or_else(|| anyhow::anyhow!("Stack '{stack}' not found"))?;
                 let url = if device {
-                    mgr.share_stack_via_device_flow(&manifest)?
+                    mgr.share_stack_via_device_flow(&manifest, |req| {
+                        eprintln!(
+                            "Open {} and enter code: {} (expires in {}s)",
+                            req.verification_uri, req.user_code, req.expires_in
+                        );
+                    })?
                 } else {
                     mgr.share_stack_to_gist(&manifest)?
                 };

@@ -170,6 +170,6 @@ pub static STRINGS: Strings = Strings {
     badge_community: "コミュニティ",
     btn_share_gist: "Gist で共有",
     btn_refresh_community: "コミュニティスタックを更新",
-    busy_refreshing_community: "コミュニティスタック指数を更新中...",
+    busy_refreshing_community: "コミュニティスタックのインデックスを更新中...",
     toast_community_failed: "コミュニティスタックの取得に失敗しました",
 };

@@ -204,9 +204,9 @@ impl Lang {
 
     pub fn toast_gist_shared(self, url: &str) -> String {
         match self {
-            Self::ZhCn => format!("已分享为私密 Gist：{url}"),
-            Self::En => format!("Shared as a secret Gist: {url}"),
-            Self::Ja => format!("非公開 Gist として共有しました：{url}"),
+            Self::ZhCn => format!("已分享为私密 Gist（链接已复制）：{url}"),
+            Self::En => format!("Shared as a secret Gist (URL copied): {url}"),
+            Self::Ja => format!("非公開 Gist として共有し URL をコピーしました：{url}"),
         }
     }
 
