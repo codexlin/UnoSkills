@@ -1,20 +1,23 @@
 mod sections;
 
 use gpui_kit::component::{
-    IndexPath, StyledExt,
+    ActiveTheme, IndexPath,
+    button::{Button, ButtonVariants},
+    h_flex,
     input::InputState,
     scroll::ScrollableElement,
     select::{SearchableVec, SelectEvent, SelectState},
     v_flex,
 };
 use gpui_kit::{
-    AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window, div,
+    AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, Window, div, prelude::FluentBuilder, px,
 };
 
+use crate::components::page_header::PageHeader;
 use crate::fonts::{FONT_AUTO, installed_font_families};
 use crate::i18n::Lang;
-use crate::state::{WorkspaceEvent, WorkspaceState};
+use crate::state::{SettingsSection, WorkspaceEvent, WorkspaceState};
 
 /// Settings page: language dropdown (zh-CN / en / ja), searchable UI & Mono
 /// font pickers with language-aware Auto mode, base font size, deploy mode,
@@ -22,6 +25,7 @@ use crate::state::{WorkspaceEvent, WorkspaceState};
 /// central library root, and AI agent registry (including custom agents).
 pub struct SettingsView {
     pub(super) workspace: Entity<WorkspaceState>,
+    pub(super) active_section: SettingsSection,
     pub(super) lang_select: Entity<SelectState<Vec<SharedString>>>,
     pub(super) ui_font_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(super) mono_font_select: Entity<SelectState<SearchableVec<SharedString>>>,
@@ -32,6 +36,7 @@ pub struct SettingsView {
     pub(super) custom_agent_name_input: Entity<InputState>,
     pub(super) custom_agent_dir_input: Entity<InputState>,
     installed_fonts: Vec<String>,
+    pub(super) show_undetected_agents: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -234,6 +239,10 @@ impl SettingsView {
                     });
                     cx.notify();
                 }
+                WorkspaceEvent::NavigateToSettings(section) => {
+                    this.active_section = *section;
+                    cx.notify();
+                }
                 WorkspaceEvent::Reloaded | WorkspaceEvent::SettingsChanged => cx.notify(),
                 _ => {}
             },
@@ -241,6 +250,7 @@ impl SettingsView {
 
         Self {
             workspace,
+            active_section: SettingsSection::General,
             lang_select,
             ui_font_select,
             mono_font_select,
@@ -251,6 +261,7 @@ impl SettingsView {
             custom_agent_name_input,
             custom_agent_dir_input,
             installed_fonts,
+            show_undetected_agents: false,
             _subscriptions: vec![sub_lang, sub_ui_font, sub_mono_font, sub_ws],
         }
     }
@@ -277,24 +288,88 @@ fn build_font_options(
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let s = self.workspace.read(cx).t();
+        let active = self.active_section;
+        let theme = cx.theme();
+        let border = theme.border;
+        let primary = theme.primary;
 
-        div()
+        let sections = [
+            (SettingsSection::General, s.settings_general),
+            (SettingsSection::Appearance, s.settings_appearance_tab),
+            (SettingsSection::SyncAndNetwork, s.settings_network),
+            (SettingsSection::Agents, s.settings_agents_registry),
+            (SettingsSection::Updates, s.settings_updates_tab),
+        ];
+        let section_content = match active {
+            SettingsSection::General => self.render_general_section(cx).into_any_element(),
+            SettingsSection::Appearance => v_flex()
+                .w_full()
+                .gap_4()
+                .child(self.render_appearance_section(cx))
+                .child(self.render_fonts_section(cx))
+                .into_any_element(),
+            SettingsSection::SyncAndNetwork => v_flex()
+                .w_full()
+                .gap_4()
+                .child(self.render_network_section(cx))
+                .child(self.render_git_backup_section(cx))
+                .into_any_element(),
+            SettingsSection::Agents => self.render_agents_section(_window, cx).into_any_element(),
+            SettingsSection::Updates => self.render_updates_section(cx).into_any_element(),
+        };
+
+        v_flex()
             .size_full()
             .min_h_0()
-            .overflow_y_scrollbar()
-            .id("settings-scroll")
+            .overflow_hidden()
+            .child(PageHeader::new(s.settings_title))
             .child(
-                v_flex()
-                    .w_full()
-                    .p_5()
-                    .gap_5()
-                    .child(div().text_lg().font_semibold().child(s.settings_title))
-                    .child(self.render_general_section(cx))
-                    .child(self.render_fonts_section(cx))
-                    .child(self.render_network_section(cx))
-                    .child(self.render_git_backup_section(cx))
-                    .child(self.render_updates_section(cx))
-                    .child(self.render_agents_section(cx)),
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .items_start()
+                    .child(
+                        v_flex()
+                            .h_full()
+                            .w(px(168.))
+                            .flex_shrink_0()
+                            .gap_1()
+                            .p_3()
+                            .border_r_1()
+                            .border_color(border)
+                            .children(sections.map(|(section, label)| {
+                                Button::new(format!("settings-{section:?}"))
+                                    .ghost()
+                                    .w_full()
+                                    .accessibility_label(label)
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .text_left()
+                                            .truncate()
+                                            .child(label),
+                                    )
+                                    .when(active == section, |button| {
+                                        button.text_color(primary).bg(primary.opacity(0.12))
+                                    })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.active_section = section;
+                                        cx.notify();
+                                    }))
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id(format!("settings-scroll-{active:?}"))
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .min_h_0()
+                            .overflow_y_scrollbar()
+                            .child(div().w_full().max_w(px(720.)).p_5().child(section_content)),
+                    ),
             )
     }
 }

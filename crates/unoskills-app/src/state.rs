@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -12,7 +12,9 @@ use unoskills_core::{
     ProjectWorkspace, Skill, StackManifest, UnoSkillsManager,
 };
 
-use crate::fonts::{self, DEFAULT_FONT_SIZE, FONT_AUTO, FontSettings};
+use crate::fonts::{
+    self, AccentPalette, DEFAULT_CORNER_RADIUS, DEFAULT_FONT_SIZE, FONT_AUTO, FontSettings,
+};
 use crate::i18n::{Lang, Strings};
 
 /// Top-level navigation target, shared between the shell and feature views.
@@ -22,6 +24,17 @@ pub enum NavTab {
     Stacks,
     Discover,
     Settings,
+}
+
+/// Sub-section inside the Settings view, supporting direct deep-linking
+/// (e.g. from the TitleBar update pill or the Sidebar detected-agents footer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsSection {
+    General,
+    Appearance,
+    SyncAndNetwork,
+    Agents,
+    Updates,
 }
 
 /// Events broadcast to every subscribed feature view.
@@ -39,10 +52,21 @@ pub enum WorkspaceEvent {
     LanguageChanged,
     /// The shell should switch its active top-level tab.
     NavigateTo(NavTab),
+    /// The Settings view should switch its active sub-section.
+    NavigateToSettings(SettingsSection),
+    OpenInstallDialog,
+    SelectLibrarySkill(String),
     /// The shared busy indicator (TitleBar spinner) changed.
     BusyChanged,
-    /// A source installation finished (success or failure) for the given source ref.
-    InstallFinished(String),
+    /// A skill or stack installation started or finished.
+    InstallStateChanged,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum MarketInstallStatus {
+    Available,
+    Installed,
+    SameName,
 }
 
 /// Shared application state: owns the `UnoSkillsManager` facade, preferences,
@@ -53,7 +77,11 @@ pub struct WorkspaceState {
     lang: Lang,
     theme_mode: Option<ThemeMode>,
     skills: Vec<Skill>,
-    installed_skill_keys: HashSet<String>,
+    installed_skill_names: HashSet<String>,
+    installed_source_refs: HashSet<String>,
+    installing_refs: HashSet<String>,
+    installing_stack_ids: HashSet<String>,
+    stack_install_failures: HashMap<String, Vec<(String, String)>>,
     agents: Vec<AgentInfo>,
     projects: Vec<ProjectWorkspace>,
     featured_stacks: Vec<StackManifest>,
@@ -116,13 +144,29 @@ impl WorkspaceState {
             .flatten()
             .and_then(|s| s.parse::<f32>().ok())
             .unwrap_or(DEFAULT_FONT_SIZE);
+        let palette = manager
+            .get_setting("accent_palette")
+            .ok()
+            .flatten()
+            .map(|s| AccentPalette::from_code(&s))
+            .unwrap_or_default();
+        let corner_radius = manager
+            .get_setting("corner_radius")
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse::<f32>().ok())
+            .unwrap_or(DEFAULT_CORNER_RADIUS);
 
         let mut state = Self {
             manager,
             lang,
             theme_mode,
             skills: Vec::new(),
-            installed_skill_keys: HashSet::new(),
+            installed_skill_names: HashSet::new(),
+            installed_source_refs: HashSet::new(),
+            installing_refs: HashSet::new(),
+            installing_stack_ids: HashSet::new(),
+            stack_install_failures: HashMap::new(),
             agents: Vec::new(),
             projects: Vec::new(),
             featured_stacks: Vec::new(),
@@ -134,6 +178,8 @@ impl WorkspaceState {
                 ui_font,
                 mono_font,
                 font_size,
+                palette,
+                corner_radius,
             },
             checking_updates: false,
             downloading_update: false,
@@ -250,15 +296,23 @@ impl WorkspaceState {
         self.busy_tasks.last().map(|(_, label)| label.as_str())
     }
 
-    pub fn is_market_skill_installed(&self, item: &MarketplaceSkill) -> bool {
-        self.installed_skill_keys
+    pub fn market_install_status(&self, item: &MarketplaceSkill) -> MarketInstallStatus {
+        if self
+            .installed_source_refs
+            .contains(&item.install_ref().to_lowercase())
+        {
+            MarketInstallStatus::Installed
+        } else if self
+            .installed_skill_names
             .contains(&item.skill_id.to_lowercase())
             || self
-                .installed_skill_keys
+                .installed_skill_names
                 .contains(&item.name.to_lowercase())
-            || self
-                .installed_skill_keys
-                .contains(&item.install_ref().to_lowercase())
+        {
+            MarketInstallStatus::SameName
+        } else {
+            MarketInstallStatus::Available
+        }
     }
 
     /// Marks a freshly installed/adopted skill so the Library auto-selects it
@@ -317,12 +371,13 @@ impl WorkspaceState {
 
     fn refresh_snapshots(&mut self) {
         self.skills = self.manager.list_skills().unwrap_or_default();
-        self.installed_skill_keys.clear();
+        self.installed_skill_names.clear();
+        self.installed_source_refs.clear();
         for skill in &self.skills {
-            self.installed_skill_keys.insert(skill.slug.to_lowercase());
-            self.installed_skill_keys.insert(skill.name.to_lowercase());
+            self.installed_skill_names.insert(skill.slug.to_lowercase());
+            self.installed_skill_names.insert(skill.name.to_lowercase());
             if let Some(source_ref) = &skill.source_ref {
-                self.installed_skill_keys.insert(source_ref.to_lowercase());
+                self.installed_source_refs.insert(source_ref.to_lowercase());
             }
         }
         self.agents = self.manager.list_agents().unwrap_or_default();
@@ -380,6 +435,26 @@ impl WorkspaceState {
         let _ = self
             .manager
             .set_setting("font_size", &font_size.to_string());
+        let fs = self.font_settings.clone();
+        let lang = self.lang;
+        fonts::apply_fonts_to_theme(&fs, lang, cx);
+        cx.emit(WorkspaceEvent::SettingsChanged);
+    }
+
+    pub fn set_accent_palette(&mut self, palette: AccentPalette, cx: &mut Context<Self>) {
+        self.font_settings.palette = palette;
+        let _ = self.manager.set_setting("accent_palette", palette.code());
+        let fs = self.font_settings.clone();
+        let lang = self.lang;
+        fonts::apply_fonts_to_theme(&fs, lang, cx);
+        cx.emit(WorkspaceEvent::SettingsChanged);
+    }
+
+    pub fn set_corner_radius(&mut self, radius: f32, cx: &mut Context<Self>) {
+        self.font_settings.corner_radius = radius;
+        let _ = self
+            .manager
+            .set_setting("corner_radius", &radius.to_string());
         let fs = self.font_settings.clone();
         let lang = self.lang;
         fonts::apply_fonts_to_theme(&fs, lang, cx);
@@ -593,6 +668,21 @@ impl WorkspaceState {
 
     pub fn navigate(&mut self, tab: NavTab, cx: &mut Context<Self>) {
         cx.emit(WorkspaceEvent::NavigateTo(tab));
+    }
+
+    pub fn open_library_skill(&mut self, skill_id: String, cx: &mut Context<Self>) {
+        cx.emit(WorkspaceEvent::NavigateTo(NavTab::Library));
+        cx.emit(WorkspaceEvent::SelectLibrarySkill(skill_id));
+    }
+
+    pub fn open_install(&mut self, cx: &mut Context<Self>) {
+        cx.emit(WorkspaceEvent::NavigateTo(NavTab::Discover));
+        cx.emit(WorkspaceEvent::OpenInstallDialog);
+    }
+
+    pub fn navigate_settings(&mut self, section: SettingsSection, cx: &mut Context<Self>) {
+        cx.emit(WorkspaceEvent::NavigateTo(NavTab::Settings));
+        cx.emit(WorkspaceEvent::NavigateToSettings(section));
     }
 
     pub fn save_skill_markdown(
@@ -946,19 +1036,27 @@ impl WorkspaceState {
         }
     }
 
+    pub fn is_source_installing(&self, source_ref: &str) -> bool {
+        self.installing_refs.contains(source_ref.trim())
+    }
+
     pub fn install_source_async(
         &mut self,
         source_ref: &str,
         navigate_to_library: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let trimmed = source_ref.trim().to_string();
         if trimmed.is_empty() {
             let msg = self.t().toast_enter_source;
             self.notify_toast(true, msg, window, cx);
-            return;
+            return false;
         }
+        if !self.installing_refs.insert(trimmed.clone()) {
+            return false;
+        }
+        cx.emit(WorkspaceEvent::InstallStateChanged);
         let busy = self.lang.busy_installing(&trimmed);
         let busy_token = self.begin_busy(busy, cx);
 
@@ -971,7 +1069,8 @@ impl WorkspaceState {
                 .await;
             let _ = this.update_in(cx, |state, window, cx| {
                 state.end_busy(busy_token, cx);
-                cx.emit(WorkspaceEvent::InstallFinished(finished_ref));
+                state.installing_refs.remove(&finished_ref);
+                cx.emit(WorkspaceEvent::InstallStateChanged);
                 match res {
                     Ok(skill) => {
                         state.note_skill_added(&skill.id);
@@ -989,33 +1088,17 @@ impl WorkspaceState {
             });
         })
         .detach();
+        true
     }
 
-    pub fn adopt_candidate(
+    /// Adopt the confirmed selection on the background executor.
+    pub fn adopt_candidates_async(
         &mut self,
-        candidate: &AdoptCandidate,
+        candidates: Vec<AdoptCandidate>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.manager.adopt_candidate(candidate) {
-            Ok(skill) => {
-                self.note_skill_added(&skill.id);
-                self.reload_all(cx);
-                let msg = self.lang.toast_adopted(&skill.name, &candidate.agent_name);
-                self.notify_toast(false, msg, window, cx);
-            }
-            Err(e) => self.notify_toast(true, format!("{e}"), window, cx),
-        }
-    }
-
-    /// Adopts all detected unmanaged skills on the background executor so bulk
-    /// file copies and SHA-256 hashing never block the UI thread.
-    pub fn adopt_all_candidates_async(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.adopting_all {
-            return;
-        }
-        let candidates = self.adopt_candidates.to_vec();
-        if candidates.is_empty() {
+        if self.adopting_all || candidates.is_empty() {
             return;
         }
         self.adopting_all = true;
@@ -1026,17 +1109,17 @@ impl WorkspaceState {
         let mgr = self.manager.clone();
         let bg = cx.background_executor().clone();
         cx.spawn_in(window, async move |this, cx| {
-            let (ok_count, fail_count) = bg
+            let (ok_count, failures) = bg
                 .spawn(async move {
-                    let mut ok_count = 0usize;
-                    let mut fail_count = 0usize;
+                    let mut ok_count = 0;
+                    let mut failures = Vec::new();
                     for candidate in &candidates {
                         match mgr.adopt_candidate(candidate) {
                             Ok(_) => ok_count += 1,
-                            Err(_) => fail_count += 1,
+                            Err(error) => failures.push(format!("{} · {error}", candidate.name)),
                         }
                     }
-                    (ok_count, fail_count)
+                    (ok_count, failures)
                 })
                 .await;
 
@@ -1044,11 +1127,25 @@ impl WorkspaceState {
                 state.adopting_all = false;
                 state.end_busy(busy_token, cx);
                 state.reload_all(cx);
-                let msg = state.lang.toast_adopted_all(ok_count, fail_count);
-                state.notify_toast(fail_count > 0, msg, window, cx);
+                let mut msg = state.lang.toast_adopted_all(ok_count, failures.len());
+                if let Some(detail) = failures.first() {
+                    msg.push('\n');
+                    msg.push_str(detail);
+                }
+                state.notify_toast(!failures.is_empty(), msg, window, cx);
             });
         })
         .detach();
+    }
+
+    pub fn is_stack_installing(&self, stack_id: &str) -> bool {
+        self.installing_stack_ids.contains(stack_id)
+    }
+
+    pub fn stack_install_failures(&self, stack_id: &str) -> &[(String, String)] {
+        self.stack_install_failures
+            .get(stack_id)
+            .map_or(&[], Vec::as_slice)
     }
 
     pub fn install_stack_async(
@@ -1057,6 +1154,25 @@ impl WorkspaceState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.is_stack_installing(&stack.id)
+            || stack
+                .skills
+                .iter()
+                .any(|skill| self.is_source_installing(&skill.source))
+        {
+            return;
+        }
+        let stack_id = stack.id.clone();
+        self.installing_stack_ids.insert(stack_id.clone());
+        self.stack_install_failures.remove(&stack_id);
+        let sources: Vec<_> = stack
+            .skills
+            .iter()
+            .map(|skill| skill.source.trim().to_owned())
+            .collect();
+        self.installing_refs.extend(sources.iter().cloned());
+        cx.emit(WorkspaceEvent::InstallStateChanged);
+
         let stack_name = stack.name.clone();
         let busy = self.lang.busy_installing_stack(&stack_name);
         let busy_token = self.begin_busy(busy, cx);
@@ -1069,6 +1185,11 @@ impl WorkspaceState {
                 .await;
             let _ = this.update_in(cx, |state, window, cx| {
                 state.end_busy(busy_token, cx);
+                state.installing_stack_ids.remove(&stack_id);
+                for source in sources {
+                    state.installing_refs.remove(&source);
+                }
+                cx.emit(WorkspaceEvent::InstallStateChanged);
                 match res {
                     Ok(summary) => {
                         state.reload_all(cx);
@@ -1079,6 +1200,11 @@ impl WorkspaceState {
                             summary.failed.len(),
                         );
                         let has_failures = !summary.failed.is_empty();
+                        if has_failures {
+                            state
+                                .stack_install_failures
+                                .insert(stack_id.clone(), summary.failed);
+                        }
                         state.notify_toast(has_failures, msg, window, cx);
                     }
                     Err(e) => state.notify_toast(true, format!("{e}"), window, cx),

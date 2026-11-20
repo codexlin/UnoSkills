@@ -2,17 +2,21 @@ mod inspector;
 mod list;
 
 use gpui_kit::component::{
+    IconName, WindowExt,
+    button::{Button, ButtonVariant},
     h_resizable,
     input::{InputEvent, InputState, TextareaState},
     resizable_panel,
     text::TextViewState,
+    v_flex,
 };
 use gpui_kit::{
     AppContext, Context, Entity, Focusable, IntoElement, ParentElement, PathPromptOptions, Render,
-    Subscription, UniformListScrollHandle, Window, px,
+    Styled, Subscription, UniformListScrollHandle, Window, div, px,
 };
 use unoskills_core::SkillLintReport;
 
+use crate::components::page_header::PageHeader;
 use crate::state::{WorkspaceEvent, WorkspaceState};
 
 /// Library page: virtualized skill list with live search filtering, plus a
@@ -31,6 +35,9 @@ pub struct LibraryView {
     pub(super) markdown_preview_state: Entity<TextViewState>,
     pub(super) markdown_editor: Entity<TextareaState>,
     pub(super) editing_markdown: bool,
+    pub(super) preview_tab: bool,
+    pub(super) agent_filter: Option<String>,
+    loaded_markdown: String,
     pub(super) selected_lint: Option<SkillLintReport>,
     _subscriptions: Subscription,
 }
@@ -54,6 +61,7 @@ impl LibraryView {
             |this, _ws, event: &WorkspaceEvent, window, cx| match event {
                 WorkspaceEvent::Reloaded => this.on_data_reloaded(window, cx),
                 WorkspaceEvent::SettingsChanged => cx.notify(),
+                WorkspaceEvent::SelectLibrarySkill(id) => this.select_skill(id.clone(), window, cx),
                 WorkspaceEvent::LanguageChanged => this.apply_language(window, cx),
                 _ => {}
             },
@@ -79,6 +87,9 @@ impl LibraryView {
             markdown_preview_state,
             markdown_editor,
             editing_markdown: false,
+            preview_tab: false,
+            agent_filter: None,
+            loaded_markdown: String::new(),
             selected_lint: None,
             _subscriptions: Subscription::join(workspace_sub, search_sub),
         };
@@ -123,6 +134,16 @@ impl LibraryView {
                 self.selected_project_id = None;
             }
         }
+        if self.agent_filter.as_ref().is_some_and(|key| {
+            !self
+                .workspace
+                .read(cx)
+                .agents()
+                .iter()
+                .any(|agent| &agent.key == key && agent.installed && agent.enabled)
+        }) {
+            self.agent_filter = None;
+        }
         self.refilter(cx);
         let preserve_editor = self.editing_markdown && self.selected_skill_id == prev_selected;
         self.reload_selected_details(preserve_editor, window, cx);
@@ -144,25 +165,71 @@ impl LibraryView {
     pub(super) fn refilter(&mut self, cx: &Context<Self>) {
         let query = self.library_search.read(cx).value().trim().to_lowercase();
         let skills = self.workspace.read(cx).skills();
-        if query.is_empty() {
-            self.filtered_indices = (0..skills.len()).collect();
-        } else {
-            self.filtered_indices = skills
-                .iter()
-                .enumerate()
-                .filter(|(_, skill)| {
-                    skill.name.to_lowercase().contains(&query)
-                        || skill.slug.to_lowercase().contains(&query)
-                        || skill
-                            .description
-                            .as_deref()
-                            .map(|d| d.to_lowercase().contains(&query))
-                            .unwrap_or(false)
-                        || skill.tags.iter().any(|t| t.to_lowercase().contains(&query))
-                })
-                .map(|(ix, _)| ix)
-                .collect();
+        self.filtered_indices = skills
+            .iter()
+            .enumerate()
+            .filter(|(_, skill)| {
+                let matches_search = query.is_empty()
+                    || skill.name.to_lowercase().contains(&query)
+                    || skill.slug.to_lowercase().contains(&query)
+                    || skill
+                        .description
+                        .as_deref()
+                        .is_some_and(|d| d.to_lowercase().contains(&query))
+                    || skill.tags.iter().any(|t| t.to_lowercase().contains(&query));
+                matches_search
+                    && self
+                        .agent_filter
+                        .as_deref()
+                        .is_none_or(|agent| self.deployed(skill, agent))
+            })
+            .map(|(ix, _)| ix)
+            .collect();
+    }
+
+    pub(super) fn deployed(&self, skill: &unoskills_core::Skill, agent: &str) -> bool {
+        match self.selected_project_id.as_deref() {
+            Some(project) => skill.is_deployed_to_project(project, agent),
+            None => skill.is_deployed_to(agent),
         }
+    }
+
+    pub(super) fn set_scope(&mut self, project: Option<String>, cx: &mut Context<Self>) {
+        self.selected_project_id = project;
+        self.refilter(cx);
+        cx.notify();
+    }
+
+    fn confirm_discard(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        if !self.editing_markdown
+            || self.markdown_editor.read(cx).value().as_ref() == self.loaded_markdown
+        {
+            then(self, window, cx);
+            return;
+        }
+        let s = self.workspace.read(cx).t();
+        let view = cx.weak_entity();
+        let then = std::rc::Rc::new(then);
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let view = view.clone();
+            let then = then.clone();
+            alert
+                .confirm()
+                .centered()
+                .title(s.library_discard_title)
+                .ok_text(s.library_discard_action)
+                .ok_variant(ButtonVariant::Danger)
+                .cancel_text(s.btn_cancel)
+                .on_ok(move |_, window, cx| {
+                    let _ = view.update(cx, |view, cx| then(view, window, cx));
+                    true
+                })
+        });
     }
 
     pub(super) fn select_skill(
@@ -171,10 +238,15 @@ impl LibraryView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.selected_skill_id = Some(skill_id);
-        self.editing_markdown = false;
-        self.reload_selected_details(false, window, cx);
-        cx.notify();
+        if self.selected_skill_id.as_deref() == Some(skill_id.as_str()) {
+            return;
+        }
+        self.confirm_discard(window, cx, move |view, window, cx| {
+            view.selected_skill_id = Some(skill_id.clone());
+            view.editing_markdown = false;
+            view.reload_selected_details(false, window, cx);
+            cx.notify();
+        });
     }
 
     /// Reloads the selected skill's markdown into the retained preview /
@@ -199,6 +271,7 @@ impl LibraryView {
                 self.markdown_preview_state
                     .update(cx, |state, cx| state.set_text(&body, cx));
                 if !preserve_editor {
+                    self.loaded_markdown.clone_from(&markdown);
                     self.markdown_editor.update(cx, |editor, cx| {
                         editor.set_value(markdown, window, cx);
                     });
@@ -239,9 +312,11 @@ impl LibraryView {
 
     pub fn handle_cancel_edit_shortcut(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.editing_markdown {
-            self.editing_markdown = false;
-            self.reload_selected_details(false, window, cx);
-            cx.notify();
+            self.confirm_discard(window, cx, |view, window, cx| {
+                view.editing_markdown = false;
+                view.reload_selected_details(false, window, cx);
+                cx.notify();
+            });
         }
     }
 
@@ -262,8 +337,7 @@ impl LibraryView {
                         .workspace
                         .update(cx, |ws, cx| ws.add_project(dir, window, cx));
                     if let Some(id) = attached_id {
-                        view.selected_project_id = Some(id);
-                        cx.notify();
+                        view.set_scope(Some(id), cx);
                     }
                 });
             }
@@ -283,16 +357,42 @@ impl LibraryView {
 
 impl Render for LibraryView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let s = self.workspace.read(cx).t();
+        let toolbar = self.render_library_toolbar(cx);
         let left_pane = self.render_skill_list(cx);
         let right_pane = self.render_skill_inspector(cx);
 
-        h_resizable("library-split")
+        v_flex()
+            .size_full()
+            .min_h_0()
+            .overflow_hidden()
             .child(
-                resizable_panel()
-                    .size(px(300.))
-                    .size_range(px(220.)..px(480.))
-                    .child(left_pane),
+                PageHeader::new(s.nav_library).right_slot(
+                    Button::new("lib-add-skill")
+                        .outline()
+                        .icon(IconName::Plus)
+                        .label(s.btn_install)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.workspace.update(cx, |ws, cx| ws.open_install(cx));
+                        })),
+                ),
             )
-            .child(resizable_panel().child(right_pane))
+            .child(toolbar)
+            .child(
+                div().flex_1().min_h_0().overflow_hidden().child(
+                    h_resizable("library-split")
+                        .child(
+                            resizable_panel()
+                                .size(px(408.))
+                                .size_range(px(330.)..px(560.))
+                                .child(left_pane),
+                        )
+                        .child(
+                            resizable_panel()
+                                .size_range(px(384.)..px(f32::MAX))
+                                .child(right_pane),
+                        ),
+                ),
+            )
     }
 }

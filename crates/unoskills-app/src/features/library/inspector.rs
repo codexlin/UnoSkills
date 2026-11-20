@@ -3,486 +3,431 @@ use gpui_kit::component::{
     alert::Alert,
     button::{Button, ButtonVariant, ButtonVariants},
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle},
-    group_box::{GroupBox, GroupBoxVariants},
     h_flex,
     input::Textarea,
+    menu::{DropdownMenu, PopupMenuItem},
     scroll::ScrollableElement,
     switch::Switch,
     text::TextView,
     v_flex,
 };
 use gpui_kit::{
-    Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::FluentBuilder, px,
+    ClipboardItem, Context, InteractiveElement, IntoElement, ParentElement, Styled, div,
+    prelude::FluentBuilder, px,
 };
+use unoskills_core::Skill;
 
-use crate::components::badges::StatusBadge;
+use crate::components::page_header::page_tabs;
 
 use super::LibraryView;
 
 impl LibraryView {
     pub(super) fn render_skill_inspector(
-        &mut self,
+        &self,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let theme = cx.theme();
-        let lang = self.workspace.read(cx).lang();
-        let s = lang.t();
+        let s = self.workspace.read(cx).t();
         let Some(skill) = self.current_skill(cx).cloned() else {
-            return v_flex().size_full().items_center().justify_center().child(
-                Empty::new().header(
-                    EmptyHeader::new()
-                        .media(EmptyMedia::new().child(Icon::new(IconName::FileText).size_6()))
-                        .title(EmptyTitle::new().child(s.empty_select_skill_title))
-                        .description(EmptyDescription::new().child(s.empty_select_skill_desc)),
-                ),
-            );
+            return v_flex()
+                .size_full()
+                .items_center()
+                .justify_center()
+                .child(
+                    Empty::new().header(
+                        EmptyHeader::new()
+                            .media(EmptyMedia::new().child(Icon::new(IconName::FileText).size_6()))
+                            .title(EmptyTitle::new().child(s.empty_select_skill_title))
+                            .description(EmptyDescription::new().child(s.empty_select_skill_desc)),
+                    ),
+                )
+                .into_any_element();
         };
-
-        let installed_agents: Vec<_> = self
-            .workspace
-            .read(cx)
-            .agents()
-            .iter()
-            .filter(|a| a.installed && a.enabled)
-            .cloned()
-            .collect();
-        let projects: Vec<_> = self.workspace.read(cx).projects().to_vec();
-        let active_project = self
-            .selected_project_id
-            .as_ref()
-            .and_then(|pid| projects.iter().find(|p| &p.id == pid))
-            .cloned();
-        let lint = self.selected_lint.clone();
         let editing = self.editing_markdown;
-        let skill_id_for_delete = skill.id.clone();
-        let skill_name_for_delete = skill.name.clone();
-        let deploy_count_for_delete = skill.deployments.len() + skill.project_deployments.len();
-        let can_update = skill.source_type != unoskills_core::SourceType::Adopted
-            && skill.source_ref.as_deref().is_some_and(|r| !r.is_empty());
-        let is_updating = self.workspace.read(cx).updating_skill_id() == Some(skill.id.as_str());
-        let skill_id_for_update = skill.id.clone();
-        let skill_name_for_update = skill.name.clone();
-        let central_path_for_reveal = skill.central_path.clone();
+        let preview = self.preview_tab;
+        let border = theme.border;
+        let muted = theme.muted_foreground;
+        let lint = self
+            .selected_lint
+            .clone()
+            .filter(|report| !report.warnings.is_empty());
+        let source = skill
+            .source_ref
+            .as_deref()
+            .unwrap_or_else(|| skill.source_type.as_str());
+        let meta = format!("{source} · ~{} tokens", skill.estimated_tokens);
 
         v_flex()
             .size_full()
+            .min_w_0()
             .min_h_0()
             .overflow_hidden()
+            .bg(theme.group_box)
             .child(
                 h_flex()
-                    .w_full()
-                    .px_5()
+                    .px_4()
                     .py_3()
-                    .border_b_1()
-                    .border_color(theme.border)
+                    .gap_2()
                     .items_center()
-                    .justify_between()
-                    .gap_3()
                     .child(
                         v_flex()
                             .flex_1()
                             .min_w_0()
                             .gap_1()
                             .child(
-                                h_flex()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        div().text_lg().font_semibold().child(skill.name.clone()),
-                                    )
-                                    .child(StatusBadge::secondary(skill.source_type.as_str()))
-                                    .child(
-                                        StatusBadge::info(format!(
-                                            "~{} tokens",
-                                            skill.estimated_tokens
-                                        ))
-                                        .outline(),
-                                    ),
-                            )
-                            .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
+                                    .text_lg()
+                                    .font_semibold()
                                     .truncate()
-                                    .child(skill.central_path.to_string_lossy().to_string()),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .flex_shrink_0()
-                            .gap_2()
-                            .child(if editing {
-                                Button::new("save-skill-md")
-                                    .primary()
-                                    .small()
-                                    .icon(IconName::Check)
-                                    .label(s.btn_save)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.save_markdown(window, cx);
-                                    }))
-                            } else {
-                                Button::new("edit-skill-md")
-                                    .outline()
-                                    .small()
-                                    .icon(IconName::FileText)
-                                    .label(s.btn_edit_skill)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.editing_markdown = true;
-                                        cx.notify();
-                                    }))
-                            })
-                            .when(editing, |row| {
-                                row.child(
-                                    Button::new("cancel-edit-md")
-                                        .ghost()
-                                        .small()
-                                        .label(s.btn_cancel)
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.editing_markdown = false;
-                                            this.reload_selected_details(false, window, cx);
-                                            cx.notify();
-                                        })),
-                                )
-                            })
-                            .when(!editing && can_update, |row| {
-                                row.child(
-                                    Button::new("update-skill-btn")
-                                        .outline()
-                                        .small()
-                                        .icon(IconName::RefreshCw)
-                                        .loading(is_updating)
-                                        .label(s.btn_update_skill)
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.workspace.update(cx, |ws, cx| {
-                                                ws.update_skill_async(
-                                                    skill_id_for_update.clone(),
-                                                    skill_name_for_update.clone(),
-                                                    window,
-                                                    cx,
-                                                );
-                                            });
-                                        })),
-                                )
-                            })
-                            .child(
-                                Button::new("reveal-skill-dir")
-                                    .ghost()
-                                    .small()
-                                    .icon(IconName::FolderOpen)
-                                    .tooltip(s.tooltip_reveal_folder)
-                                    .on_click(move |_, _, cx| {
-                                        cx.reveal_path(&central_path_for_reveal);
-                                    }),
+                                    .child(skill.name.clone()),
                             )
-                            .child(
-                                Button::new("delete-skill")
-                                    .danger()
-                                    .outline()
-                                    .small()
-                                    .icon(IconName::Delete)
-                                    .tooltip(s.tooltip_remove_skill)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        let ws = this.workspace.clone();
-                                        let skill_id = skill_id_for_delete.clone();
-                                        let title = s.confirm_delete_skill_title;
-                                        let desc = lang.confirm_delete_skill_desc(
-                                            &skill_name_for_delete,
-                                            deploy_count_for_delete,
-                                        );
-                                        let ok_label = s.btn_delete;
-                                        let cancel_label = s.btn_cancel;
-
-                                        window.open_alert_dialog(cx, move |alert, _, _| {
-                                            let ws = ws.clone();
-                                            let skill_id = skill_id.clone();
-                                            alert
-                                                .confirm()
-                                                .centered()
-                                                .title(title)
-                                                .description(desc.clone())
-                                                .ok_text(ok_label)
-                                                .ok_variant(ButtonVariant::Danger)
-                                                .cancel_text(cancel_label)
-                                                .on_ok(move |_, window, cx| {
-                                                    ws.update(cx, |ws, cx| {
-                                                        ws.remove_skill(&skill_id, window, cx);
-                                                    });
-                                                    true
-                                                })
-                                        });
-                                    })),
-                            ),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .w_full()
-                    .px_5()
-                    .py_3()
-                    .gap_2()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .bg(theme.secondary.opacity(0.4))
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .flex_wrap()
-                            .items_center()
-                            .justify_between()
-                            .gap_2()
-                            .child(
-                                h_flex()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .font_semibold()
-                                            .text_color(theme.muted_foreground)
-                                            .child(s.deploy_to_agents),
-                                    )
-                                    .child({
-                                        let is_global = active_project.is_none();
-                                        let btn = Button::new("scope-global")
-                                            .xsmall()
-                                            .icon(IconName::Globe)
-                                            .label(s.scope_global)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.selected_project_id = None;
-                                                cx.notify();
-                                            }));
-                                        if is_global {
-                                            btn.primary()
-                                        } else {
-                                            btn.outline()
-                                        }
-                                    })
-                                    .children(projects.into_iter().map(|proj| {
-                                        let is_active = active_project
-                                            .as_ref()
-                                            .is_some_and(|ap| ap.id == proj.id);
-                                        let pid = proj.id.clone();
-                                        let path_tip = proj.path.to_string_lossy().to_string();
-                                        let btn = Button::new(SharedString::from(format!(
-                                            "scope-project-{}",
-                                            proj.id
-                                        )))
-                                        .xsmall()
-                                        .icon(IconName::Folder)
-                                        .label(proj.name)
-                                        .tooltip(path_tip)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.selected_project_id = Some(pid.clone());
-                                            cx.notify();
-                                        }));
-                                        if is_active {
-                                            btn.primary()
-                                        } else {
-                                            btn.outline()
-                                        }
-                                    }))
-                                    .child(
-                                        Button::new("scope-add-project")
-                                            .ghost()
-                                            .xsmall()
-                                            .icon(IconName::Plus)
-                                            .label(s.btn_add_project)
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.pick_and_attach_project(window, cx);
-                                            })),
-                                    ),
-                            ),
+                            .child(div().text_xs().text_color(muted).truncate().child(meta)),
                     )
-                    .when_some(active_project.clone(), |bar, proj| {
-                        let proj_path_str = proj.path.to_string_lossy().to_string();
-                        let proj_path_reveal = proj.path.clone();
-                        let proj_id_detach = proj.id.clone();
-                        let proj_name_detach = proj.name.clone();
-                        bar.child(
-                            h_flex()
-                                .w_full()
-                                .items_center()
-                                .justify_between()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .truncate()
-                                        .child(proj_path_str.clone()),
-                                )
-                                .child(
-                                    h_flex()
-                                        .flex_shrink_0()
-                                        .items_center()
-                                        .gap_1()
-                                        .child(
-                                            Button::new("reveal-project-dir")
-                                                .ghost()
-                                                .xsmall()
-                                                .icon(IconName::FolderOpen)
-                                                .tooltip(s.tooltip_reveal_folder)
-                                                .on_click(move |_, _, cx| {
-                                                    cx.reveal_path(&proj_path_reveal);
-                                                }),
-                                        )
-                                        .child(
-                                            Button::new("detach-project-btn")
-                                                .ghost()
-                                                .danger()
-                                                .xsmall()
-                                                .icon(IconName::Delete)
-                                                .label(s.btn_detach_project)
-                                                .on_click(cx.listener(
-                                                    move |this, _, window, cx| {
-                                                        let ws = this.workspace.clone();
-                                                        let pid = proj_id_detach.clone();
-                                                        let title = s.confirm_detach_project_title;
-                                                        let desc = lang
-                                                            .confirm_detach_project_desc(
-                                                                &proj_name_detach,
-                                                                &proj_path_str,
-                                                            );
-                                                        let ok_label = s.btn_detach_project;
-                                                        let cancel_label = s.btn_cancel;
-
-                                                        window.open_alert_dialog(
-                                                            cx,
-                                                            move |alert, _, _| {
-                                                                let ws = ws.clone();
-                                                                let pid = pid.clone();
-                                                                alert
-                                                                    .confirm()
-                                                                    .centered()
-                                                                    .title(title)
-                                                                    .description(desc.clone())
-                                                                    .ok_text(ok_label)
-                                                                    .ok_variant(
-                                                                        ButtonVariant::Danger,
-                                                                    )
-                                                                    .cancel_text(cancel_label)
-                                                                    .on_ok(move |_, window, cx| {
-                                                                        ws.update(cx, |ws, cx| {
-                                                                            ws.remove_project(
-                                                                                &pid, window, cx,
-                                                                            );
-                                                                        });
-                                                                        true
-                                                                    })
-                                                            },
-                                                        );
-                                                    },
-                                                )),
-                                        ),
-                                ),
+                    .when(editing, |row| {
+                        row.child(
+                            Button::new("cancel-edit-md")
+                                .ghost()
+                                .label(s.btn_cancel)
+                                .on_click(cx.listener(|view, _, window, cx| {
+                                    view.handle_cancel_edit_shortcut(window, cx)
+                                })),
+                        )
+                        .child(
+                            Button::new("save-skill-md")
+                                .primary()
+                                .label(s.btn_save)
+                                .on_click(cx.listener(|view, _, window, cx| {
+                                    view.save_markdown(window, cx)
+                                })),
                         )
                     })
-                    .child(
-                        h_flex()
-                            .flex_wrap()
-                            .gap_2()
-                            .when(installed_agents.is_empty(), |row| {
-                                row.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(s.no_installed_agents),
-                                )
-                            })
-                            .children(installed_agents.into_iter().map(|agent| {
-                                let active_pid = active_project.as_ref().map(|p| p.id.clone());
-                                let deployed = match active_pid.as_deref() {
-                                    Some(pid) => skill.is_deployed_to_project(pid, &agent.key),
-                                    None => skill.is_deployed_to(&agent.key),
-                                };
-                                let switch_id = match active_pid.as_deref() {
-                                    Some(pid) => {
-                                        format!("deploy-proj-{pid}-{}-{}", skill.id, agent.key)
-                                    }
-                                    None => format!("deploy-{}-{}", skill.id, agent.key),
-                                };
-                                let skill_id = skill.id.clone();
-                                let agent_key = agent.key.clone();
-                                h_flex()
-                                    .px_2()
-                                    .py_1()
-                                    .rounded_md()
-                                    .border_1()
-                                    .border_color(if deployed {
-                                        theme.primary
-                                    } else {
-                                        theme.border
-                                    })
-                                    .bg(theme.background)
-                                    .items_center()
-                                    .child(
-                                        Switch::new(SharedString::from(switch_id))
-                                            .small()
-                                            .checked(deployed)
-                                            .label(agent.display_name.clone())
-                                            .on_click(cx.listener(move |this, _, window, cx| {
-                                                let pid = active_pid.clone();
-                                                this.workspace.update(cx, |ws, cx| {
-                                                    if let Some(pid) = pid.as_deref() {
-                                                        ws.toggle_project_skill_deployment(
-                                                            &skill_id, pid, &agent_key, deployed,
-                                                            window, cx,
-                                                        );
-                                                    } else {
-                                                        ws.toggle_skill_deployment(
-                                                            &skill_id, &agent_key, deployed,
-                                                            window, cx,
-                                                        );
-                                                    }
-                                                });
-                                            })),
-                                    )
-                            })),
-                    ),
+                    .when(!editing, |row| {
+                        row.when(preview, |row| {
+                            row.child(
+                                Button::new("edit-skill-md")
+                                    .outline()
+                                    .label(s.btn_edit_skill)
+                                    .on_click(cx.listener(|view, _, _, cx| {
+                                        view.editing_markdown = true;
+                                        cx.notify();
+                                    })),
+                            )
+                        })
+                        .child(self.skill_actions(&skill, cx))
+                    }),
             )
-            .when_some(lint.filter(|l| !l.warnings.is_empty()), |pane, report| {
+            .when(!editing, |pane| {
                 pane.child(
-                    Alert::warning("skill-lint-alert", report.warnings.join(" · "))
-                        .banner()
-                        .small(),
+                    page_tabs(
+                        "skill-inspector-tabs",
+                        [s.library_deployment, s.library_preview],
+                        usize::from(preview),
+                        cx,
+                    )
+                    .px_4()
+                    .on_click(cx.listener(|view, index: &usize, _, cx| {
+                        view.preview_tab = *index == 1;
+                        cx.notify();
+                    })),
                 )
             })
-            .child(
+            .child(if editing {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .size_full()
+                    .p_4()
+                    .overflow_hidden()
+                    .child(Textarea::new(&self.markdown_editor).size_full())
+                    .into_any_element()
+            } else {
+                div()
+                    .id("skill-inspector-content")
+                    .flex_1()
+                    .min_h_0()
                     .overflow_y_scrollbar()
-                    .id("skill-md-pane")
                     .child(
                         v_flex()
                             .w_full()
-                            .p_5()
-                            .gap_4()
-                            .when(!editing, |pane| {
-                                pane.when_some(skill.description.clone(), |pane, desc| {
-                                    pane.child(
-                                        GroupBox::new()
-                                            .outline()
-                                            .title(s.section_description)
-                                            .child(div().text_sm().child(desc)),
-                                    )
-                                })
+                            .p_4()
+                            .gap_3()
+                            .when_some(lint.filter(|_| preview), |pane, report| {
+                                pane.child(
+                                    Alert::warning("skill-lint-alert", report.warnings.join(" · "))
+                                        .banner()
+                                        .small(),
+                                )
                             })
-                            .child(if editing {
-                                Textarea::new(&self.markdown_editor)
-                                    .h(px(460.))
+                            .child(if preview {
+                                v_flex()
+                                    .w_full()
+                                    .max_w(px(720.))
+                                    .gap_3()
+                                    .when_some(
+                                        skill
+                                            .description
+                                            .clone()
+                                            .filter(|text| !text.trim().is_empty()),
+                                        |pane, text| {
+                                            pane.child(
+                                                div()
+                                                    .pb_3()
+                                                    .border_b_1()
+                                                    .border_color(border)
+                                                    .text_sm()
+                                                    .child(text),
+                                            )
+                                        },
+                                    )
+                                    .child(
+                                        TextView::new(&self.markdown_preview_state)
+                                            .selectable(true),
+                                    )
                                     .into_any_element()
                             } else {
-                                TextView::new(&self.markdown_preview_state)
-                                    .selectable(true)
-                                    .into_any_element()
+                                self.deployment_rows(&skill, cx).into_any_element()
                             }),
+                    )
+                    .into_any_element()
+            })
+            .into_any_element()
+    }
+
+    fn skill_actions(&self, skill: &Skill, cx: &Context<Self>) -> impl IntoElement + use<> {
+        let ws = self.workspace.read(cx);
+        let lang = ws.lang();
+        let s = lang.t();
+        let can_update = skill.source_type != unoskills_core::SourceType::Adopted
+            && skill
+                .source_ref
+                .as_deref()
+                .is_some_and(|reference| !reference.is_empty());
+        let updating = ws.updating_skill_id() == Some(skill.id.as_str());
+        let workspace = self.workspace.downgrade();
+        let skill_id = skill.id.clone();
+        let name = skill.name.clone();
+        let path = skill.central_path.clone();
+        let deployments = skill.deployments.len() + skill.project_deployments.len();
+
+        Button::new("library-skill-actions")
+            .ghost()
+            .icon(IconName::Ellipsis)
+            .tooltip(s.library_skill_actions)
+            .accessibility_label(s.library_skill_actions)
+            .dropdown_menu(move |mut menu, _, _| {
+                if can_update {
+                    let workspace = workspace.clone();
+                    let id = skill_id.clone();
+                    let name = name.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(s.btn_update_skill)
+                            .disabled(updating)
+                            .on_click(move |_, window, cx| {
+                                let _ = workspace.update(cx, |ws, cx| {
+                                    ws.update_skill_async(id.clone(), name.clone(), window, cx)
+                                });
+                            }),
+                    );
+                }
+                let path_to_reveal = path.clone();
+                let path_to_copy = path.to_string_lossy().into_owned();
+                let workspace = workspace.clone();
+                let id = skill_id.clone();
+                let description = lang.confirm_delete_skill_desc(&name, deployments);
+                menu.item(
+                    PopupMenuItem::new(s.tooltip_reveal_folder)
+                        .on_click(move |_, _, cx| cx.reveal_path(&path_to_reveal)),
+                )
+                .item(
+                    PopupMenuItem::new(s.library_copy_path).on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(path_to_copy.clone()));
+                    }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(s.btn_delete).on_click(move |_, window, cx| {
+                        let workspace = workspace.clone();
+                        let id = id.clone();
+                        let description = description.clone();
+                        window.open_alert_dialog(cx, move |alert, _, _| {
+                            let workspace = workspace.clone();
+                            let id = id.clone();
+                            alert
+                                .confirm()
+                                .centered()
+                                .title(s.confirm_delete_skill_title)
+                                .description(description.clone())
+                                .ok_text(s.btn_delete)
+                                .ok_variant(ButtonVariant::Danger)
+                                .cancel_text(s.btn_cancel)
+                                .on_ok(move |_, window, cx| {
+                                    let _ = workspace
+                                        .update(cx, |ws, cx| ws.remove_skill(&id, window, cx));
+                                    true
+                                })
+                        });
+                    }),
+                )
+            })
+    }
+
+    fn deployment_rows(&self, skill: &Skill, cx: &Context<Self>) -> impl IntoElement + use<> {
+        let ws = self.workspace.read(cx);
+        let lang = ws.lang();
+        let s = lang.t();
+        let theme = cx.theme();
+        let border = theme.border;
+        let muted = theme.muted_foreground;
+        let project = ws
+            .projects()
+            .iter()
+            .find(|project| Some(&project.id) == self.selected_project_id.as_ref());
+        let scope = project.map_or_else(
+            || s.scope_global.to_string(),
+            |project| project.name.clone(),
+        );
+        let rows: Vec<_> = ws
+            .agents()
+            .iter()
+            .filter(|agent| agent.installed && agent.enabled)
+            .map(|agent| {
+                let deployed = self.deployed(skill, &agent.key);
+                let skill_id = skill.id.clone();
+                let agent_key = agent.key.clone();
+                let project = self.selected_project_id.clone();
+                let state_label = if deployed {
+                    s.library_deployed
+                } else {
+                    s.library_not_deployed
+                };
+                h_flex()
+                    .min_h(px(36.))
+                    .gap_2()
+                    .border_b_1()
+                    .border_color(border)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_sm()
+                            .truncate()
+                            .child(agent.display_name.clone()),
+                    )
+                    .child(
+                        Switch::new(format!("deploy-{}-{}", skill.id, agent.key))
+                            .flex_shrink_0()
+                            .checked(deployed)
+                            .accessibility_label(format!(
+                                "{} · {} · {scope}",
+                                s.library_deployment, agent.display_name,
+                            ))
+                            .tooltip(format!("{state_label} · {scope}"))
+                            .on_change(cx.listener(move |view, checked: &bool, window, cx| {
+                                if *checked == deployed {
+                                    return;
+                                }
+                                view.workspace.update(cx, |ws, cx| {
+                                    if let Some(project) = project.as_deref() {
+                                        ws.toggle_project_skill_deployment(
+                                            &skill_id, project, &agent_key, deployed, window, cx,
+                                        );
+                                    } else {
+                                        ws.toggle_skill_deployment(
+                                            &skill_id, &agent_key, deployed, window, cx,
+                                        );
+                                    }
+                                });
+                            })),
+                    )
+            })
+            .collect();
+
+        v_flex()
+            .w_full()
+            .gap_2()
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .font_semibold()
+                            .child(s.deploy_to_agents),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(240.))
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .truncate()
+                            .child(scope),
                     ),
             )
+            .when_some(project.cloned(), |panel, project| {
+                let path = project.path.clone();
+                let description = lang
+                    .confirm_detach_project_desc(&project.name, &project.path.to_string_lossy());
+                panel.child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_xs()
+                                .text_color(muted)
+                                .truncate()
+                                .child(path.to_string_lossy().into_owned()),
+                        )
+                        .child(
+                            Button::new("reveal-project-dir")
+                                .ghost()
+                                .small()
+                                .icon(IconName::FolderOpen)
+                                .tooltip(s.tooltip_reveal_folder)
+                                .accessibility_label(s.tooltip_reveal_folder)
+                                .on_click(move |_, _, cx| cx.reveal_path(&path)),
+                        )
+                        .child(
+                            Button::new("detach-project-btn")
+                                .ghost()
+                                .small()
+                                .label(s.btn_detach_project)
+                                .on_click(cx.listener(move |view, _, window, cx| {
+                                    let workspace = view.workspace.downgrade();
+                                    let description = description.clone();
+                                    let id = project.id.clone();
+                                    window.open_alert_dialog(cx, move |alert, _, _| {
+                                        let workspace = workspace.clone();
+                                        let id = id.clone();
+                                        alert
+                                            .confirm()
+                                            .centered()
+                                            .title(s.confirm_detach_project_title)
+                                            .description(description.clone())
+                                            .cancel_text(s.btn_cancel)
+                                            .ok_text(s.btn_detach_project)
+                                            .ok_variant(ButtonVariant::Danger)
+                                            .on_ok(move |_, window, cx| {
+                                                let _ = workspace.update(cx, |ws, cx| {
+                                                    ws.remove_project(&id, window, cx)
+                                                });
+                                                true
+                                            })
+                                    });
+                                })),
+                        ),
+                )
+            })
+            .when(rows.is_empty(), |panel| {
+                panel.child(
+                    div()
+                        .text_sm()
+                        .text_color(muted)
+                        .child(s.no_installed_agents),
+                )
+            })
+            .child(v_flex().border_t_1().border_color(border).children(rows))
     }
 }

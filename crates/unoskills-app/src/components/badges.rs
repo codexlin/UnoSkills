@@ -1,30 +1,50 @@
-use gpui_kit::component::{Sizable, tag::Tag};
+use gpui_kit::component::{ActiveTheme, Sizable, tag::Tag};
 use gpui_kit::{
-    App, IntoElement, ParentElement, RenderOnce, SharedString, Window, prelude::FluentBuilder,
+    App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div,
+    prelude::FluentBuilder,
 };
 
-/// Compact token-count chip (e.g. `~1.2k tok`) rendered on `Tag::secondary`.
+/// Formats an estimated token count into a compact string (`~940` or `~5.5k`).
+pub fn format_tokens_short(count: u32) -> String {
+    if count >= 1000 {
+        format!("~{:.1}k", count as f32 / 1000.0)
+    } else {
+        format!("~{count}")
+    }
+}
+
+/// Quiet monospace token-count indicator (e.g. `~1.2k` or `~940`) that stays
+/// neutral unless the skill exceeds the 4,000-token budget threshold.
 #[derive(IntoElement)]
 pub struct TokenBadge {
     label: SharedString,
+    over_budget: bool,
 }
 
 impl TokenBadge {
-    pub fn new(label: impl Into<SharedString>) -> Self {
-        Self {
-            label: label.into(),
-        }
-    }
-
-    /// Renders `~{count} tok`.
+    /// Renders compact `~1.2k` or `~940` in monospace; highlights in warning
+    /// tone when `count > 4000`.
     pub fn tokens(count: u32) -> Self {
-        Self::new(format!("~{count} tok"))
+        Self {
+            label: SharedString::from(format_tokens_short(count)),
+            over_budget: count > 4000,
+        }
     }
 }
 
 impl RenderOnce for TokenBadge {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        Tag::secondary().small().child(self.label)
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let theme = cx.theme();
+        let color = if self.over_budget {
+            theme.warning
+        } else {
+            theme.muted_foreground
+        };
+        div()
+            .font_family(theme.mono_font_family.clone())
+            .text_xs()
+            .text_color(color)
+            .child(self.label)
     }
 }
 

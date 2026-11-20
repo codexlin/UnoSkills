@@ -1,21 +1,21 @@
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, Side, Sizable, StyledExt, ThemeMode, TitleBar,
+    ActiveTheme, Icon, IconName, Side, Sizable, StyledExt, TitleBar,
     button::{Button, ButtonVariants},
     h_flex,
-    sidebar::{Sidebar, SidebarFooter, SidebarGroup, SidebarMenu, SidebarMenuItem},
+    sidebar::{Sidebar, SidebarGroup, SidebarMenu, SidebarMenuItem},
     spinner::Spinner,
     v_flex,
 };
 use gpui_kit::{
     AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement,
-    Render, SharedString, Styled, Subscription, Window, actions, div, prelude::FluentBuilder,
+    Render, SharedString, Styled, Subscription, Window, actions, div, prelude::FluentBuilder, px,
 };
 
 use crate::assets::AppIcon;
 use crate::components::badges::StatusBadge;
 use crate::features::DiscoverView;
 use crate::features::{LibraryView, SettingsView, StacksView};
-use crate::state::{NavTab, WorkspaceEvent, WorkspaceState};
+use crate::state::{NavTab, SettingsSection, WorkspaceEvent, WorkspaceState};
 
 actions!(unoskills, [FocusSearch, SaveSkill, CancelEdit]);
 
@@ -59,16 +59,27 @@ impl UnoSkillsShell {
                     | WorkspaceEvent::SettingsChanged
                     | WorkspaceEvent::LanguageChanged
                     | WorkspaceEvent::BusyChanged => cx.notify(),
-                    WorkspaceEvent::InstallFinished(_) => {}
+                    WorkspaceEvent::InstallStateChanged
+                    | WorkspaceEvent::NavigateToSettings(_)
+                    | WorkspaceEvent::OpenInstallDialog
+                    | WorkspaceEvent::SelectLibrarySkill(_) => {}
                 }
             },
         );
+
+        let sidebar_collapsed = workspace
+            .read(cx)
+            .manager()
+            .get_setting("sidebar_collapsed")
+            .ok()
+            .flatten()
+            .is_some_and(|value| value == "true");
 
         Self {
             focus_handle: cx.focus_handle(),
             workspace,
             active_tab: NavTab::Library,
-            sidebar_collapsed: false,
+            sidebar_collapsed,
             library_view,
             stacks_view,
             discover_view,
@@ -76,50 +87,28 @@ impl UnoSkillsShell {
             _subscription: subscription,
         }
     }
-
-    fn toast(
-        &self,
-        is_error: bool,
-        message: impl Into<SharedString>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.workspace
-            .update(cx, |ws, cx| ws.notify_toast(is_error, message, window, cx));
-    }
 }
 
 impl Render for UnoSkillsShell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (bg, fg, muted_fg, is_dark) = {
-            let theme = cx.theme();
-            (
-                theme.background,
-                theme.foreground,
-                theme.muted_foreground,
-                theme.is_dark(),
-            )
-        };
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let (bg, fg, muted_fg, accent) = (
+            theme.background,
+            theme.foreground,
+            theme.muted_foreground,
+            theme.primary,
+        );
         let s = self.workspace.read(cx).t();
-        let current_lang = self.workspace.read(cx).lang();
         let installed_agent_count = self.workspace.read(cx).installed_agent_count();
-        let skill_count = self.workspace.read(cx).skills().len();
-        let stack_count = {
-            let ws = self.workspace.read(cx);
-            let featured = ws.featured_stacks();
-            let extra_community = ws
-                .community_stacks()
-                .iter()
-                .filter(|c| !featured.iter().any(|f| f.id == c.id))
-                .count();
-            featured.len() + extra_community + ws.local_stacks().len()
-        };
         let adopt_count = self.workspace.read(cx).adopt_candidates().len();
         let busy_label = self.workspace.read(cx).busy_label().map(str::to_string);
+        let narrow = window.viewport_size().width < px(1080.);
+        let collapsed = narrow || self.sidebar_collapsed;
         let available_update_tag = self
             .workspace
             .read(cx)
             .available_update()
+            .filter(|u| u.update_available)
             .and_then(|u| u.latest.as_ref())
             .map(|r| r.tag_name.clone());
 
@@ -133,10 +122,23 @@ impl Render for UnoSkillsShell {
         v_flex()
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
-                this.active_tab = NavTab::Library;
-                this.library_view
-                    .update(cx, |view, cx| view.focus_search(window, cx));
-                cx.notify();
+                match this.active_tab {
+                    NavTab::Library => this
+                        .library_view
+                        .update(cx, |view, cx| view.focus_search(window, cx)),
+                    NavTab::Stacks => this
+                        .stacks_view
+                        .update(cx, |view, cx| view.focus_search(window, cx)),
+                    NavTab::Discover => this
+                        .discover_view
+                        .update(cx, |view, cx| view.focus_search(window, cx)),
+                    NavTab::Settings => {
+                        this.active_tab = NavTab::Library;
+                        this.library_view
+                            .update(cx, |view, cx| view.focus_search(window, cx));
+                        cx.notify();
+                    }
+                }
             }))
             .on_action(cx.listener(|this, _: &SaveSkill, window, cx| {
                 if this.active_tab == NavTab::Library {
@@ -154,7 +156,7 @@ impl Render for UnoSkillsShell {
             .bg(bg)
             .text_color(fg)
             .child(
-                TitleBar::new().child(
+                TitleBar::new().h(px(36.)).child(
                     h_flex()
                         .w_full()
                         .items_center()
@@ -166,10 +168,43 @@ impl Render for UnoSkillsShell {
                                 .gap_2()
                                 .child(Icon::new(AppIcon::UnoMark).size_4())
                                 .child(div().text_sm().font_semibold().child("UnoSkills"))
-                                .child(StatusBadge::secondary(concat!(
-                                    "v",
-                                    env!("CARGO_PKG_VERSION")
-                                )))
+                                .when(!narrow, |row| {
+                                    let label = if collapsed {
+                                        s.expand_sidebar
+                                    } else {
+                                        s.collapse_sidebar
+                                    };
+                                    row.child(
+                                        Button::new("collapse-sidebar")
+                                            .ghost()
+                                            .small()
+                                            .icon(IconName::PanelLeft)
+                                            .tooltip(label)
+                                            .accessibility_label(label)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.sidebar_collapsed = !this.sidebar_collapsed;
+                                                let value = if this.sidebar_collapsed {
+                                                    "true"
+                                                } else {
+                                                    "false"
+                                                };
+                                                this.workspace.update(cx, |ws, cx| {
+                                                    if let Err(error) = ws
+                                                        .manager()
+                                                        .set_setting("sidebar_collapsed", value)
+                                                    {
+                                                        ws.notify_toast(
+                                                            true,
+                                                            error.to_string(),
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    }
+                                                });
+                                                cx.notify();
+                                            })),
+                                    )
+                                })
                                 .when_some(available_update_tag, |row, tag| {
                                     row.child(
                                         Button::new("titlebar-update-btn")
@@ -179,73 +214,28 @@ impl Render for UnoSkillsShell {
                                             .label(format!("{} {tag}", s.badge_update_available))
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.workspace.update(cx, |ws, cx| {
-                                                    ws.navigate(NavTab::Settings, cx);
+                                                    ws.navigate_settings(
+                                                        SettingsSection::Updates,
+                                                        cx,
+                                                    );
                                                 });
                                             })),
                                     )
                                 }),
                         )
-                        .child(
-                            h_flex()
-                                .items_center()
-                                .gap_2()
-                                .when_some(busy_label, |row, label| {
-                                    row.child(
-                                        h_flex()
-                                            .items_center()
-                                            .gap_1()
-                                            .child(Spinner::new().xsmall())
-                                            .child(
-                                                div().text_xs().text_color(muted_fg).child(label),
-                                            ),
-                                    )
-                                })
-                                .child(
-                                    Button::new("quick-toggle-lang")
-                                        .ghost()
-                                        .xsmall()
-                                        .label(current_lang.short_label())
-                                        .tooltip(s.tooltip_lang)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            let next = current_lang.next();
-                                            this.workspace
-                                                .update(cx, |ws, cx| ws.set_language(next, cx));
-                                        })),
+                        .child(h_flex().min_w_0().items_center().gap_2().when_some(
+                            busy_label,
+                            |row, label| {
+                                row.child(Spinner::new().xsmall()).child(
+                                    div()
+                                        .min_w_0()
+                                        .text_xs()
+                                        .text_color(muted_fg)
+                                        .truncate()
+                                        .child(label),
                                 )
-                                .child(
-                                    Button::new("refresh-all")
-                                        .ghost()
-                                        .xsmall()
-                                        .icon(IconName::RefreshCw)
-                                        .tooltip(s.tooltip_refresh)
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.workspace.update(cx, |ws, cx| ws.reload_all(cx));
-                                            let msg = this.workspace.read(cx).t().toast_refreshed;
-                                            this.toast(false, msg, window, cx);
-                                        })),
-                                )
-                                .child(
-                                    Button::new("toggle-theme")
-                                        .ghost()
-                                        .xsmall()
-                                        .icon(if is_dark {
-                                            IconName::Sun
-                                        } else {
-                                            IconName::Moon
-                                        })
-                                        .tooltip(s.tooltip_theme)
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            let next = if is_dark {
-                                                ThemeMode::Light
-                                            } else {
-                                                ThemeMode::Dark
-                                            };
-                                            this.workspace.update(cx, |ws, cx| {
-                                                ws.set_theme_mode(next, window, cx)
-                                            });
-                                        })),
-                                ),
-                        ),
+                            },
+                        )),
                 ),
             )
             .child(
@@ -257,104 +247,129 @@ impl Render for UnoSkillsShell {
                     .child(
                         Sidebar::new("main-sidebar")
                             .side(Side::Left)
-                            .collapsible(true)
-                            .collapsed(self.sidebar_collapsed)
+                            .w(px(184.))
+                            .collapsed(collapsed)
                             .child(
-                                SidebarGroup::new(s.workspace_group).child(
-                                    SidebarMenu::new()
-                                        .child(
-                                            SidebarMenuItem::new(s.nav_library)
-                                                .icon(IconName::BookOpen)
-                                                .active(self.active_tab == NavTab::Library)
-                                                .suffix(move |_, _| {
-                                                    StatusBadge::secondary(format!("{skill_count}"))
-                                                })
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.workspace.update(cx, |ws, cx| {
-                                                        ws.navigate(NavTab::Library, cx)
-                                                    });
-                                                })),
-                                        )
-                                        .child(
-                                            SidebarMenuItem::new(s.nav_stacks)
-                                                .icon(IconName::LayoutDashboard)
-                                                .active(self.active_tab == NavTab::Stacks)
-                                                .suffix(move |_, _| {
-                                                    StatusBadge::secondary(format!("{stack_count}"))
-                                                })
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.workspace.update(cx, |ws, cx| {
-                                                        ws.navigate(NavTab::Stacks, cx)
-                                                    });
-                                                })),
-                                        )
-                                        .child(
-                                            SidebarMenuItem::new(s.nav_discover)
-                                                .icon(IconName::Globe)
-                                                .active(self.active_tab == NavTab::Discover)
-                                                .when(adopt_count > 0, |item| {
-                                                    item.suffix(move |_, _| {
-                                                        StatusBadge::warning(format!(
-                                                            "+{adopt_count}"
-                                                        ))
-                                                        .outline()
-                                                    })
-                                                })
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.workspace.update(cx, |ws, cx| {
-                                                        ws.navigate(NavTab::Discover, cx)
-                                                    });
-                                                })),
-                                        )
-                                        .child(
-                                            SidebarMenuItem::new(s.nav_settings)
-                                                .icon(IconName::Settings)
-                                                .active(self.active_tab == NavTab::Settings)
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.workspace.update(cx, |ws, cx| {
-                                                        ws.navigate(NavTab::Settings, cx)
-                                                    });
-                                                })),
+                                SidebarGroup::new("").child(
+                                    SidebarMenu::new().children(
+                                        [
+                                            (NavTab::Library, s.nav_library, IconName::BookOpen),
+                                            (
+                                                NavTab::Stacks,
+                                                s.nav_stacks,
+                                                IconName::LayoutDashboard,
+                                            ),
+                                            (NavTab::Discover, s.nav_discover, IconName::Globe),
+                                        ]
+                                        .map(
+                                            |(tab, label, icon)| {
+                                                SidebarMenuItem::new(label)
+                                                    .icon(icon)
+                                                    .active(self.active_tab == tab)
+                                                    .when(
+                                                        tab == NavTab::Discover && adopt_count > 0,
+                                                        |item| {
+                                                            item.suffix(move |_, _| {
+                                                                StatusBadge::warning(format!(
+                                                                    "+{adopt_count}"
+                                                                ))
+                                                                .outline()
+                                                            })
+                                                        },
+                                                    )
+                                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                                        this.workspace.update(cx, |ws, cx| {
+                                                            ws.navigate(tab, cx)
+                                                        });
+                                                    }))
+                                            },
                                         ),
+                                    ),
                                 ),
                             )
                             .footer(
-                                SidebarFooter::new().child(
-                                    h_flex()
-                                        .w_full()
-                                        .items_center()
-                                        .justify_between()
-                                        .when(!self.sidebar_collapsed, |row| {
-                                            row.child(div().text_xs().text_color(muted_fg).child(
-                                                format!(
-                                                    "{installed_agent_count} {}",
-                                                    s.agents_detected_suffix
-                                                ),
-                                            ))
+                                v_flex()
+                                    .w_full()
+                                    .gap_1()
+                                    .items_center()
+                                    .child({
+                                        let label = format!(
+                                            "{installed_agent_count} {}",
+                                            s.agents_detected_suffix
+                                        );
+                                        sidebar_footer_item(
+                                            "footer-agents-jump",
+                                            IconName::Bot,
+                                            label,
+                                            collapsed,
+                                        )
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| {
+                                                this.workspace.update(cx, |ws, cx| {
+                                                    ws.navigate_settings(
+                                                        SettingsSection::Agents,
+                                                        cx,
+                                                    )
+                                                });
+                                            }),
+                                        )
+                                    })
+                                    .child(
+                                        sidebar_footer_item(
+                                            "nav-settings",
+                                            IconName::Settings,
+                                            s.nav_settings,
+                                            collapsed,
+                                        )
+                                        .when(self.active_tab == NavTab::Settings, |button| {
+                                            button.text_color(accent).bg(accent.opacity(0.12))
                                         })
-                                        .child(
-                                            Button::new("collapse-sidebar")
-                                                .ghost()
-                                                .xsmall()
-                                                .icon(IconName::PanelLeft)
-                                                .tooltip(s.workspace_group)
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.sidebar_collapsed =
-                                                        !this.sidebar_collapsed;
-                                                    cx.notify();
-                                                })),
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| {
+                                                this.workspace.update(cx, |ws, cx| {
+                                                    ws.navigate(NavTab::Settings, cx)
+                                                });
+                                            }),
                                         ),
-                                ),
+                                    ),
                             ),
                     )
                     .child(
                         div()
                             .flex_1()
+                            .min_w_0()
                             .min_h_0()
                             .size_full()
                             .overflow_hidden()
                             .child(active_view),
                     ),
             )
+    }
+}
+
+fn sidebar_footer_item(
+    id: &'static str,
+    icon: IconName,
+    label: impl Into<SharedString>,
+    collapsed: bool,
+) -> Button {
+    let label = label.into();
+    let button = Button::new(id)
+        .ghost()
+        .small()
+        .tooltip(label.clone())
+        .accessibility_label(label.clone());
+
+    if collapsed {
+        button.icon(icon)
+    } else {
+        button.w_full().h_7().child(
+            h_flex()
+                .flex_1()
+                .min_w_0()
+                .gap_2()
+                .child(Icon::new(icon).size_4().flex_shrink_0())
+                .child(div().min_w_0().truncate().child(label)),
+        )
     }
 }

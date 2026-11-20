@@ -30,22 +30,6 @@ impl Lang {
         }
     }
 
-    pub fn short_label(self) -> &'static str {
-        match self {
-            Self::ZhCn => "中",
-            Self::En => "EN",
-            Self::Ja => "日",
-        }
-    }
-
-    pub fn next(self) -> Self {
-        match self {
-            Self::ZhCn => Self::En,
-            Self::En => Self::Ja,
-            Self::Ja => Self::ZhCn,
-        }
-    }
-
     pub fn index(self) -> usize {
         match self {
             Self::ZhCn => 0,
@@ -132,11 +116,11 @@ impl Lang {
         }
     }
 
-    pub fn toast_adopted(self, name: &str, agent: &str) -> String {
+    pub fn adopt_selected_count(self, count: usize) -> String {
         match self {
-            Self::ZhCn => format!("已从 {agent} 收编「{name}」到技能库"),
-            Self::En => format!("Adopted '{name}' from {agent} into Library."),
-            Self::Ja => format!("{agent} から「{name}」をライブラリに取り込みました"),
+            Self::ZhCn => format!("已选择 {count} 项"),
+            Self::En => format!("{count} selected"),
+            Self::Ja => format!("{count} 件を選択"),
         }
     }
 
@@ -153,6 +137,14 @@ impl Lang {
             Self::ZhCn => format!("正在安装组合「{name}」..."),
             Self::En => format!("Installing stack '{name}'..."),
             Self::Ja => format!("スタック「{name}」をインストール中..."),
+        }
+    }
+
+    pub fn stack_install_counts(self, new: usize, existing: usize) -> String {
+        match self {
+            Self::ZhCn => format!("待新增 {new} 项，已在库中 {existing} 项"),
+            Self::En => format!("{new} to add, {existing} already in the library"),
+            Self::Ja => format!("追加予定 {new} 件、ライブラリに {existing} 件"),
         }
     }
 
@@ -560,28 +552,55 @@ impl Lang {
 
 pub struct Strings {
     // Navigation & Chrome
-    pub workspace_group: &'static str,
+    pub settings_appearance_tab: &'static str,
+    pub market_all_sources: &'static str,
+    pub market_filter_scope: &'static str,
+    pub adopt_confirm_description: &'static str,
+    pub stack_actions: &'static str,
+    pub expand_sidebar: &'static str,
+    pub collapse_sidebar: &'static str,
+    pub library_deployment: &'static str,
+    pub library_preview: &'static str,
+    pub library_token_column: &'static str,
+    pub library_agent_filter: &'static str,
+    pub library_all_agents: &'static str,
+    pub library_scope: &'static str,
+    pub library_skill_column: &'static str,
+    pub library_deployed: &'static str,
+    pub library_not_deployed: &'static str,
+    pub library_skill_actions: &'static str,
+    pub library_copy_path: &'static str,
+    pub library_discard_title: &'static str,
+    pub library_discard_action: &'static str,
+    pub settings_updates_tab: &'static str,
+    pub discover_market_tab: &'static str,
+    pub discover_adopt_tab: &'static str,
+    pub market_add_to_library: &'static str,
+    pub market_source_label: &'static str,
+    pub market_search_results: &'static str,
+    pub market_sort: &'static str,
+    pub market_open_skill: &'static str,
+    pub stacks_create_title: &'static str,
+    pub stacks_preview_import: &'static str,
+    pub stacks_replace_import: &'static str,
+    pub stacks_import_title: &'static str,
+    pub adopt_select_group: &'static str,
+    pub adopt_clear_selection: &'static str,
     pub nav_library: &'static str,
     pub nav_stacks: &'static str,
     pub nav_discover: &'static str,
     pub nav_settings: &'static str,
     pub tooltip_refresh: &'static str,
-    pub tooltip_theme: &'static str,
-    pub tooltip_lang: &'static str,
     pub agents_detected_suffix: &'static str,
 
     // Library
-    pub my_skills: &'static str,
     pub btn_install: &'static str,
     pub ph_search_skills: &'static str,
     pub empty_library_title: &'static str,
     pub empty_library_desc: &'static str,
     pub empty_search_title: &'static str,
     pub empty_search_desc: &'static str,
-    pub btn_browse_stacks: &'static str,
     pub btn_discover_adopt: &'static str,
-    pub library_only: &'static str,
-    pub agents_unit: &'static str,
     pub empty_select_skill_title: &'static str,
     pub empty_select_skill_desc: &'static str,
     pub btn_edit_skill: &'static str,
@@ -590,25 +609,23 @@ pub struct Strings {
     pub btn_cancel: &'static str,
     pub btn_delete: &'static str,
     pub btn_replace: &'static str,
-    pub tooltip_remove_skill: &'static str,
     pub tooltip_reveal_folder: &'static str,
     pub confirm_delete_skill_title: &'static str,
     pub confirm_delete_stack_title: &'static str,
     pub confirm_conflict_title: &'static str,
+    pub btn_install_from_link: &'static str,
+    pub filter_all_tags: &'static str,
     pub btn_browse_folder: &'static str,
     pub prompt_pick_skill_dir: &'static str,
     pub prompt_pick_agent_dir: &'static str,
     pub deploy_to_agents: &'static str,
     pub no_installed_agents: &'static str,
-    pub section_description: &'static str,
     pub ph_skill_md: &'static str,
 
     // Stacks
     pub stacks_title: &'static str,
-    pub stacks_subtitle: &'static str,
     pub tab_featured: &'static str,
     pub tab_my_stacks: &'static str,
-    pub tab_create_share: &'static str,
     pub empty_local_stacks_title: &'static str,
     pub empty_featured_stacks_title: &'static str,
     pub empty_stacks_desc: &'static str,
@@ -618,13 +635,11 @@ pub struct Strings {
     pub skills_unit: &'static str,
     pub empty_select_stack_title: &'static str,
     pub empty_select_stack_desc: &'static str,
-    pub btn_install_stack: &'static str,
     pub btn_copy_toml: &'static str,
     pub recommended_agents: &'static str,
     pub included_skills: &'static str,
     pub already_in_library: &'static str,
     pub will_install: &'static str,
-    pub create_stack_title: &'static str,
     pub create_stack_desc: &'static str,
     pub field_stack_name: &'static str,
     pub field_stack_author: &'static str,
@@ -632,7 +647,6 @@ pub struct Strings {
     pub field_select_skills: &'static str,
     pub no_skills_to_bundle: &'static str,
     pub btn_save_stack: &'static str,
-    pub import_stack_title: &'static str,
     pub import_stack_desc: &'static str,
     pub btn_import_stack: &'static str,
     pub ph_stack_name: &'static str,
@@ -642,9 +656,6 @@ pub struct Strings {
 
     // Discover
     pub discover_title: &'static str,
-    pub discover_subtitle: &'static str,
-    pub tab_marketplace_install: &'static str,
-    pub tab_adopt_existing: &'static str,
     pub quick_install_title: &'static str,
     pub ph_install_source: &'static str,
     pub ph_market_search: &'static str,
@@ -653,6 +664,11 @@ pub struct Strings {
     pub board_trending: &'static str,
     pub board_hot: &'static str,
     pub board_all_time: &'static str,
+    pub market_view_details: &'static str,
+    pub market_source_filter: &'static str,
+    pub market_clear_source_filter: &'static str,
+    pub market_official: &'static str,
+    pub market_same_name: &'static str,
     pub market_loading: &'static str,
     pub market_loading_more: &'static str,
     pub btn_load_more: &'static str,
@@ -661,7 +677,6 @@ pub struct Strings {
     pub installs_unit: &'static str,
     pub ph_adopt_search: &'static str,
     pub btn_rescan: &'static str,
-    pub btn_adopt_all: &'static str,
     pub btn_adopt: &'static str,
     pub empty_adopt_done_title: &'static str,
     pub empty_adopt_done_desc: &'static str,
@@ -703,7 +718,6 @@ pub struct Strings {
     pub ph_github_token: &'static str,
     pub settings_root_dir: &'static str,
     pub settings_agents_registry: &'static str,
-    pub settings_agents_registry_desc: &'static str,
     pub settings_add_custom_agent: &'static str,
     pub ph_custom_agent_name: &'static str,
     pub ph_custom_agent_dir: &'static str,
@@ -757,4 +771,13 @@ pub struct Strings {
     pub busy_backup_pulling: &'static str,
     pub toast_backup_saved: &'static str,
     pub toast_backup_noop: &'static str,
+    pub settings_accent_palette: &'static str,
+    pub settings_accent_palette_desc: &'static str,
+    pub palette_claude: &'static str,
+    pub palette_vercel: &'static str,
+    pub palette_supabase: &'static str,
+    pub palette_catppuccin: &'static str,
+    pub palette_ocean: &'static str,
+    pub settings_corner_radius: &'static str,
+    pub settings_corner_radius_desc: &'static str,
 }

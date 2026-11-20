@@ -5,25 +5,27 @@ mod editor;
 use std::collections::HashSet;
 
 use gpui_kit::component::{
-    Sizable,
+    IconName,
+    button::{Button, ButtonVariants},
+    h_flex,
     input::{InputEvent, InputState, TextareaState},
-    tab::{Tab, TabBar},
     v_flex,
 };
 use gpui_kit::{
-    AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
-    div,
+    AppContext, Context, Entity, Focusable, IntoElement, ParentElement, Render, Styled,
+    Subscription, UniformListScrollHandle, Window, div,
 };
 use unoskills_core::StackManifest;
 
-use crate::components::page_header::PageHeader;
+use crate::components::page_header::{PageHeader, page_tabs};
 use crate::state::{WorkspaceEvent, WorkspaceState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum StacksSubTab {
     Featured,
     Mine,
-    CreateImport,
+    Create,
+    Import,
 }
 
 /// Stacks page: Featured community recipes, My Stacks, and a Create / Import
@@ -35,13 +37,18 @@ pub struct StacksView {
     pub(super) selected_stack_id: Option<String>,
     pub(super) stack_search_input: Entity<InputState>,
     pub(super) active_tag: Option<String>,
+    pub(super) stack_scroll: UniformListScrollHandle,
     pub(super) stack_name_input: Entity<InputState>,
     pub(super) stack_author_input: Entity<InputState>,
     pub(super) stack_desc_input: Entity<InputState>,
+    pub(super) stack_picker_search: Entity<InputState>,
+    pub(super) stack_picker_scroll: UniformListScrollHandle,
     pub(super) stack_import_toml: Entity<TextareaState>,
+    pub(super) stack_import_error: Option<String>,
     pub(super) stack_selected_skill_ids: HashSet<String>,
     _subscription: Subscription,
     _search_subscription: Subscription,
+    _picker_subscription: Subscription,
 }
 
 impl StacksView {
@@ -59,6 +66,19 @@ impl StacksView {
             cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_stack_author));
         let stack_desc_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_stack_desc));
+        let stack_picker_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_search_skills));
+        let picker_subscription = cx.subscribe_in(
+            &stack_picker_search,
+            window,
+            |this, _, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.stack_picker_scroll
+                        .scroll_to_item(0, gpui_kit::ScrollStrategy::Top);
+                    cx.notify();
+                }
+            },
+        );
         let stack_import_toml =
             cx.new(|cx| TextareaState::new(window, cx).placeholder(s.ph_stack_import));
 
@@ -67,7 +87,7 @@ impl StacksView {
             window,
             |this, _ws, event: &WorkspaceEvent, window, cx| match event {
                 WorkspaceEvent::LanguageChanged => this.apply_language(window, cx),
-                WorkspaceEvent::Reloaded => cx.notify(),
+                WorkspaceEvent::Reloaded | WorkspaceEvent::InstallStateChanged => cx.notify(),
                 _ => {}
             },
         );
@@ -76,8 +96,10 @@ impl StacksView {
         let search_subscription = cx.subscribe_in(
             &stack_search_input,
             window,
-            |_this, _input, event: &InputEvent, _window, cx| {
+            |this, _input, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
+                    this.stack_scroll
+                        .scroll_to_item(0, gpui_kit::ScrollStrategy::Top);
                     cx.notify();
                 }
             },
@@ -95,10 +117,15 @@ impl StacksView {
             selected_stack_id,
             stack_search_input,
             active_tag: None,
+            stack_scroll: UniformListScrollHandle::new(),
             stack_name_input,
             stack_author_input,
             stack_desc_input,
+            stack_picker_search,
+            stack_picker_scroll: UniformListScrollHandle::new(),
             stack_import_toml,
+            stack_import_error: None,
+            _picker_subscription: picker_subscription,
             stack_selected_skill_ids: HashSet::new(),
             _subscription: subscription,
             _search_subscription: search_subscription,
@@ -120,13 +147,30 @@ impl StacksView {
             .update(cx, |state, cx| state.set_placeholder(ph_author, window, cx));
         self.stack_desc_input
             .update(cx, |state, cx| state.set_placeholder(ph_desc, window, cx));
+        self.stack_picker_search.update(cx, |state, cx| {
+            state.set_placeholder(s.ph_search_skills, window, cx)
+        });
         self.stack_import_toml
             .update(cx, |state, cx| state.set_placeholder(ph_import, window, cx));
         cx.notify();
     }
 
+    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = match self.sub_tab {
+            StacksSubTab::Create => &self.stack_picker_search,
+            StacksSubTab::Import => return,
+            _ => &self.stack_search_input,
+        };
+        let focus = input.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+    }
+
     pub(super) fn switch_sub_tab(&mut self, sub_tab: StacksSubTab, cx: &mut Context<Self>) {
-        self.sub_tab = sub_tab;
+        if self.sub_tab != sub_tab {
+            self.stack_scroll
+                .scroll_to_item(0, gpui_kit::ScrollStrategy::Top);
+            self.sub_tab = sub_tab;
+        }
         match sub_tab {
             StacksSubTab::Featured => {
                 self.selected_stack_id = self
@@ -142,7 +186,7 @@ impl StacksView {
                     .first()
                     .map(|stack| stack.id.clone());
             }
-            StacksSubTab::CreateImport => {}
+            StacksSubTab::Create | StacksSubTab::Import => {}
         }
         cx.notify();
     }
@@ -227,47 +271,68 @@ impl Render for StacksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let s = self.workspace.read(cx).t();
         let sub = self.sub_tab;
-        let selected_idx = match sub {
-            StacksSubTab::Featured => 0,
-            StacksSubTab::Mine => 1,
-            StacksSubTab::CreateImport => 2,
+        let library_tabs = matches!(sub, StacksSubTab::Featured | StacksSubTab::Mine);
+        let header = PageHeader::new(match sub {
+            StacksSubTab::Create => s.stacks_create_title,
+            StacksSubTab::Import => s.stacks_import_title,
+            _ => s.stacks_title,
+        });
+        let header = if library_tabs {
+            header.right_slot(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("stack-import-route")
+                            .outline()
+                            .label(s.stacks_import_title)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.switch_sub_tab(StacksSubTab::Import, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("stack-create-route")
+                            .outline()
+                            .icon(IconName::Plus)
+                            .label(s.stacks_create_title)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.switch_sub_tab(StacksSubTab::Create, cx)
+                            })),
+                    ),
+            )
+        } else {
+            header.right_slot(
+                Button::new("stack-editor-back")
+                    .ghost()
+                    .label(s.btn_cancel)
+                    .on_click(
+                        cx.listener(|this, _, _, cx| this.switch_sub_tab(StacksSubTab::Mine, cx)),
+                    ),
+            )
         };
-        let featured_count = {
-            let ws = self.workspace.read(cx);
-            let featured = ws.featured_stacks();
-            let extra_community = ws
-                .community_stacks()
-                .iter()
-                .filter(|c| !featured.iter().any(|f| f.id == c.id))
-                .count();
-            featured.len() + extra_community
-        };
-        let local_count = self.workspace.read(cx).local_stacks().len();
 
         v_flex()
             .size_full()
             .min_h_0()
             .overflow_hidden()
-            .child(
-                PageHeader::new(s.stacks_title)
-                    .subtitle(s.stacks_subtitle)
-                    .right_slot(
-                        TabBar::new("stacks-sub-tabs")
-                            .segmented()
-                            .small()
-                            .selected_index(selected_idx)
-                            .child(
-                                Tab::new().label(format!("{} ({featured_count})", s.tab_featured)),
-                            )
-                            .child(Tab::new().label(format!("{} ({local_count})", s.tab_my_stacks)))
-                            .child(Tab::new().label(s.tab_create_share))
-                            .on_click(cx.listener(|this, idx: &usize, _, cx| match *idx {
-                                0 => this.switch_sub_tab(StacksSubTab::Featured, cx),
-                                1 => this.switch_sub_tab(StacksSubTab::Mine, cx),
-                                _ => this.switch_sub_tab(StacksSubTab::CreateImport, cx),
-                            })),
-                    ),
-            )
+            .child(header)
+            .children(library_tabs.then(|| {
+                page_tabs(
+                    "stacks-sub-tabs",
+                    [s.tab_featured, s.tab_my_stacks],
+                    usize::from(sub == StacksSubTab::Mine),
+                    cx,
+                )
+                .on_click(cx.listener(|this, idx: &usize, _, cx| {
+                    this.switch_sub_tab(
+                        if *idx == 0 {
+                            StacksSubTab::Featured
+                        } else {
+                            StacksSubTab::Mine
+                        },
+                        cx,
+                    );
+                }))
+            }))
             .child(
                 div()
                     .flex_1()
@@ -277,9 +342,8 @@ impl Render for StacksView {
                     .child(match sub {
                         StacksSubTab::Featured => self.render_browser(false, cx).into_any_element(),
                         StacksSubTab::Mine => self.render_browser(true, cx).into_any_element(),
-                        StacksSubTab::CreateImport => {
-                            self.render_create_import(cx).into_any_element()
-                        }
+                        StacksSubTab::Create => self.render_create_stack(cx).into_any_element(),
+                        StacksSubTab::Import => self.render_import_stack(cx).into_any_element(),
                     }),
             )
     }

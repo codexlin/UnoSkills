@@ -8,8 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-11-20
+
 ### ✨ Features / 新特性
 
+- **Desktop workbench redesign / 桌面工作台改版**: refreshed sidebar and settings navigation, compact Library with per-Agent deployment switches, three-column Marketplace, and grouped adoption.
 - **Community Stacks Remote Index (Stage 1) / 社区组合远程索引**：fetches curated stacks from the GitHub-hosted `community/index.json` via the `StackRegistry` trait with **ETag caching** (`304` never re-downloads) and an **offline cached fallback**; the default URL is overridable via the `stacks_registry_url` setting.
   - New `community/` tree in the repo: seed `index.json` (5 curated stacks) + a contribution guide — submitting a community stack is now just a PR.
   - Stacks UI merges featured + community stacks with a **Community badge**; CLI `stack list` gains a Community section and `stack install` resolves community ids.
