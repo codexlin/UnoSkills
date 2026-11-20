@@ -202,6 +202,22 @@ impl Lang {
         }
     }
 
+    pub fn toast_gist_shared(self, url: &str) -> String {
+        match self {
+            Self::ZhCn => format!("已分享为私密 Gist（链接已复制）：{url}"),
+            Self::En => format!("Shared as a secret Gist (URL copied): {url}"),
+            Self::Ja => format!("非公開 Gist として共有し URL をコピーしました：{url}"),
+        }
+    }
+
+    pub fn busy_sharing_stack(self, name: &str) -> String {
+        match self {
+            Self::ZhCn => format!("正在分享组合「{name}」..."),
+            Self::En => format!("Sharing Stack '{name}'..."),
+            Self::Ja => format!("スタック「{name}」を共有中..."),
+        }
+    }
+
     pub fn busy_searching(self, query: &str) -> String {
         match self {
             Self::ZhCn => format!("正在搜索「{query}」..."),
@@ -540,4 +556,10 @@ pub struct Strings {
     pub toast_project_detached: &'static str,
     pub busy_loading_trending: &'static str,
     pub busy_checking_updates: &'static str,
+    pub ph_stack_search: &'static str,
+    pub badge_community: &'static str,
+    pub btn_share_gist: &'static str,
+    pub btn_refresh_community: &'static str,
+    pub busy_refreshing_community: &'static str,
+    pub toast_community_failed: &'static str,
 }

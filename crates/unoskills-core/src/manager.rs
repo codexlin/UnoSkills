@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::domain::{
     AdoptCandidate, AgentInfo, DeployMode, Deployment, MarketplacePage, MarketplaceSkill,
     ProjectDeployment, ProjectWorkspace, Skill, SkillLintReport, SkillUpdateResult, SourceType,
-    StackInstallSummary, StackManifest, StackSkillRef,
+    StackInstallSummary, StackManifest, StackSkillRef, StackSource,
 };
 use crate::parser::{
     find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir, parse_skill_dir,
@@ -19,7 +19,9 @@ use crate::source::{
     resolve_source_ref, scan_adoptable_skills, search_skillssh,
 };
 use crate::stacks::{
-    DefaultStackRegistry, StackRegistry, export_stack_to_toml, parse_stack_from_toml,
+    DefaultStackRegistry, DeviceCodeRequest, StackRegistry, export_stack_to_toml,
+    parse_community_index, parse_stack_from_toml, poll_github_device_token,
+    request_github_device_code, share_stack_to_gist,
 };
 use crate::store::Store;
 use crate::sync::{
@@ -770,16 +772,155 @@ impl UnoSkillsManager {
 
     // ── Stacks (Presets + Community Recipes) ──
 
+    /// Default Stage-1 community index: a static `index.json` in the UnoSkills
+    /// repo, so submitting a stack is just a PR against `community/index.json`.
+    const DEFAULT_COMMUNITY_INDEX_URL: &str =
+        "https://raw.githubusercontent.com/codexlin/UnoSkills/main/community/index.json";
+
+    /// Built-in featured stacks shipped inside the app binary.
     pub fn featured_stacks(&self) -> Result<Vec<StackManifest>> {
-        let remote_url = self.store.get_setting("stacks_registry_url")?;
         let registry = DefaultStackRegistry {
-            remote_index_url: remote_url.filter(|s| !s.trim().is_empty()),
+            remote_index_url: None,
+            proxy_url: None,
         };
         registry.fetch_featured()
     }
 
+    /// Community stacks from the remote `index.json`, with ETag caching and a
+    /// cached-copy fallback for offline use. Never touches the network when the
+    /// server answers `304 Not Modified`. Cache & ETag are scoped to the active
+    /// index URL so switching `stacks_registry_url` never serves stale data.
+    pub fn community_stacks(&self) -> Result<Vec<StackManifest>> {
+        let configured = self.store.get_setting("stacks_registry_url")?;
+        let url = configured
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| Self::DEFAULT_COMMUNITY_INDEX_URL.to_string());
+        let cached_url = self.store.get_setting("community_index_url")?;
+        let cache_matches_url = cached_url.as_deref() == Some(url.as_str());
+        let etag = if cache_matches_url {
+            self.store.get_setting("community_index_etag")?
+        } else {
+            None
+        };
+        let registry = DefaultStackRegistry {
+            remote_index_url: Some(url.clone()),
+            proxy_url: self.http_proxy(),
+        };
+
+        let fetch = registry.fetch_community(etag.as_deref());
+        match fetch {
+            Ok(result) => {
+                if result.not_modified {
+                    // ETag matched: serve the previously cached body for this URL.
+                    if cache_matches_url
+                        && let Some(cached) = self.store.get_setting("community_index_cache")?
+                    {
+                        return parse_community_index(&cached);
+                    }
+                    // Stale ETag without a matching cached body: refetch fresh.
+                    let fresh = DefaultStackRegistry {
+                        remote_index_url: registry.remote_index_url.clone(),
+                        proxy_url: registry.proxy_url.clone(),
+                    }
+                    .fetch_community(None)?;
+                    self.save_community_cache(&url, fresh.etag.as_deref(), &fresh.stacks)?;
+                    return Ok(fresh.stacks);
+                }
+                self.save_community_cache(&url, result.etag.as_deref(), &result.stacks)?;
+                Ok(result.stacks)
+            }
+            Err(network_err) => {
+                // Offline / unreachable: fall back to the cached copy only if it
+                // belongs to the currently configured registry URL.
+                if cache_matches_url
+                    && let Some(cached) = self.store.get_setting("community_index_cache")?
+                {
+                    return parse_community_index(&cached);
+                }
+                Err(network_err)
+            }
+        }
+    }
+
+    fn save_community_cache(
+        &self,
+        url: &str,
+        etag: Option<&str>,
+        stacks: &[StackManifest],
+    ) -> Result<()> {
+        let body = serde_json::to_string(stacks)?;
+        let _ = self.store.set_setting("community_index_url", url);
+        let _ = self
+            .store
+            .set_setting("community_index_etag", etag.unwrap_or(""));
+        let _ = self.store.set_setting("community_index_cache", &body);
+        let _ = self.store.set_setting(
+            "community_index_fetched_at",
+            &Utc::now().timestamp().to_string(),
+        );
+        Ok(())
+    }
+
+    /// Resolve a stack by id or (case-insensitive) name across local, featured,
+    /// and community sources — checking local and built-in stacks first so
+    /// offline or local lookups never block on the network.
+    pub fn find_any_stack(&self, key: &str) -> Result<Option<StackManifest>> {
+        let trimmed = key.trim();
+        let matches = |s: &StackManifest| s.id == trimmed || s.name.eq_ignore_ascii_case(trimmed);
+
+        if let Some(found) = self.list_local_stacks()?.into_iter().find(matches) {
+            return Ok(Some(found));
+        }
+        if let Some(found) = self.featured_stacks()?.into_iter().find(matches) {
+            return Ok(Some(found));
+        }
+        let community = self.community_stacks().unwrap_or_default();
+        Ok(community.into_iter().find(matches))
+    }
+
+    /// Publish a stack as a secret GitHub Gist using the locally stored PAT.
+    /// Requires the `gist` scope. Returns the Gist URL.
+    pub fn share_stack_to_gist(&self, stack: &StackManifest) -> Result<String> {
+        let token = self
+            .github_token()
+            .filter(|s| !s.trim().is_empty())
+            .context("No GitHub token configured (Settings → GitHub Token)")?;
+        share_stack_to_gist(token.trim(), self.http_proxy().as_deref(), stack)
+    }
+
+    /// Run the GitHub OAuth Device Flow for Gist sharing. Calls `on_code` with
+    /// the verification URI and user code before polling, then returns the Gist
+    /// URL once approved. Requires `github_oauth_client_id` in settings.
+    pub fn share_stack_via_device_flow(
+        &self,
+        stack: &StackManifest,
+        on_code: impl FnOnce(&DeviceCodeRequest),
+    ) -> Result<String> {
+        let client_id = self
+            .store
+            .get_setting("github_oauth_client_id")?
+            .filter(|s| !s.trim().is_empty())
+            .context("No GitHub OAuth client id configured (setting 'github_oauth_client_id')")?;
+        let proxy = self.http_proxy();
+        let request = request_github_device_code(client_id.trim(), proxy.as_deref())?;
+        on_code(&request);
+        let token = poll_github_device_token(
+            client_id.trim(),
+            &request.device_code,
+            request.interval,
+            request.expires_in,
+            proxy.as_deref(),
+        )?;
+        share_stack_to_gist(&token, proxy.as_deref(), stack)
+    }
+
     pub fn list_local_stacks(&self) -> Result<Vec<StackManifest>> {
-        self.store.list_local_stacks()
+        let mut stacks = self.store.list_local_stacks()?;
+        for stack in &mut stacks {
+            stack.source = StackSource::Local;
+        }
+        Ok(stacks)
     }
 
     pub fn save_local_stack(&self, stack: &StackManifest) -> Result<()> {
@@ -829,6 +970,7 @@ impl UnoSkillsManager {
                 .map(|a| a.key)
                 .collect(),
             verified: false,
+            source: StackSource::Local,
             skills: refs,
         };
         self.save_local_stack(&manifest)?;
@@ -840,7 +982,8 @@ impl UnoSkillsManager {
     }
 
     pub fn import_stack_toml(&self, toml_text: &str) -> Result<StackManifest> {
-        let manifest = parse_stack_from_toml(toml_text)?;
+        let mut manifest = parse_stack_from_toml(toml_text)?;
+        manifest.source = StackSource::Local;
         self.save_local_stack(&manifest)?;
         Ok(manifest)
     }

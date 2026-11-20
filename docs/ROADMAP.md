@@ -46,17 +46,24 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
   - Keyboard shortcuts (`Cmd/Ctrl+K` focus search, `Cmd/Ctrl+S` save `SKILL.md`, `Esc` exit edit mode)
   - Confirmation dialog before deleting a local Stack or detaching a Project Workspace
 
-### `v0.3` — Community Stacks & Lightweight Git Sync
-- [ ] **Stage 1 Remote Community Index**: fetch live curated stacks from a GitHub-hosted static `index.json` via `StackRegistry` with local ETag caching
-- [ ] **Optional GitHub Device Flow Share**: publish a local Stack as a GitHub Gist or PR without requiring login for any core local feature
-- [ ] **Stack Search & Tag Filtering**: filter featured and community stacks by tags, author, or target agent
-- [ ] **Private Git Backup / Multi-Machine Sync (in Settings)**: bind a personal private Git repo to push/pull plain-text `skills/` + `stacks/*.toml` (never syncing binary SQLite; index rebuilds locally on pull)
+### `v0.3.0` — Release Engineering (delivered 2026-11-20)
+- [x] **Branch + PR + Ruleset workflow**: three-OS CI as required checks, linear-history squash merges, Conventional Commits
+- [x] **User-Facing Installers** (from the GPUI Kit packaging guide): macOS `.app` → `.dmg`, Windows Inno Setup installer, Linux `.deb` with auto-resolved `Depends`, plus stable platform identity (`dev.unoskills.UnoSkills`)
+- [x] **Curated Release Notes**: `git-cliff` with a hand-written CHANGELOG override per version
+- [x] **README revamp**: brand header, badges, real app screenshots, bilingual (EN + zh-CN)
 
-### `v0.4` — Cross-Platform Packaging & Auto-Update
-- [ ] **In-App Signed Self-Updater**: integrate `gpui-updater-pre` with Ed25519-signed release manifests (always opt-in, never silent)
-- [ ] **Native Installers**: macOS signed/notarized `.dmg`, Linux `.AppImage` / `.deb`, Windows `.msi`
-- [ ] **Real-Hardware Cross-Platform Verification**: end-to-end validation on macOS (Apple Silicon / Intel) and Windows (NTFS Junctions)
+### `v0.4.0` — Community Stacks & Lightweight Sync
+- [x] **Stage 1 Remote Community Index**: fetch live curated stacks from a GitHub-hosted static `index.json` via `StackRegistry` with local ETag caching
+- [x] **Optional GitHub Gist Share**: publish a local Stack as a secret Gist via PAT (Device Flow supported with a configured OAuth client id), never requiring login for any core local feature
+- [x] **Stack Search & Tag Filtering**: filter featured and community stacks by tags, author, or target agent
+- [ ] **Private Git Backup / Multi-Machine Sync (in Settings)**: bind a personal private Git repo to push/pull plain-text `skills/` + `stacks/*.toml` (never syncing binary SQLite; index rebuilds locally on pull)
+- [ ] **In-App Guided Updater v1**: startup rate-limited check, explicit download & install consent, SHA256SUMS verification, per-platform install paths (Inno upgrade / DMG guidance / browser for deb)
+
+### Later (after `v0.4`)
 - [ ] **Crates.io Publishing**: publish `unoskills-core` and `unoskills-cli` (`cargo install unoskills-cli`)
+- [ ] **Signed Auto-Update v2**: `gpui-updater-pre` with Ed25519-signed release manifests (requires Apple Developer ID for the macOS in-place bundle path)
+- [ ] **Real-Hardware Cross-Platform Verification**: end-to-end validation on macOS (Apple Silicon / Intel) and Windows (NTFS Junctions)
+- [ ] **Stage 2 Community Hub**: lightweight API backend (Cloudflare Workers / Supabase) behind the same `StackRegistry` trait
 
 ---
 

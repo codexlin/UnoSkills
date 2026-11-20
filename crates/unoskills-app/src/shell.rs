@@ -106,7 +106,13 @@ impl Render for UnoSkillsShell {
         let skill_count = self.workspace.read(cx).skills().len();
         let stack_count = {
             let ws = self.workspace.read(cx);
-            ws.featured_stacks().len() + ws.local_stacks().len()
+            let featured = ws.featured_stacks();
+            let extra_community = ws
+                .community_stacks()
+                .iter()
+                .filter(|c| !featured.iter().any(|f| f.id == c.id))
+                .count();
+            featured.len() + extra_community + ws.local_stacks().len()
         };
         let adopt_count = self.workspace.read(cx).adopt_candidates().len();
         let busy_label = self.workspace.read(cx).busy_label().map(str::to_string);

@@ -447,3 +447,63 @@ fn project_scope_deploy_shared_dir_update_and_detach_lifecycle() {
     assert!(!dep_amp.target_path.exists());
     assert!(skill.central_path.join("SKILL.md").exists());
 }
+
+#[test]
+fn find_any_stack_resolves_local_and_featured_without_network() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mgr = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    // Point remote index at an unreachable localhost port so any accidental
+    // network call would fail/stall.
+    mgr.set_setting("stacks_registry_url", "http://127.0.0.1:1/unreachable.json")
+        .unwrap();
+
+    let featured = mgr.find_any_stack("frontend-react-ship").unwrap();
+    assert!(featured.is_some());
+
+    let src = tmp.path().join("src/local-s");
+    create_skill_dir(&src, "local-s", "Local stack skill", &["local"]);
+    let skill = mgr.install_from_ref(&src.to_string_lossy()).unwrap();
+    let local = mgr
+        .create_stack_from_skills("My Local Combo", "me", "desc", vec![], &[skill.id])
+        .unwrap();
+    let found_local = mgr.find_any_stack(&local.id).unwrap();
+    assert!(found_local.is_some());
+}
+
+#[test]
+fn community_index_cache_invalidates_when_registry_url_changes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mgr = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let cached_body = r#"[
+        {
+            "id": "cached-from-url-a",
+            "name": "Cached From URL A",
+            "author": "tester",
+            "tags": ["test"],
+            "skills": [
+                {"name": "skill-creator", "source": "anthropics/skills@skill-creator"}
+            ]
+        }
+    ]"#;
+    mgr.set_setting("stacks_registry_url", "http://127.0.0.1:1/url-a.json")
+        .unwrap();
+    mgr.set_setting("community_index_url", "http://127.0.0.1:1/url-a.json")
+        .unwrap();
+    mgr.set_setting("community_index_etag", "\"etag-a\"")
+        .unwrap();
+    mgr.set_setting("community_index_cache", cached_body)
+        .unwrap();
+
+    // Offline fallback works when URL matches the cached URL.
+    let from_a = mgr.community_stacks().unwrap();
+    assert_eq!(from_a.len(), 1);
+    assert_eq!(from_a[0].id, "cached-from-url-a");
+
+    // Switching to a different unreachable URL must NOT serve URL A's stale cache.
+    mgr.set_setting("stacks_registry_url", "http://127.0.0.1:1/url-b.json")
+        .unwrap();
+    assert!(
+        mgr.community_stacks().is_err(),
+        "stale cache from URL A must not be served for URL B"
+    );
+}

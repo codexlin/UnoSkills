@@ -56,6 +56,7 @@ pub struct WorkspaceState {
     agents: Vec<AgentInfo>,
     projects: Vec<ProjectWorkspace>,
     featured_stacks: Vec<StackManifest>,
+    community_stacks: Vec<StackManifest>,
     local_stacks: Vec<StackManifest>,
     adopt_candidates: Vec<AdoptCandidate>,
     deploy_mode: DeployMode,
@@ -120,6 +121,7 @@ impl WorkspaceState {
             agents: Vec::new(),
             projects: Vec::new(),
             featured_stacks: Vec::new(),
+            community_stacks: Vec::new(),
             local_stacks: Vec::new(),
             adopt_candidates: Vec::new(),
             deploy_mode: DeployMode::Symlink,
@@ -140,11 +142,13 @@ impl WorkspaceState {
     }
 
     /// Applies persisted appearance (Light/Dark) and language-aware fonts at startup.
-    pub fn apply_initial_appearance(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn apply_initial_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mode) = self.theme_mode {
             Theme::change(mode, Some(window), cx);
         }
         fonts::apply_fonts_to_theme(&self.font_settings, self.lang, cx);
+        // Fetch the remote community stacks index once at startup, silently.
+        self.refresh_community_stacks(true, window, cx);
     }
 
     // ── Read accessors ──
@@ -179,6 +183,10 @@ impl WorkspaceState {
 
     pub fn featured_stacks(&self) -> &[StackManifest] {
         &self.featured_stacks
+    }
+
+    pub fn community_stacks(&self) -> &[StackManifest] {
+        &self.community_stacks
     }
 
     pub fn local_stacks(&self) -> &[StackManifest] {
@@ -922,6 +930,78 @@ impl WorkspaceState {
             }
             Err(e) => self.notify_toast(true, format!("{e}"), window, cx),
         }
+    }
+
+    /// Fetches the remote community stacks index (ETag-cached, offline-safe)
+    /// on a background task and refreshes the snapshot. `silent` skips the
+    /// busy spinner and error toast (used for the startup check).
+    pub fn refresh_community_stacks(
+        &mut self,
+        silent: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let busy_token = if silent {
+            0
+        } else {
+            self.begin_busy(self.t().busy_refreshing_community, cx)
+        };
+        let mgr = self.manager.clone();
+        let bg = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let res = bg.spawn(async move { mgr.community_stacks() }).await;
+            let _ = this.update_in(cx, |state, _window, cx| {
+                if !silent {
+                    state.end_busy(busy_token, cx);
+                }
+                match res {
+                    Ok(stacks) => {
+                        state.community_stacks = stacks;
+                        cx.emit(WorkspaceEvent::Reloaded);
+                        cx.notify();
+                    }
+                    Err(e) if !silent => {
+                        let msg = format!("{}: {e}", state.t().toast_community_failed);
+                        state.notify_toast(true, msg, _window, cx);
+                    }
+                    // Startup path: offline failures are silently ignored —
+                    // the Stacks view falls back to builtin + local stacks.
+                    Err(_) => {}
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Publishes a stack as a secret GitHub Gist via the stored PAT and toasts
+    /// the returned URL. All network work stays on the background executor.
+    pub fn share_stack_to_gist(
+        &mut self,
+        stack: StackManifest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let stack_name = stack.name.clone();
+        let busy_token = self.begin_busy(self.lang.busy_sharing_stack(&stack_name), cx);
+        let mgr = self.manager.clone();
+        let bg = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let res = bg
+                .spawn(async move { mgr.share_stack_to_gist(&stack) })
+                .await;
+            let _ = this.update_in(cx, |state, window, cx| {
+                state.end_busy(busy_token, cx);
+                match res {
+                    Ok(url) => {
+                        cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
+                        let msg = state.lang.toast_gist_shared(&url);
+                        state.notify_toast(false, msg, window, cx);
+                    }
+                    Err(e) => state.notify_toast(true, format!("{e}"), window, cx),
+                }
+            });
+        })
+        .detach();
     }
 
     /// Validates the form, persists a new local stack, reloads snapshots, and

@@ -1,0 +1,67 @@
+[
+  {
+    "id": "anthropic-office-docs",
+    "name": "Anthropic Office Documents Suite",
+    "author": "unoskills-community",
+    "description": "Create and edit Word, Excel, PowerPoint, and PDF documents directly from your coding agent.",
+    "tags": ["office", "documents", "writing", "anthropic"],
+    "recommended_agents": ["claude_code", "codex", "cursor"],
+    "skills": [
+      { "name": "docx", "source": "anthropics/skills@docx", "note": "Create and edit Word documents with tracked changes" },
+      { "name": "xlsx", "source": "anthropics/skills@xlsx", "note": "Create and analyze Excel workbooks" },
+      { "name": "pptx", "source": "anthropics/skills@pptx", "note": "Create and edit PowerPoint presentations" },
+      { "name": "pdf", "source": "anthropics/skills@pdf", "note": "Create and manipulate PDF documents" }
+    ]
+  },
+  {
+    "id": "frontend-quality-gate",
+    "name": "Frontend Quality Gate",
+    "author": "unoskills-community",
+    "description": "Ship polished, accessible React frontends: rendering performance, design guidelines, and visual craft.",
+    "tags": ["frontend", "react", "design", "accessibility"],
+    "recommended_agents": ["claude_code", "cursor", "windsurf"],
+    "skills": [
+      { "name": "vercel-react-best-practices", "source": "vercel-labs/agent-skills@vercel-react-best-practices", "note": "React/Next.js rendering performance and server-component best practices" },
+      { "name": "web-design-guidelines", "source": "vercel-labs/agent-skills@web-design-guidelines", "note": "Interaction, accessibility, and design-consistency review" },
+      { "name": "frontend-design", "source": "anthropics/skills@frontend-design", "note": "High-fidelity, non-generic frontend visual design" }
+    ]
+  },
+  {
+    "id": "engineering-discipline-lite",
+    "name": "Engineering Discipline Lite",
+    "author": "unoskills-community",
+    "description": "A lighter version of the engineering-discipline stack: plan before coding, debug systematically, author skills correctly.",
+    "tags": ["engineering", "workflow", "debugging"],
+    "recommended_agents": ["claude_code", "opencode", "codex"],
+    "skills": [
+      { "name": "brainstorming", "source": "obra/superpowers@brainstorming", "note": "Clarify requirements and design trade-offs before writing code" },
+      { "name": "systematic-debugging", "source": "obra/superpowers@systematic-debugging", "note": "Root-cause methodology instead of blind patching" },
+      { "name": "skill-creator", "source": "anthropics/skills@skill-creator", "note": "Write and evaluate your own SKILL.md properly" }
+    ]
+  },
+  {
+    "id": "mcp-prototyping-kit",
+    "name": "MCP Prototyping Kit",
+    "author": "unoskills-community",
+    "description": "Prototype MCP servers and document their usage for your team.",
+    "tags": ["mcp", "integration", "authoring"],
+    "recommended_agents": ["claude_code", "codex", "trae"],
+    "skills": [
+      { "name": "mcp-builder", "source": "anthropics/skills@mcp-builder", "note": "Build a high-quality MCP server fast" },
+      { "name": "skill-creator", "source": "anthropics/skills@skill-creator", "note": "Package the workflows around your MCP server as reusable skills" }
+    ]
+  },
+  {
+    "id": "docs-and-reports-pipeline",
+    "name": "Docs & Reports Pipeline",
+    "author": "unoskills-community",
+    "description": "Turn agent sessions into shareable deliverables: Word reports, PDF exports, and well-structured skills.",
+    "tags": ["writing", "documents", "workflow"],
+    "recommended_agents": ["claude_code", "cursor", "gemini_cli"],
+    "skills": [
+      { "name": "docx", "source": "anthropics/skills@docx", "note": "Collaborative Word report authoring" },
+      { "name": "pdf", "source": "anthropics/skills@pdf", "note": "Form-ready PDF assembly and form handling" },
+      { "name": "skill-creator", "source": "anthropics/skills@skill-creator", "note": "Keep your team's reusable prompt knowledge in SKILL.md form" }
+    ]
+  }
+]

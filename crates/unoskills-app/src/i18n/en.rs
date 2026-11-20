@@ -166,4 +166,10 @@ pub static STRINGS: Strings = Strings {
     toast_project_detached: "Detached project workspace and cleaned up managed skills.",
     busy_loading_trending: "Loading trending...",
     busy_checking_updates: "Checking for updates...",
+    ph_stack_search: "Search stacks by name, author, or tag...",
+    badge_community: "Community",
+    btn_share_gist: "Share to Gist",
+    btn_refresh_community: "Refresh community stacks",
+    busy_refreshing_community: "Refreshing community stacks index...",
+    toast_community_failed: "Failed to load community stacks",
 };
