@@ -64,6 +64,7 @@ pub struct WorkspaceState {
     checking_updates: bool,
     updating_skill_id: Option<String>,
     adopting_all: bool,
+    backup_busy: bool,
     next_busy_token: u64,
     busy_tasks: Vec<(u64, String)>,
     last_added_skill_id: Option<String>,
@@ -133,6 +134,7 @@ impl WorkspaceState {
             checking_updates: false,
             updating_skill_id: None,
             adopting_all: false,
+            backup_busy: false,
             next_busy_token: 1,
             busy_tasks: Vec::new(),
             last_added_skill_id: None,
@@ -215,6 +217,10 @@ impl WorkspaceState {
 
     pub fn adopting_all(&self) -> bool {
         self.adopting_all
+    }
+
+    pub fn backup_busy(&self) -> bool {
+        self.backup_busy
     }
 
     pub fn busy_label(&self) -> Option<&str> {
@@ -998,6 +1004,95 @@ impl WorkspaceState {
                         state.notify_toast(false, msg, window, cx);
                     }
                     Err(e) => state.notify_toast(true, format!("{e}"), window, cx),
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub fn save_git_backup_config(
+        &mut self,
+        repo_url: &str,
+        branch: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.manager.configure_git_backup(repo_url, Some(branch)) {
+            Ok(()) => {
+                cx.emit(WorkspaceEvent::SettingsChanged);
+                let msg = self.t().toast_backup_saved;
+                self.notify_toast(false, msg, window, cx);
+            }
+            Err(e) => self.notify_toast(true, format!("{e}"), window, cx),
+        }
+    }
+
+    pub fn git_backup_push_async(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.backup_busy {
+            return;
+        }
+        self.backup_busy = true;
+        let busy_token = self.begin_busy(self.t().busy_backup_pushing, cx);
+        cx.emit(WorkspaceEvent::SettingsChanged);
+
+        let mgr = self.manager.clone();
+        let bg = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let res = bg.spawn(async move { mgr.git_backup_push() }).await;
+            let _ = this.update_in(cx, |state, window, cx| {
+                state.backup_busy = false;
+                state.end_busy(busy_token, cx);
+                cx.emit(WorkspaceEvent::SettingsChanged);
+                match res {
+                    Ok(outcome) => {
+                        let msg = if outcome.pushed {
+                            state.lang.toast_backup_pushed(
+                                outcome.skills_exported,
+                                outcome.stacks_exported,
+                                outcome.commit_sha.as_deref().unwrap_or("-"),
+                            )
+                        } else {
+                            state.t().toast_backup_noop.to_string()
+                        };
+                        state.notify_toast(false, msg, window, cx);
+                    }
+                    Err(e) => state.notify_toast(true, format!("{e}"), window, cx),
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub fn git_backup_pull_async(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.backup_busy {
+            return;
+        }
+        self.backup_busy = true;
+        let busy_token = self.begin_busy(self.t().busy_backup_pulling, cx);
+        cx.emit(WorkspaceEvent::SettingsChanged);
+
+        let mgr = self.manager.clone();
+        let bg = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let res = bg.spawn(async move { mgr.git_backup_pull() }).await;
+            let _ = this.update_in(cx, |state, window, cx| {
+                state.backup_busy = false;
+                state.end_busy(busy_token, cx);
+                match res {
+                    Ok(outcome) => {
+                        state.reload_all(cx);
+                        let msg = state.lang.toast_backup_pulled(
+                            outcome.skills_imported,
+                            outcome.skills_updated,
+                            outcome.stacks_imported,
+                            outcome.refreshed_copies,
+                        );
+                        state.notify_toast(false, msg, window, cx);
+                    }
+                    Err(e) => {
+                        cx.emit(WorkspaceEvent::SettingsChanged);
+                        state.notify_toast(true, format!("{e}"), window, cx);
+                    }
                 }
             });
         })

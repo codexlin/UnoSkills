@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Stack Search & Tag Filtering / 组合搜索与标签过滤**: live search (name / author / description / tag) plus clickable tag pills above the Stacks list.
 - **GitHub Gist Sharing / 分享到 Gist**: publish any stack as a **secret Gist** from the Stacks detail view (uses the stored GitHub PAT; CLI: `unoskills stack share <id>`, with `--device` for the OAuth Device Flow when a client id is configured). Core local features never require login.
 - New `StackSource` provenance (`Featured` / `Community` / `Local`) on every stack manifest, with serde defaults keeping all legacy TOML files parsing unchanged.
+- **Private Git Backup & Multi-Machine Sync / 私有 Git 备份与多机同步**: bind a personal private Git repo in **Settings** (or via `unoskills backup { status | configure | push | pull }`) to push/pull plain-text `skills/` and `stacks/*.toml` via a dedicated mirror repo — never syncing binary SQLite or local secrets, automatically rebuilding the local SQLite index and refreshing `Copy`-mode deployments on pull.
 
 ### 📚 Documentation / 文档
 

@@ -507,3 +507,111 @@ fn community_index_cache_invalidates_when_registry_url_changes() {
         "stale cache from URL A must not be served for URL B"
     );
 }
+
+#[test]
+fn git_backup_push_and_pull_rebuilds_sqlite_and_refreshes_copies_without_syncing_db() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bare_repo = tmp.path().join("remote-backup.git");
+    std::fs::create_dir_all(&bare_repo).unwrap();
+    let init_status = std::process::Command::new("git")
+        .current_dir(&bare_repo)
+        .args(["init", "--bare"])
+        .status()
+        .expect("git must be installed");
+    assert!(init_status.success());
+
+    let repo_url = bare_repo.to_string_lossy().to_string();
+
+    // Machine A: install 2 skills + 1 local stack, push to bare repo
+    let mgr_a = UnoSkillsManager::open_at(tmp.path().join("machine-a")).unwrap();
+    let src_alpha = tmp.path().join("src/alpha-skill");
+    let src_beta = tmp.path().join("src/beta-skill");
+    create_skill_dir(&src_alpha, "alpha-skill", "Alpha v1", &["sync"]);
+    create_skill_dir(&src_beta, "beta-skill", "Beta v1", &["sync"]);
+    let alpha = mgr_a
+        .install_from_ref(&src_alpha.to_string_lossy())
+        .unwrap();
+    let beta = mgr_a.install_from_ref(&src_beta.to_string_lossy()).unwrap();
+    mgr_a
+        .create_stack_from_skills(
+            "Sync Combo",
+            "alice",
+            "Portable stack",
+            vec!["sync".into()],
+            &[alpha.id.clone(), beta.id.clone()],
+        )
+        .unwrap();
+
+    mgr_a.configure_git_backup(&repo_url, Some("main")).unwrap();
+    let push1 = mgr_a.git_backup_push().unwrap();
+    assert!(push1.committed);
+    assert!(push1.pushed);
+    assert_eq!(push1.skills_exported, 2);
+    assert_eq!(push1.stacks_exported, 1);
+
+    // Verify bare repo contains ONLY plain-text skills & stacks and ZERO .db files
+    let tree_out = std::process::Command::new("git")
+        .current_dir(&bare_repo)
+        .args(["ls-tree", "-r", "--name-only", "refs/heads/main"])
+        .output()
+        .unwrap();
+    assert!(tree_out.status.success());
+    let tree_list = String::from_utf8_lossy(&tree_out.stdout);
+    assert!(tree_list.contains("skills/alpha-skill/SKILL.md"));
+    assert!(tree_list.contains("skills/beta-skill/SKILL.md"));
+    assert!(tree_list.contains("stacks/sync-combo.toml"));
+    assert!(
+        !tree_list.contains(".db"),
+        "binary SQLite DB must never be committed to backup repo"
+    );
+
+    // Second push with no changes is a clean no-op
+    let push_noop = mgr_a.git_backup_push().unwrap();
+    assert!(!push_noop.committed);
+    assert!(!push_noop.pushed);
+
+    // Machine B: fresh empty UnoSkills library pulls from the bare repo and rebuilds SQLite
+    let mgr_b = UnoSkillsManager::open_at(tmp.path().join("machine-b")).unwrap();
+    mgr_b.configure_git_backup(&repo_url, Some("main")).unwrap();
+    let pull1 = mgr_b.git_backup_pull().unwrap();
+    assert_eq!(pull1.skills_imported, 2);
+    assert_eq!(pull1.skills_updated, 0);
+    assert_eq!(pull1.stacks_imported, 1);
+    assert_eq!(mgr_b.list_skills().unwrap().len(), 2);
+    assert_eq!(mgr_b.list_local_stacks().unwrap().len(), 1);
+
+    // Deploy alpha-skill on Machine B in Copy mode via a custom agent dir
+    let custom_dir_b = tmp.path().join("machine-b-agent/skills");
+    mgr_b
+        .add_custom_agent(&CustomAgentRecord {
+            key: "sync_agent".into(),
+            display_name: "SyncAgent".into(),
+            skills_dir: custom_dir_b.to_string_lossy().to_string(),
+            category: AgentCategory::Coding,
+        })
+        .unwrap();
+    let alpha_b = mgr_b.find_skill("alpha-skill").unwrap().unwrap();
+    mgr_b
+        .deploy_skill(&alpha_b.id, "sync_agent", Some(DeployMode::Copy), false)
+        .unwrap();
+
+    // Machine A updates alpha-skill and pushes again
+    mgr_a
+        .save_skill_markdown(
+            &alpha.id,
+            "---\nname: alpha-skill\ndescription: Alpha v2 updated\ntags:\n  - sync\n---\n# Alpha v2\n",
+        )
+        .unwrap();
+    let push2 = mgr_a.git_backup_push().unwrap();
+    assert!(push2.committed);
+    assert!(push2.pushed);
+
+    // Machine B pulls again: alpha updates & refreshes its Copy deployment, beta stays unchanged
+    let pull2 = mgr_b.git_backup_pull().unwrap();
+    assert_eq!(pull2.skills_imported, 0);
+    assert_eq!(pull2.skills_updated, 1);
+    assert_eq!(pull2.skills_unchanged, 1);
+    assert_eq!(pull2.refreshed_copies, 1);
+    let copied_md = std::fs::read_to_string(custom_dir_b.join("alpha-skill/SKILL.md")).unwrap();
+    assert!(copied_md.contains("Alpha v2 updated"));
+}

@@ -240,6 +240,141 @@ impl SettingsView {
         )
     }
 
+    pub(super) fn render_git_backup_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let ws = self.workspace.read(cx);
+        let lang = ws.lang();
+        let s = lang.t();
+        let backup_busy = ws.backup_busy();
+        let summary = lang.backup_scope_summary(ws.skills().len(), ws.local_stacks().len());
+
+        GroupBox::new()
+            .outline()
+            .title(s.settings_git_backup)
+            .child(
+                v_flex()
+                    .gap_4()
+                    .child(setting_row(
+                        s.settings_git_backup_repo,
+                        s.settings_git_backup_repo_desc,
+                        theme.muted_foreground,
+                        div()
+                            .w(px(320.))
+                            .flex_shrink_0()
+                            .child(Input::new(&self.backup_repo_input).small().cleanable(true)),
+                    ))
+                    .child(Separator::horizontal())
+                    .child(setting_row(
+                        s.settings_git_backup_branch,
+                        s.settings_git_backup_branch_desc,
+                        theme.muted_foreground,
+                        div()
+                            .w(px(160.))
+                            .flex_shrink_0()
+                            .child(Input::new(&self.backup_branch_input).small()),
+                    ))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .flex_wrap()
+                            .items_center()
+                            .justify_between()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .truncate()
+                                    .child(summary),
+                            )
+                            .child(
+                                h_flex()
+                                    .flex_shrink_0()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("save-git-backup-btn")
+                                            .outline()
+                                            .small()
+                                            .icon(IconName::Check)
+                                            .label(s.btn_save)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                let repo = this
+                                                    .backup_repo_input
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string();
+                                                let branch = this
+                                                    .backup_branch_input
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string();
+                                                this.workspace.update(cx, |ws, cx| {
+                                                    ws.save_git_backup_config(
+                                                        &repo, &branch, window, cx,
+                                                    );
+                                                });
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("git-backup-pull-btn")
+                                            .outline()
+                                            .small()
+                                            .icon(IconName::ArrowDown)
+                                            .loading(backup_busy)
+                                            .label(s.btn_backup_pull)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                let repo = this
+                                                    .backup_repo_input
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string();
+                                                let branch = this
+                                                    .backup_branch_input
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string();
+                                                this.workspace.update(cx, |ws, cx| {
+                                                    let _ = ws
+                                                        .manager()
+                                                        .configure_git_backup(&repo, Some(&branch));
+                                                    ws.git_backup_pull_async(window, cx);
+                                                });
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("git-backup-push-btn")
+                                            .primary()
+                                            .small()
+                                            .icon(IconName::ArrowUp)
+                                            .loading(backup_busy)
+                                            .label(s.btn_backup_push)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                let repo = this
+                                                    .backup_repo_input
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string();
+                                                let branch = this
+                                                    .backup_branch_input
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string();
+                                                this.workspace.update(cx, |ws, cx| {
+                                                    let _ = ws
+                                                        .manager()
+                                                        .configure_git_backup(&repo, Some(&branch));
+                                                    ws.git_backup_push_async(window, cx);
+                                                });
+                                            })),
+                                    ),
+                            ),
+                    ),
+            )
+    }
+
     pub(super) fn render_updates_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let ws = self.workspace.read(cx);
