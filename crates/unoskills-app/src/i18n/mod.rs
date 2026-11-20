@@ -3,6 +3,7 @@ mod ja;
 mod zh_cn;
 
 use unoskills_core::DeployMode;
+use unoskills_core::project_analysis::{RecommendationPurpose, Technology};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lang {
@@ -220,6 +221,47 @@ impl Lang {
             Self::Ja => format!(
                 "{count} 件の配備先が使用中か、内容が変更されています。解決後に更新してください。"
             ),
+        }
+    }
+
+    pub fn project_selection_count(self, count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("已选择 {count} 项技能"),
+            Self::En => format!("{count} selected"),
+            Self::Ja => format!("{count} 件のスキルを選択済み"),
+        }
+    }
+
+    pub fn project_recommendation_reason(
+        self,
+        technology: Technology,
+        purpose: RecommendationPurpose,
+    ) -> String {
+        use RecommendationPurpose::*;
+        let technology = technology.label();
+        match (self, purpose) {
+            (Self::ZhCn, ReactPerformance) => {
+                format!("检测到 {technology}，适合检查渲染与加载性能。")
+            }
+            (Self::ZhCn, Accessibility) => format!("检测到 {technology}，适合检查界面和可访问性。"),
+            (Self::ZhCn, Testing) => format!("检测到 {technology}，可用来编写回归测试。"),
+            (Self::ZhCn, Debugging) => format!("检测到 {technology}，可用来排查项目故障。"),
+            (Self::En, ReactPerformance) => {
+                format!("Review rendering and loading performance in {technology}.")
+            }
+            (Self::En, Accessibility) => {
+                format!("Review interface and accessibility in {technology}.")
+            }
+            (Self::En, Testing) => format!("Write regression tests for {technology}."),
+            (Self::En, Debugging) => format!("Diagnose issues in your {technology} project."),
+            (Self::Ja, ReactPerformance) => {
+                format!("{technology} の描画と読み込み性能を確認できます。")
+            }
+            (Self::Ja, Accessibility) => {
+                format!("{technology} の UI とアクセシビリティを確認できます。")
+            }
+            (Self::Ja, Testing) => format!("{technology} の回帰テストの作成に役立ちます。"),
+            (Self::Ja, Debugging) => format!("{technology} プロジェクトの問題調査に役立ちます。"),
         }
     }
 
@@ -657,6 +699,23 @@ pub struct Strings {
     pub adopt_select_group: &'static str,
     pub adopt_clear_selection: &'static str,
     pub nav_home: &'static str,
+    pub home_projects: &'static str,
+    pub project_overview: &'static str,
+    pub project_scan: &'static str,
+    pub project_root: &'static str,
+    pub project_module: &'static str,
+    pub project_technologies: &'static str,
+    pub project_no_technologies: &'static str,
+    pub project_new_technology: &'static str,
+    pub project_recommendations: &'static str,
+    pub project_no_recommendations: &'static str,
+    pub project_install_required: &'static str,
+    pub project_inventory: &'static str,
+    pub project_inventory_empty: &'static str,
+    pub project_managed_skill: &'static str,
+    pub project_changed_skill: &'static str,
+    pub project_local_skill: &'static str,
+    pub project_save_stack: &'static str,
     pub home_workspace: &'static str,
     pub home_deployed: &'static str,
     pub home_agents: &'static str,

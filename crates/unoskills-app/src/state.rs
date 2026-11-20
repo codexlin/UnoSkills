@@ -71,6 +71,13 @@ pub enum SettingsSection {
     Updates,
 }
 
+#[derive(Debug, Clone)]
+pub struct ProjectStackSelection {
+    pub stack_id: String,
+    pub project_id: String,
+    pub agent_key: Option<String>,
+}
+
 /// Events broadcast to every subscribed feature view.
 ///
 /// GPUI defers `cx.emit` through its effects queue, so emitters never run
@@ -89,6 +96,8 @@ pub enum WorkspaceEvent {
     /// The Settings view should switch its active sub-section.
     NavigateToSettings(SettingsSection),
     OpenMyStacks,
+    OpenProject(String),
+    SelectProjectStack(ProjectStackSelection),
     OpenLocalSkills,
     OpenMarketBoard(MarketBoard),
     MarketFirstPageChanged(MarketBoard),
@@ -729,6 +738,26 @@ impl WorkspaceState {
     pub fn open_my_stacks(&mut self, cx: &mut Context<Self>) {
         self.navigate(NavTab::Stacks, cx);
         cx.emit(WorkspaceEvent::OpenMyStacks);
+    }
+
+    pub fn open_project(&mut self, project_id: String, cx: &mut Context<Self>) {
+        self.navigate(NavTab::Library, cx);
+        cx.emit(WorkspaceEvent::OpenProject(project_id));
+    }
+
+    pub fn open_project_stack(
+        &mut self,
+        stack_id: String,
+        project_id: String,
+        agent_key: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.navigate(NavTab::Stacks, cx);
+        cx.emit(WorkspaceEvent::SelectProjectStack(ProjectStackSelection {
+            stack_id,
+            project_id,
+            agent_key,
+        }));
     }
 
     pub fn open_local_skills(&mut self, cx: &mut Context<Self>) {

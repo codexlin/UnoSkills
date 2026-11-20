@@ -1,0 +1,24 @@
+# Rules point to the source-checked skill references in featured_stacks.toml.
+[[rules]]
+technologies = ["next_js", "react"]
+skill = "vercel-react-best-practices"
+purpose = "react_performance"
+local_tags = ["react", "performance"]
+
+[[rules]]
+technologies = ["playwright", "fast_api", "django", "rust", "go", "python", "type_script", "node_js"]
+skill = "test-driven-development"
+purpose = "testing"
+local_tags = ["testing"]
+
+[[rules]]
+technologies = ["next_js", "react"]
+skill = "web-design-guidelines"
+purpose = "accessibility"
+local_tags = ["accessibility"]
+
+[[rules]]
+technologies = ["fast_api", "django", "rust", "go", "python", "next_js", "node_js"]
+skill = "systematic-debugging"
+purpose = "debugging"
+local_tags = ["debugging"]

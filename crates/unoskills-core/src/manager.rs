@@ -45,7 +45,7 @@ pub struct UnoSkillsManager {
     store: Store,
 }
 
-enum StackProjectTarget {
+pub(crate) enum StackProjectTarget {
     Deployed,
     Missing(Option<DeployMode>),
     Register(DeployMode),
@@ -53,17 +53,23 @@ enum StackProjectTarget {
     Unavailable,
 }
 
-fn project_skill_target(project: &ProjectWorkspace, agent: &AgentInfo, skill: &Skill) -> PathBuf {
+pub(crate) fn project_skills_dir(agent: &AgentInfo) -> &str {
     let relative_dir = agent.project_relative_skills_dir.trim();
-    let relative_dir = if relative_dir.is_empty() {
+    if relative_dir.is_empty() {
         ".agents/skills"
     } else {
         relative_dir
-    };
-    project.path.join(relative_dir).join(&skill.slug)
+    }
 }
 
-fn inspect_stack_project_target(
+fn project_skill_target(project: &ProjectWorkspace, agent: &AgentInfo, skill: &Skill) -> PathBuf {
+    project
+        .path
+        .join(project_skills_dir(agent))
+        .join(&skill.slug)
+}
+
+pub(crate) fn inspect_stack_project_target(
     skill: &Skill,
     project: &ProjectWorkspace,
     agent: &AgentInfo,

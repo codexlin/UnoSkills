@@ -2,6 +2,7 @@ pub mod backup;
 pub mod domain;
 pub mod manager;
 pub mod parser;
+pub mod project_analysis;
 pub mod registry;
 pub mod source;
 pub mod stacks;

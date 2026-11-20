@@ -22,7 +22,7 @@ use gpui_kit::{
 use unoskills_core::StackManifest;
 
 use crate::components::page_header::{PageHeader, page_tabs};
-use crate::state::{WorkspaceEvent, WorkspaceState};
+use crate::state::{ProjectStackSelection, WorkspaceEvent, WorkspaceState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum StacksSubTab {
@@ -57,6 +57,7 @@ pub struct StacksView {
     pub(super) workspace: Entity<WorkspaceState>,
     pub(super) sub_tab: StacksSubTab,
     pub(super) selected_stack_id: Option<String>,
+    pub(super) project_stack_target: Option<ProjectStackSelection>,
     pub(super) stack_search_input: Entity<InputState>,
     tag_filter: Entity<SelectState<SearchableVec<StackTagChoice>>>,
     pub(super) stack_scroll: UniformListScrollHandle,
@@ -129,6 +130,12 @@ impl StacksView {
                 WorkspaceEvent::OpenMyStacks if this.sub_tab != StacksSubTab::Mine => {
                     this.switch_sub_tab(StacksSubTab::Mine, cx);
                 }
+                WorkspaceEvent::SelectProjectStack(selection) => {
+                    this.switch_sub_tab(StacksSubTab::Mine, cx);
+                    this.selected_stack_id = Some(selection.stack_id.clone());
+                    this.project_stack_target = Some(selection.clone());
+                    cx.notify();
+                }
                 _ => {}
             },
         );
@@ -156,6 +163,7 @@ impl StacksView {
             workspace,
             sub_tab: StacksSubTab::Mine,
             selected_stack_id,
+            project_stack_target: None,
             stack_search_input,
             tag_filter,
             stack_scroll: UniformListScrollHandle::new(),

@@ -345,6 +345,47 @@ impl HomeView {
             }))
     }
 
+    fn recent_projects(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
+        let ws = self.workspace.read(cx);
+        let s = ws.t();
+        let mut projects: Vec<_> = ws.projects().iter().collect();
+        projects.sort_by_key(|project| Reverse(project.created_at));
+        h_flex()
+            .w_full()
+            .gap_2()
+            .flex_wrap()
+            .child(div().text_sm().font_semibold().child(s.home_projects))
+            .children(projects.into_iter().take(2).map(|project| {
+                let id = project.id.clone();
+                Button::new(format!("home-project-{id}"))
+                    .outline()
+                    .small()
+                    .max_w(px(188.))
+                    .label(project.name.clone())
+                    .icon(IconName::FolderOpen)
+                    .tooltip(project.path.to_string_lossy().into_owned())
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.workspace
+                            .update(cx, |ws, cx| ws.open_project(id.clone(), cx));
+                    }))
+            }))
+            .child(
+                Button::new("home-add-project")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Plus)
+                    .label(s.btn_add_project)
+                    .on_click(cx.listener(|view, _, window, cx| {
+                        let workspace = view.workspace.downgrade();
+                        view.workspace.update(cx, |ws, cx| {
+                            ws.pick_and_attach_project(window, cx, move |id, _, cx| {
+                                let _ = workspace.update(cx, |ws, cx| ws.open_project(id, cx));
+                            });
+                        });
+                    })),
+            )
+    }
+
     fn activity(&self, compact: bool, cx: &Context<Self>) -> impl IntoElement + use<> {
         let s = self.workspace.read(cx).t();
         let theme = cx.theme();
@@ -614,6 +655,7 @@ impl Render for HomeView {
             .gap_5()
             .when(compact, |column| column.gap_4())
             .child(self.overview(cx))
+            .child(self.recent_projects(cx))
             .child(self.recent(cx))
             .child(self.activity(compact, cx));
         let leaderboard = self.leaderboard(cx);

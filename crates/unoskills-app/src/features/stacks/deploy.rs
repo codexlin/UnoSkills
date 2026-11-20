@@ -14,7 +14,7 @@ use gpui_kit::{
 use unoskills_core::{StackManifest, StackProjectDeployStatus, StackProjectDeploySummary};
 
 use super::StacksView;
-use crate::state::{WorkspaceEvent, WorkspaceState};
+use crate::state::{ProjectStackSelection, WorkspaceEvent, WorkspaceState};
 
 #[derive(Clone)]
 struct DeploymentTarget {
@@ -85,7 +85,13 @@ impl StacksView {
         cx: &mut Context<Self>,
     ) {
         let workspace = self.workspace.clone();
-        let form = cx.new(|cx| ProjectDeployForm::new(workspace.clone(), stack, window, cx));
+        let selection = self
+            .project_stack_target
+            .as_ref()
+            .filter(|selection| selection.stack_id == stack.id);
+        let form =
+            cx.new(|cx| ProjectDeployForm::new(workspace.clone(), stack, selection, window, cx));
+        form.update(cx, |form, cx| form.check_status(window, cx));
         window.open_dialog(cx, move |dialog, _, cx| {
             let running = form.read(cx).running;
             let content = form.clone();
@@ -104,15 +110,28 @@ impl ProjectDeployForm {
     fn new(
         workspace: Entity<WorkspaceState>,
         stack: StackManifest,
+        selection: Option<&ProjectStackSelection>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let ws = workspace.read(cx);
         let projects = project_targets(ws);
+        let project_index = selection
+            .and_then(|selection| {
+                projects
+                    .iter()
+                    .position(|project| project.id == selection.project_id)
+            })
+            .map(|index| IndexPath::default().row(index));
         let agents = agent_targets(ws);
-        let agent_index = (agents.len() == 1).then(IndexPath::default);
+        let agent_index = selection
+            .and_then(|selection| selection.agent_key.as_deref())
+            .and_then(|key| agents.iter().position(|agent| agent.id == key))
+            .or_else(|| (agents.len() == 1).then_some(0))
+            .map(|index| IndexPath::default().row(index));
         let project = cx.new(|cx| {
-            SelectState::new(SearchableVec::new(projects), None, window, cx).searchable(true)
+            SelectState::new(SearchableVec::new(projects), project_index, window, cx)
+                .searchable(true)
         });
         let agent =
             cx.new(|cx| SelectState::new(SearchableVec::new(agents), agent_index, window, cx));
