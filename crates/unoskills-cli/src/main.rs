@@ -74,6 +74,28 @@ enum Commands {
     },
     /// Check GitHub Releases for a newer UnoSkills version
     CheckUpdate,
+    /// Sync plain-text skills & stacks via a private Git backup repository
+    Backup {
+        #[command(subcommand)]
+        action: BackupCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum BackupCommands {
+    /// Show configured Git backup repository, branch, and last sync timestamps
+    Status,
+    /// Configure the private Git backup repository URL and optional branch
+    Configure {
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        branch: Option<String>,
+    },
+    /// Mirror plain-text skills & stacks, commit changes, and push to remote
+    Push,
+    /// Pull plain-text skills & stacks from remote and rebuild the local SQLite index
+    Pull,
 }
 
 #[derive(Subcommand)]
@@ -570,6 +592,90 @@ fn run(cli: Cli) -> Result<()> {
                 println!("UnoSkills v{} is up to date.", outcome.current_version);
             }
         }
+        Commands::Backup { action } => match action {
+            BackupCommands::Status => {
+                let status = mgr.git_backup_status()?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&status)?);
+                } else {
+                    println!(
+                        "Repository: {}",
+                        status.repo_url.as_deref().unwrap_or("(not configured)")
+                    );
+                    println!("Branch:     {}", status.branch);
+                    println!(
+                        "Local data: {} skill(s), {} local stack(s)",
+                        status.local_skill_count, status.local_stack_count
+                    );
+                    println!(
+                        "Last push:  {}",
+                        status
+                            .last_pushed_at
+                            .map(|t| t.to_string())
+                            .unwrap_or_else(|| "-".to_string())
+                    );
+                    println!(
+                        "Last pull:  {}",
+                        status
+                            .last_pulled_at
+                            .map(|t| t.to_string())
+                            .unwrap_or_else(|| "-".to_string())
+                    );
+                }
+            }
+            BackupCommands::Configure { repo, branch } => {
+                mgr.configure_git_backup(&repo, branch.as_deref())?;
+                let status = mgr.git_backup_status()?;
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({ "ok": true, "status": status }))?
+                    );
+                } else {
+                    println!(
+                        "Configured Git backup: {} (branch: {})",
+                        status.repo_url.as_deref().unwrap_or("(cleared)"),
+                        status.branch
+                    );
+                }
+            }
+            BackupCommands::Push => {
+                let res = mgr.git_backup_push()?;
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({ "ok": true, "result": res }))?
+                    );
+                } else if res.pushed {
+                    println!(
+                        "Pushed {} skill(s) and {} stack(s) (commit {}).",
+                        res.skills_exported,
+                        res.stacks_exported,
+                        res.commit_sha.as_deref().unwrap_or("-")
+                    );
+                } else {
+                    println!("Already up to date — nothing new to push.");
+                }
+            }
+            BackupCommands::Pull => {
+                let res = mgr.git_backup_pull()?;
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({ "ok": true, "result": res }))?
+                    );
+                } else {
+                    println!(
+                        "Pulled backup: {} imported, {} updated, {} unchanged skill(s); {} stack(s); {} copy deployment(s) refreshed.",
+                        res.skills_imported,
+                        res.skills_updated,
+                        res.skills_unchanged,
+                        res.stacks_imported,
+                        res.refreshed_copies
+                    );
+                }
+            }
+        },
     }
 
     Ok(())

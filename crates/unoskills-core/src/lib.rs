@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod domain;
 pub mod manager;
 pub mod parser;

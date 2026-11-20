@@ -4,10 +4,15 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use crate::backup::{
+    DEFAULT_BACKUP_BRANCH, GitBackupOpts, list_synced_artifacts, mirror_commit_and_push,
+    normalize_branch, prepare_sync_repo,
+};
 use crate::domain::{
-    AdoptCandidate, AgentInfo, DeployMode, Deployment, MarketplacePage, MarketplaceSkill,
-    ProjectDeployment, ProjectWorkspace, Skill, SkillLintReport, SkillUpdateResult, SourceType,
-    StackInstallSummary, StackManifest, StackSkillRef, StackSource,
+    AdoptCandidate, AgentInfo, DeployMode, Deployment, GitBackupPullResult, GitBackupPushResult,
+    GitBackupStatus, MarketplacePage, MarketplaceSkill, ProjectDeployment, ProjectWorkspace, Skill,
+    SkillLintReport, SkillUpdateResult, SourceType, StackInstallSummary, StackManifest,
+    StackSkillRef, StackSource,
 };
 use crate::parser::{
     find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir, parse_skill_dir,
@@ -1124,6 +1129,220 @@ impl UnoSkillsManager {
             proxy.as_deref(),
             token.as_deref(),
         )
+    }
+
+    // ── Private Git Backup & Multi-Machine Sync ──
+
+    pub fn backup_repo_url(&self) -> Option<String> {
+        self.store
+            .get_setting("git_backup_repo_url")
+            .ok()
+            .flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn backup_branch(&self) -> String {
+        self.store
+            .get_setting("git_backup_branch")
+            .ok()
+            .flatten()
+            .map(|s| normalize_branch(&s))
+            .unwrap_or_else(|| DEFAULT_BACKUP_BRANCH.to_string())
+    }
+
+    pub fn configure_git_backup(&self, repo_url: &str, branch: Option<&str>) -> Result<()> {
+        let trimmed = repo_url.trim();
+        self.store.set_setting("git_backup_repo_url", trimmed)?;
+        if let Some(b) = branch {
+            let norm = normalize_branch(b);
+            self.store.set_setting("git_backup_branch", &norm)?;
+        }
+        Ok(())
+    }
+
+    pub fn git_backup_status(&self) -> Result<GitBackupStatus> {
+        let last_pushed_at = self
+            .store
+            .get_setting("git_backup_last_pushed_at")?
+            .and_then(|s| s.parse::<i64>().ok());
+        let last_pulled_at = self
+            .store
+            .get_setting("git_backup_last_pulled_at")?
+            .and_then(|s| s.parse::<i64>().ok());
+        let local_skill_count = self.list_skills()?.len();
+        let local_stack_count = self.list_local_stacks()?.len();
+        Ok(GitBackupStatus {
+            repo_url: self.backup_repo_url(),
+            branch: self.backup_branch(),
+            last_pushed_at,
+            last_pulled_at,
+            local_skill_count,
+            local_stack_count,
+        })
+    }
+
+    /// Exports plain-text `skills/` and `stacks/*.toml` (never binary SQLite)
+    /// into `<root_dir>/sync-repo`, commits any changes, and pushes to remote.
+    pub fn git_backup_push(&self) -> Result<GitBackupPushResult> {
+        let repo_url = self
+            .backup_repo_url()
+            .context("No Git backup repository URL configured (Settings → Git Backup)")?;
+        let branch = self.backup_branch();
+        let proxy = self.http_proxy();
+        let token = self.github_token();
+        let skills = self.list_skills()?;
+        let local_stacks = self.list_local_stacks()?;
+        let sync_dir = self.root_dir.join("sync-repo");
+
+        let opts = GitBackupOpts {
+            repo_url: &repo_url,
+            branch: &branch,
+            proxy_url: proxy.as_deref(),
+            github_token: token.as_deref(),
+        };
+        let (committed, pushed, skills_exported, stacks_exported, commit_sha) =
+            mirror_commit_and_push(&sync_dir, &opts, &skills, &local_stacks)?;
+
+        if pushed || committed {
+            let _ = self.store.set_setting(
+                "git_backup_last_pushed_at",
+                &Utc::now().timestamp().to_string(),
+            );
+        }
+
+        Ok(GitBackupPushResult {
+            committed,
+            pushed,
+            skills_exported,
+            stacks_exported,
+            commit_sha,
+        })
+    }
+
+    /// Pulls plain-text `skills/` and `stacks/*.toml` from the bound backup
+    /// repository into `<root_dir>/sync-repo`, rebuilds/updates the local
+    /// SQLite index, and refreshes any `Copy`-mode deployments for updated skills.
+    pub fn git_backup_pull(&self) -> Result<GitBackupPullResult> {
+        let repo_url = self
+            .backup_repo_url()
+            .context("No Git backup repository URL configured (Settings → Git Backup)")?;
+        let branch = self.backup_branch();
+        let proxy = self.http_proxy();
+        let token = self.github_token();
+        let sync_dir = self.root_dir.join("sync-repo");
+
+        let opts = GitBackupOpts {
+            repo_url: &repo_url,
+            branch: &branch,
+            proxy_url: proxy.as_deref(),
+            github_token: token.as_deref(),
+        };
+        let remote_has_branch = prepare_sync_repo(&sync_dir, &opts)?;
+        if !remote_has_branch {
+            return Ok(GitBackupPullResult {
+                skills_imported: 0,
+                skills_updated: 0,
+                skills_unchanged: 0,
+                stacks_imported: 0,
+                refreshed_copies: 0,
+            });
+        }
+
+        let (skill_dirs, stack_files) = list_synced_artifacts(&sync_dir);
+        let mut skills_imported = 0usize;
+        let mut skills_updated = 0usize;
+        let mut skills_unchanged = 0usize;
+        let mut refreshed_copies = 0usize;
+
+        for (slug, dir) in skill_dirs {
+            if !is_valid_skill_dir(&dir) {
+                continue;
+            }
+            let incoming_hash = hash_directory(&dir).ok();
+            let existing = self.store.find_skill(&slug)?;
+
+            if let Some(prev) = &existing
+                && prev.content_hash.is_some()
+                && prev.content_hash == incoming_hash
+            {
+                skills_unchanged += 1;
+                continue;
+            }
+
+            let source_type = existing
+                .as_ref()
+                .map(|s| s.source_type)
+                .unwrap_or(SourceType::Local);
+            // Preserve any existing real upstream source_ref, but leave newly
+            // pulled skills with `None` instead of a synthetic non-resolvable ref.
+            let source_ref = existing.as_ref().and_then(|s| s.source_ref.clone());
+            let source_subpath = existing.as_ref().and_then(|s| s.source_subpath.clone());
+            let source_branch = existing.as_ref().and_then(|s| s.source_branch.clone());
+
+            let updated_skill = self.import_directory(
+                &dir,
+                Some(&slug),
+                source_type,
+                source_ref,
+                source_subpath,
+                source_branch,
+            )?;
+
+            if existing.is_some() {
+                skills_updated += 1;
+                for dep in &updated_skill.deployments {
+                    if dep.mode == DeployMode::Copy
+                        && deploy_skill_dir(
+                            &updated_skill.central_path,
+                            &dep.target_path,
+                            DeployMode::Copy,
+                            ReplacePolicy::Recorded(DeployMode::Copy),
+                        )
+                        .is_ok()
+                    {
+                        refreshed_copies += 1;
+                    }
+                }
+                for dep in &updated_skill.project_deployments {
+                    if dep.mode == DeployMode::Copy
+                        && deploy_skill_dir(
+                            &updated_skill.central_path,
+                            &dep.target_path,
+                            DeployMode::Copy,
+                            ReplacePolicy::Recorded(DeployMode::Copy),
+                        )
+                        .is_ok()
+                    {
+                        refreshed_copies += 1;
+                    }
+                }
+            } else {
+                skills_imported += 1;
+            }
+        }
+
+        let mut stacks_imported = 0usize;
+        for path in stack_files {
+            if let Ok(toml_text) = std::fs::read_to_string(&path)
+                && self.import_stack_toml(&toml_text).is_ok()
+            {
+                stacks_imported += 1;
+            }
+        }
+
+        let _ = self.store.set_setting(
+            "git_backup_last_pulled_at",
+            &Utc::now().timestamp().to_string(),
+        );
+
+        Ok(GitBackupPullResult {
+            skills_imported,
+            skills_updated,
+            skills_unchanged,
+            stacks_imported,
+            refreshed_copies,
+        })
     }
 }
 

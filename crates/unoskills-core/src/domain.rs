@@ -262,3 +262,31 @@ pub struct SkillUpdateResult {
     pub updated: bool,
     pub refreshed_copies: usize,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitBackupStatus {
+    pub repo_url: Option<String>,
+    pub branch: String,
+    pub last_pushed_at: Option<i64>,
+    pub last_pulled_at: Option<i64>,
+    pub local_skill_count: usize,
+    pub local_stack_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitBackupPushResult {
+    pub committed: bool,
+    pub pushed: bool,
+    pub skills_exported: usize,
+    pub stacks_exported: usize,
+    pub commit_sha: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitBackupPullResult {
+    pub skills_imported: usize,
+    pub skills_updated: usize,
+    pub skills_unchanged: usize,
+    pub stacks_imported: usize,
+    pub refreshed_copies: usize,
+}
