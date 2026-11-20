@@ -1,5 +1,6 @@
+use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{
-    ActiveTheme, Disableable, IconName, StyledExt, WindowExt,
+    ActiveTheme, Disableable, IconName, Sizable, StyledExt, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle},
     h_flex,
@@ -11,7 +12,7 @@ use gpui_kit::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, div,
     prelude::FluentBuilder, px,
 };
-use unoskills_core::{Skill, StackManifest};
+use unoskills_core::StackManifest;
 
 use super::StacksView;
 use crate::components::badges::StatusBadge;
@@ -51,16 +52,15 @@ impl StacksView {
         let members: Vec<_> = stack
             .skills
             .iter()
-            .map(|item| (item, installed_skill(ws.skills(), &item.name)))
+            .map(|item| (item, item.installed_in(ws.skills())))
             .collect();
         let existing = members.iter().filter(|(_, skill)| skill.is_some()).count();
         let to_install = members.len() - existing;
         let failures = ws.stack_install_failures(&stack.id);
         let saved = ws.local_stacks().iter().any(|local| local.id == stack.id);
         let summary = lang.stack_install_counts(to_install, existing);
-        let can_submit = !blocking_member && (to_install > 0 || !saved);
         let install_label = if to_install > 0 {
-            s.market_add_to_library
+            s.btn_install_all_stack_skills
         } else {
             s.btn_save_stack
         };
@@ -137,73 +137,98 @@ impl StacksView {
                                 members.len()
                             )))
                             .child(v_flex().border_t_1().border_color(border).children(
-                                members.into_iter().map(|(item, installed)| {
-                                    let failure =
-                                        failures.iter().find(|(name, _)| name == &item.name);
-                                    let conflict = installed
-                                        .and_then(|skill| skill.source_ref.as_deref())
-                                        .is_some_and(|source| {
-                                            !source.eq_ignore_ascii_case(item.source.trim())
+                                members.into_iter().enumerate().map(
+                                    |(index, (item, installed))| {
+                                        let pending = ws.is_source_installing(&item.source);
+                                        let failure = failures.iter().find(|(name, _)| {
+                                            installed.is_none() && !pending && name == &item.name
                                         });
-                                    let status = if conflict {
-                                        s.market_same_name
-                                    } else if installed.is_some() {
-                                        s.already_in_library
-                                    } else {
-                                        s.will_install
-                                    };
-                                    v_flex()
-                                        .min_h(px(40.))
-                                        .justify_center()
-                                        .py_2()
-                                        .gap_1()
-                                        .border_b_1()
-                                        .border_color(border)
-                                        .child(
-                                            h_flex()
-                                                .gap_2()
-                                                .child(
-                                                    v_flex()
-                                                        .flex_1()
-                                                        .min_w_0()
-                                                        .child(
-                                                            div()
-                                                                .text_sm()
-                                                                .font_semibold()
-                                                                .truncate()
-                                                                .child(item.name.clone()),
-                                                        )
-                                                        .child(
-                                                            div()
-                                                                .text_xs()
-                                                                .text_color(muted)
-                                                                .truncate()
-                                                                .child(item.source.clone()),
-                                                        ),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .flex_shrink_0()
-                                                        .text_xs()
-                                                        .text_color(if conflict {
-                                                            theme.warning
-                                                        } else if installed.is_some() {
-                                                            theme.success
-                                                        } else {
-                                                            muted
-                                                        })
-                                                        .child(status),
-                                                ),
-                                        )
-                                        .when_some(failure, |row, (_, error)| {
-                                            row.child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(theme.danger)
-                                                    .child(error.clone()),
+                                        let member_action = if let Some(skill) = installed {
+                                            let conflict =
+                                                skill.source_ref.as_ref().is_some_and(|source| {
+                                                    !source.eq_ignore_ascii_case(item.source.trim())
+                                                        && !item.matches_source(source)
+                                                });
+                                            div()
+                                                .flex_shrink_0()
+                                                .text_xs()
+                                                .text_color(if conflict {
+                                                    theme.warning
+                                                } else {
+                                                    theme.success
+                                                })
+                                                .child(if conflict {
+                                                    s.market_same_name
+                                                } else {
+                                                    s.already_in_library
+                                                })
+                                                .into_any_element()
+                                        } else {
+                                            let member = item.clone();
+                                            let stack_id = stack.id.clone();
+                                            Button::new(("stack-install-member", index))
+                                                .outline()
+                                                .small()
+                                                .flex_shrink_0()
+                                                .icon(AssetIcon::Download)
+                                                .label(s.btn_install)
+                                                .accessibility_label(format!(
+                                                    "{} · {}",
+                                                    s.btn_install, item.name
+                                                ))
+                                                .loading(pending)
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        this.workspace.update(cx, |ws, cx| {
+                                                            ws.install_stack_skill_async(
+                                                                &stack_id, &member, window, cx,
+                                                            );
+                                                        });
+                                                    },
+                                                ))
+                                                .into_any_element()
+                                        };
+                                        v_flex()
+                                            .min_h(px(40.))
+                                            .justify_center()
+                                            .py_2()
+                                            .gap_1()
+                                            .border_b_1()
+                                            .border_color(border)
+                                            .child(
+                                                h_flex()
+                                                    .gap_2()
+                                                    .child(
+                                                        v_flex()
+                                                            .flex_1()
+                                                            .min_w_0()
+                                                            .child(
+                                                                div()
+                                                                    .text_sm()
+                                                                    .font_semibold()
+                                                                    .truncate()
+                                                                    .child(item.name.clone()),
+                                                            )
+                                                            .child(
+                                                                div()
+                                                                    .text_xs()
+                                                                    .text_color(muted)
+                                                                    .truncate()
+                                                                    .child(item.source.clone()),
+                                                            ),
+                                                    )
+                                                    .child(member_action),
                                             )
-                                        })
-                                }),
+                                            .when_some(failure, |row, (_, error)| {
+                                                row.child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(theme.danger)
+                                                        .child(error.clone()),
+                                                )
+                                            })
+                                    },
+                                ),
                             )),
                     ),
             )
@@ -221,37 +246,28 @@ impl StacksView {
                             .min_w_0()
                             .text_xs()
                             .text_color(muted)
-                            .child(summary.clone()),
+                            .child(summary),
                     )
-                    .child(
-                        Button::new("install-stack-btn")
-                            .primary()
-                            .label(install_label)
-                            .loading(installing)
-                            .disabled(!installing && !can_submit)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                let workspace = this.workspace.downgrade();
-                                let stack = install_stack.clone();
-                                let summary = summary.clone();
-                                window.open_alert_dialog(cx, move |alert, _, _| {
-                                    let workspace = workspace.clone();
-                                    let stack = stack.clone();
-                                    alert
-                                        .confirm()
-                                        .centered()
-                                        .title(stack.name.clone())
-                                        .description(summary.clone())
-                                        .ok_text(install_label)
-                                        .cancel_text(s.btn_cancel)
-                                        .on_ok(move |_, window, cx| {
-                                            let _ = workspace.update(cx, |ws, cx| {
-                                                ws.install_stack_async(stack.clone(), window, cx)
-                                            });
-                                            true
-                                        })
-                                });
-                            })),
-                    ),
+                    .when(to_install > 0 || !saved || installing, |footer| {
+                        footer.child(
+                            Button::new("install-stack-btn")
+                                .primary()
+                                .flex_shrink_0()
+                                .icon(if to_install > 0 {
+                                    AssetIcon::Download
+                                } else {
+                                    AssetIcon::Check
+                                })
+                                .label(install_label)
+                                .loading(installing)
+                                .disabled(blocking_member && !installing)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.workspace.update(cx, |ws, cx| {
+                                        ws.install_stack_async(install_stack.clone(), window, cx)
+                                    });
+                                })),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -332,13 +348,4 @@ impl StacksView {
                     )
             })
     }
-}
-
-fn installed_skill<'a>(skills: &'a [Skill], key: &str) -> Option<&'a Skill> {
-    let query = key.trim().to_lowercase();
-    skills.iter().find(|skill| {
-        skill.id.to_lowercase() == query
-            || skill.slug.to_lowercase() == query
-            || skill.name.to_lowercase() == query
-    })
 }

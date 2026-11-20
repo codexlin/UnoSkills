@@ -1,3 +1,4 @@
+use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{
     ActiveTheme, Icon, IconName, Side, Sizable, StyledExt, TitleBar,
     button::{Button, ButtonVariants},
@@ -13,14 +14,13 @@ use gpui_kit::{
 
 use crate::assets::AppIcon;
 use crate::components::badges::StatusBadge;
-use crate::features::DiscoverView;
-use crate::features::{LibraryView, SettingsView, StacksView};
+use crate::features::{DiscoverView, HomeView, LibraryView, SettingsView, StacksView};
 use crate::state::{NavTab, SettingsSection, WorkspaceEvent, WorkspaceState};
 
 actions!(unoskills, [FocusSearch, SaveSkill, CancelEdit]);
 
 /// Desktop shell: owns the shared `WorkspaceState` entity, the active tab,
-/// the collapsible sidebar, and the four feature view entities. Navigation
+/// the collapsible sidebar, and the feature view entities. Navigation
 /// flows through `WorkspaceEvent::NavigateTo`, so every tab switch (sidebar,
 /// empty-state buttons, post-install jumps) funnels through one code path.
 pub struct UnoSkillsShell {
@@ -28,6 +28,7 @@ pub struct UnoSkillsShell {
     workspace: Entity<WorkspaceState>,
     active_tab: NavTab,
     sidebar_collapsed: bool,
+    home_view: Entity<HomeView>,
     library_view: Entity<LibraryView>,
     stacks_view: Entity<StacksView>,
     discover_view: Entity<DiscoverView>,
@@ -38,12 +39,16 @@ pub struct UnoSkillsShell {
 impl UnoSkillsShell {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let workspace = cx.new(|_| WorkspaceState::new());
-        // Apply persisted Light/Dark mode and language-aware UI & mono fonts at startup.
         workspace.update(cx, |ws, cx| ws.apply_initial_appearance(window, cx));
+        let appearance_subscription = cx.observe_window_appearance(window, |this, window, cx| {
+            this.workspace
+                .update(cx, |ws, cx| ws.sync_appearance(window, cx));
+        });
         let library_view = cx.new(|cx| LibraryView::new(workspace.clone(), window, cx));
         let stacks_view = cx.new(|cx| StacksView::new(workspace.clone(), window, cx));
         let discover_view = cx.new(|cx| DiscoverView::new(workspace.clone(), window, cx));
         let settings_view = cx.new(|cx| SettingsView::new(workspace.clone(), window, cx));
+        let home_view = cx.new(|cx| HomeView::new(workspace.clone(), window, cx));
 
         let subscription = cx.subscribe_in(
             &workspace,
@@ -61,6 +66,10 @@ impl UnoSkillsShell {
                     | WorkspaceEvent::BusyChanged => cx.notify(),
                     WorkspaceEvent::InstallStateChanged
                     | WorkspaceEvent::NavigateToSettings(_)
+                    | WorkspaceEvent::OpenMyStacks
+                    | WorkspaceEvent::OpenLocalSkills
+                    | WorkspaceEvent::OpenMarketBoard(_)
+                    | WorkspaceEvent::MarketFirstPageChanged(_)
                     | WorkspaceEvent::OpenInstallDialog
                     | WorkspaceEvent::SelectLibrarySkill(_) => {}
                 }
@@ -78,13 +87,14 @@ impl UnoSkillsShell {
         Self {
             focus_handle: cx.focus_handle(),
             workspace,
-            active_tab: NavTab::Library,
+            active_tab: NavTab::Home,
             sidebar_collapsed,
+            home_view,
             library_view,
             stacks_view,
             discover_view,
             settings_view,
-            _subscription: subscription,
+            _subscription: Subscription::join(subscription, appearance_subscription),
         }
     }
 }
@@ -99,7 +109,6 @@ impl Render for UnoSkillsShell {
             theme.primary,
         );
         let s = self.workspace.read(cx).t();
-        let installed_agent_count = self.workspace.read(cx).installed_agent_count();
         let adopt_count = self.workspace.read(cx).adopt_candidates().len();
         let busy_label = self.workspace.read(cx).busy_label().map(str::to_string);
         let narrow = window.viewport_size().width < px(1080.);
@@ -113,6 +122,7 @@ impl Render for UnoSkillsShell {
             .map(|r| r.tag_name.clone());
 
         let active_view = match self.active_tab {
+            NavTab::Home => self.home_view.clone().into_any_element(),
             NavTab::Library => self.library_view.clone().into_any_element(),
             NavTab::Stacks => self.stacks_view.clone().into_any_element(),
             NavTab::Discover => self.discover_view.clone().into_any_element(),
@@ -132,7 +142,7 @@ impl Render for UnoSkillsShell {
                     NavTab::Discover => this
                         .discover_view
                         .update(cx, |view, cx| view.focus_search(window, cx)),
-                    NavTab::Settings => {
+                    NavTab::Home | NavTab::Settings => {
                         this.active_tab = NavTab::Library;
                         this.library_view
                             .update(cx, |view, cx| view.focus_search(window, cx));
@@ -253,13 +263,14 @@ impl Render for UnoSkillsShell {
                                 SidebarGroup::new("").child(
                                     SidebarMenu::new().children(
                                         [
-                                            (NavTab::Library, s.nav_library, IconName::BookOpen),
+                                            (NavTab::Home, s.nav_home, AssetIcon::House),
+                                            (NavTab::Library, s.nav_library, AssetIcon::BookOpen),
                                             (
                                                 NavTab::Stacks,
                                                 s.nav_stacks,
-                                                IconName::LayoutDashboard,
+                                                AssetIcon::LayoutDashboard,
                                             ),
-                                            (NavTab::Discover, s.nav_discover, IconName::Globe),
+                                            (NavTab::Discover, s.nav_discover, AssetIcon::Globe),
                                         ]
                                         .map(
                                             |(tab, label, icon)| {
@@ -288,50 +299,24 @@ impl Render for UnoSkillsShell {
                                 ),
                             )
                             .footer(
-                                v_flex()
-                                    .w_full()
-                                    .gap_1()
-                                    .items_center()
-                                    .child({
-                                        let label = format!(
-                                            "{installed_agent_count} {}",
-                                            s.agents_detected_suffix
-                                        );
-                                        sidebar_footer_item(
-                                            "footer-agents-jump",
-                                            IconName::Bot,
-                                            label,
-                                            collapsed,
-                                        )
-                                        .on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                this.workspace.update(cx, |ws, cx| {
-                                                    ws.navigate_settings(
-                                                        SettingsSection::Agents,
-                                                        cx,
-                                                    )
-                                                });
-                                            }),
-                                        )
+                                v_flex().w_full().items_center().child(
+                                    sidebar_footer_item(
+                                        "nav-settings",
+                                        IconName::Settings,
+                                        s.nav_settings,
+                                        collapsed,
+                                    )
+                                    .when(self.active_tab == NavTab::Settings, |button| {
+                                        button.text_color(accent).bg(accent.opacity(0.12))
                                     })
-                                    .child(
-                                        sidebar_footer_item(
-                                            "nav-settings",
-                                            IconName::Settings,
-                                            s.nav_settings,
-                                            collapsed,
-                                        )
-                                        .when(self.active_tab == NavTab::Settings, |button| {
-                                            button.text_color(accent).bg(accent.opacity(0.12))
-                                        })
-                                        .on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                this.workspace.update(cx, |ws, cx| {
-                                                    ws.navigate(NavTab::Settings, cx)
-                                                });
-                                            }),
-                                        ),
-                                    ),
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
+                                            this.workspace.update(cx, |ws, cx| {
+                                                ws.navigate(NavTab::Settings, cx)
+                                            });
+                                        },
+                                    )),
+                                ),
                             ),
                     )
                     .child(

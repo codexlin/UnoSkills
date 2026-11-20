@@ -1,11 +1,12 @@
-use gpui_kit::base::{Transition, transition};
+use gpui_kit::assets::IconName as AssetIcon;
+use gpui_kit::base::{Transition, actions::Confirm, transition};
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Icon, IconName, Sizable, StyledExt, ThemeMode,
+    ActiveTheme, Disableable, Icon, IconName, Sizable, StyledExt, WindowExt,
     button::{Button, ButtonVariants},
     collapsible::Collapsible,
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,
-    input::Input,
+    input::{Input, InputState},
     menu::{DropdownMenu, PopupMenuItem},
     select::Select,
     separator::Separator,
@@ -13,18 +14,20 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, StyleRefinement, Styled, Window, div, prelude::FluentBuilder, px,
-    rems,
+    AnyElement, App, AppContext, Context, Focusable, InteractiveElement, IntoElement,
+    ParentElement, PathPromptOptions, SharedString, StatefulInteractiveElement, StyleRefinement,
+    Styled, WeakEntity, Window, div, prelude::FluentBuilder, px, rems,
 };
 use unoskills_core::{AgentInfo, DeployMode};
 
 use crate::components::badges::StatusBadge;
 use crate::components::segmented::SegmentedControl;
-use crate::fonts::{AccentPalette, FONT_SIZE_CHOICES, RADIUS_CHOICES};
+use crate::fonts::{AccentPalette, AppearancePreference, FONT_SIZE_CHOICES, RADIUS_CHOICES};
+use crate::state::WorkspaceState;
 
 use super::SettingsView;
 
+const SETTINGS_FIELD_WIDTH: f32 = 200.;
 const AGENT_ROW_HEIGHT_REM: f32 = 2.5;
 const AGENT_GROUP_PADDING_REM: f32 = 1.0;
 const AGENT_DISCLOSURE_GAP_REM: f32 = 0.75;
@@ -45,10 +48,9 @@ impl SettingsView {
                     s.settings_language,
                     s.settings_language_desc,
                     theme.muted_foreground,
-                    div()
-                        .w(px(180.))
-                        .flex_shrink_0()
-                        .child(Select::new(&self.lang_select).small()),
+                    div().w(px(SETTINGS_FIELD_WIDTH)).flex_shrink_0().child(
+                        Select::new(&self.lang_select).accessibility_label(s.settings_language),
+                    ),
                 ))
                 .child(Separator::horizontal())
                 .child(setting_row(
@@ -104,9 +106,9 @@ impl SettingsView {
                             div().flex_shrink_0().child(
                                 Button::new("reveal-root-dir")
                                     .outline()
-                                    .xsmall()
                                     .icon(IconName::FolderOpen)
                                     .tooltip(s.tooltip_reveal_folder)
+                                    .accessibility_label(s.tooltip_reveal_folder)
                                     .on_click(move |_, _, cx| {
                                         cx.reveal_path(&root_dir);
                                     }),
@@ -120,7 +122,15 @@ impl SettingsView {
         let theme = cx.theme();
         let ws = self.workspace.read(cx);
         let s = ws.t();
-        let is_dark = theme.is_dark();
+        let appearances = [
+            (AppearancePreference::System, s.theme_system),
+            (AppearancePreference::Light, s.theme_light),
+            (AppearancePreference::Dark, s.theme_dark),
+        ];
+        let selected_appearance = appearances
+            .iter()
+            .position(|(mode, _)| *mode == ws.appearance())
+            .unwrap_or_default();
         let active_palette = ws.font_settings().palette;
         let palette_items = [
             s.palette_claude,
@@ -146,18 +156,14 @@ impl SettingsView {
                     div().flex_shrink_0().child(
                         SegmentedControl::new(
                             "settings-theme-mode",
-                            [s.theme_dark, s.theme_light],
-                            if is_dark { 0 } else { 1 },
+                            appearances.map(|(_, label)| label),
+                            selected_appearance,
                         )
+                        .icons([AssetIcon::Monitor, AssetIcon::Sun, AssetIcon::Moon])
                         .on_click(cx.listener(
-                            |this, idx: &usize, window, cx| {
-                                let mode = if *idx == 0 {
-                                    ThemeMode::Dark
-                                } else {
-                                    ThemeMode::Light
-                                };
+                            move |this, idx: &usize, window, cx| {
                                 this.workspace.update(cx, |ws, cx| {
-                                    ws.set_theme_mode(mode, window, cx);
+                                    ws.set_appearance(appearances[*idx].0, window, cx);
                                 });
                             },
                         )),
@@ -233,20 +239,19 @@ impl SettingsView {
                     s.settings_ui_font,
                     s.settings_ui_font_desc,
                     theme.muted_foreground,
-                    div()
-                        .w(px(200.))
-                        .flex_shrink_0()
-                        .child(Select::new(&self.ui_font_select).small()),
+                    div().w(px(SETTINGS_FIELD_WIDTH)).flex_shrink_0().child(
+                        Select::new(&self.ui_font_select).accessibility_label(s.settings_ui_font),
+                    ),
                 ))
                 .child(Separator::horizontal())
                 .child(setting_row(
                     s.settings_mono_font,
                     s.settings_mono_font_desc,
                     theme.muted_foreground,
-                    div()
-                        .w(px(200.))
-                        .flex_shrink_0()
-                        .child(Select::new(&self.mono_font_select).small()),
+                    div().w(px(SETTINGS_FIELD_WIDTH)).flex_shrink_0().child(
+                        Select::new(&self.mono_font_select)
+                            .accessibility_label(s.settings_mono_font),
+                    ),
                 ))
                 .child(Separator::horizontal())
                 .child(setting_row(
@@ -284,7 +289,7 @@ impl SettingsView {
                     s.settings_http_proxy,
                     s.settings_http_proxy_desc,
                     theme.muted_foreground,
-                    Input::new(&self.http_proxy_input).small().cleanable(true),
+                    Input::new(&self.http_proxy_input).cleanable(true),
                 ))
                 .child(Separator::horizontal())
                 .child(setting_stacked_field(
@@ -292,7 +297,6 @@ impl SettingsView {
                     s.settings_github_token_desc,
                     theme.muted_foreground,
                     Input::new(&self.github_token_input)
-                        .small()
                         .cleanable(true)
                         .mask_toggle(),
                 ))
@@ -300,7 +304,6 @@ impl SettingsView {
                     h_flex().justify_end().child(
                         Button::new("save-network-settings-btn")
                             .primary()
-                            .small()
                             .icon(IconName::Check)
                             .label(s.btn_save)
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -330,7 +333,7 @@ impl SettingsView {
                     s.settings_git_backup_repo,
                     s.settings_git_backup_repo_desc,
                     theme.muted_foreground,
-                    Input::new(&self.backup_repo_input).small().cleanable(true),
+                    Input::new(&self.backup_repo_input).cleanable(true),
                 ))
                 .child(Separator::horizontal())
                 .child(setting_row(
@@ -338,9 +341,9 @@ impl SettingsView {
                     s.settings_git_backup_branch_desc,
                     theme.muted_foreground,
                     div()
-                        .w(px(160.))
+                        .w(px(SETTINGS_FIELD_WIDTH))
                         .flex_shrink_0()
-                        .child(Input::new(&self.backup_branch_input).small()),
+                        .child(Input::new(&self.backup_branch_input)),
                 ))
                 .child(
                     h_flex()
@@ -366,7 +369,6 @@ impl SettingsView {
                                 .child(
                                     Button::new("save-git-backup-btn")
                                         .outline()
-                                        .small()
                                         .icon(IconName::Check)
                                         .label(s.btn_save)
                                         .on_click(cx.listener(|this, _, window, cx| {
@@ -387,7 +389,6 @@ impl SettingsView {
                                 .child(
                                     Button::new("git-backup-pull-btn")
                                         .outline()
-                                        .small()
                                         .icon(IconName::ArrowDown)
                                         .loading(backup_busy)
                                         .label(s.btn_backup_pull)
@@ -410,7 +411,6 @@ impl SettingsView {
                                 .child(
                                     Button::new("git-backup-push-btn")
                                         .primary()
-                                        .small()
                                         .icon(IconName::ArrowUp)
                                         .loading(backup_busy)
                                         .label(s.btn_backup_push)
@@ -483,7 +483,6 @@ impl SettingsView {
                             div().flex_shrink_0().child(
                                 Button::new("check-updates-btn")
                                     .outline()
-                                    .small()
                                     .icon(IconName::RefreshCw)
                                     .loading(checking_updates)
                                     .label(s.btn_check_updates)
@@ -561,7 +560,6 @@ impl SettingsView {
                                             row.child(
                                                 Button::new("open-release-page-btn")
                                                     .outline()
-                                                    .small()
                                                     .icon(IconName::ExternalLink)
                                                     .label(s.btn_open_release)
                                                     .on_click(move |_, _, cx| {
@@ -572,7 +570,6 @@ impl SettingsView {
                                         .child(if verified_download.is_some() {
                                             Button::new("apply-downloaded-update-btn")
                                                 .primary()
-                                                .small()
                                                 .icon(IconName::Check)
                                                 .label(install_btn_label)
                                                 .on_click(cx.listener(|this, _, window, cx| {
@@ -583,7 +580,6 @@ impl SettingsView {
                                         } else {
                                             Button::new("download-verify-update-btn")
                                                 .primary()
-                                                .small()
                                                 .icon(IconName::ArrowDown)
                                                 .loading(downloading_update)
                                                 .label(s.btn_download_update)
@@ -605,15 +601,7 @@ impl SettingsView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let (border, group_box_bg, muted_fg, radius_lg) = {
-            let theme = cx.theme();
-            (
-                theme.border,
-                theme.group_box,
-                theme.muted_foreground,
-                theme.radius_lg,
-            )
-        };
+        let muted_fg = cx.theme().muted_foreground;
         let ws = self.workspace.read(cx);
         let s = ws.t();
         let (installed_agents, uninstalled_agents): (Vec<_>, Vec<_>) = ws
@@ -625,139 +613,132 @@ impl SettingsView {
         v_flex()
             .w_full()
             .gap_3()
-            // Inline Add Custom Agent bar
             .child(
-                v_flex()
-                    .p_3p5()
+                h_flex()
+                    .w_full()
                     .gap_2()
-                    .rounded(radius_lg)
-                    .border_1()
-                    .border_color(border)
-                    .bg(group_box_bg)
+                    .items_center()
                     .child(
                         div()
+                            .flex_1()
+                            .min_w_0()
                             .text_sm()
-                            .font_semibold()
-                            .child(s.settings_add_custom_agent),
-                    )
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(
-                                        div().w(px(180.)).flex_shrink_0().child(
-                                            Input::new(&self.custom_agent_name_input).small(),
-                                        ),
-                                    )
-                                    .child(
-                                        div().flex_1().min_w_0().child(
-                                            Input::new(&self.custom_agent_dir_input).small(),
-                                        ),
-                                    )
-                                    .child(
-                                        div().flex_shrink_0().child(
-                                            Button::new("pick-custom-agent-dir")
-                                                .outline()
-                                                .small()
-                                                .icon(IconName::FolderOpen)
-                                                .tooltip(s.btn_browse_folder)
-                                                .on_click(cx.listener(|this, _, window, cx| {
-                                                    let prompt = this
-                                                        .workspace
-                                                        .read(cx)
-                                                        .t()
-                                                        .prompt_pick_agent_dir;
-                                                    let rx = cx.prompt_for_paths(
-                                                        gpui_kit::PathPromptOptions {
-                                                            files: false,
-                                                            directories: true,
-                                                            multiple: false,
-                                                            prompt: Some(SharedString::from(
-                                                                prompt,
-                                                            )),
-                                                        },
-                                                    );
-                                                    cx.spawn_in(window, async move |this, cx| {
-                                                        if let Ok(Ok(Some(paths))) = rx.await
-                                                            && let Some(dir) =
-                                                                paths.into_iter().next()
-                                                        {
-                                                            let p =
-                                                                dir.to_string_lossy().to_string();
-                                                            let _ = this.update_in(
-                                                                cx,
-                                                                |view, window, cx| {
-                                                                    view.custom_agent_dir_input
-                                                                        .update(cx, |input, cx| {
-                                                                            input.set_value(
-                                                                                p, window, cx,
-                                                                            );
-                                                                        });
-                                                                },
-                                                            );
-                                                        }
-                                                    })
-                                                    .detach();
-                                                })),
-                                        ),
-                                    )
-                                    .child(
-                                        div().flex_shrink_0().child(
-                                            Button::new("add-custom-agent-btn")
-                                                .primary()
-                                                .small()
-                                                .icon(IconName::Plus)
-                                                .label(s.btn_add_agent)
-                                                .on_click(cx.listener(|this, _, window, cx| {
-                                                    let name = this
-                                                        .custom_agent_name_input
-                                                        .read(cx)
-                                                        .value()
-                                                        .to_string();
-                                                    let dir = this
-                                                        .custom_agent_dir_input
-                                                        .read(cx)
-                                                        .value()
-                                                        .to_string();
-                                                    let added =
-                                                        this.workspace.update(cx, |ws, cx| {
-                                                            ws.add_custom_agent(
-                                                                &name, &dir, window, cx,
-                                                            )
-                                                        });
-                                                    if added {
-                                                        this.custom_agent_name_input.update(
-                                                            cx,
-                                                            |input, cx| {
-                                                                input.set_value("", window, cx);
-                                                            },
-                                                        );
-                                                        this.custom_agent_dir_input.update(
-                                                            cx,
-                                                            |input, cx| {
-                                                                input.set_value("", window, cx);
-                                                            },
-                                                        );
-                                                    }
-                                                })),
-                                        ),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
                             .font_semibold()
                             .text_color(muted_fg)
                             .child(format!("{} ({})", s.badge_detected, installed_agents.len())),
                     )
-                    .when(!installed_agents.is_empty(), |col| {
-                        col.child(self.render_agent_group(&installed_agents, true, cx))
-                    })
-                    .when(!uninstalled_agents.is_empty(), |col| {
-                        col.child(self.render_undetected_agents(&uninstalled_agents, window, cx))
-                    })
+                    .child(
+                        Button::new("open-add-custom-agent")
+                            .outline()
+                            .flex_shrink_0()
+                            .icon(IconName::Plus)
+                            .label(s.settings_add_custom_agent)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_add_agent_dialog(window, cx);
+                            })),
+                    ),
+            )
+            .when(!installed_agents.is_empty(), |col| {
+                col.child(self.render_agent_group(&installed_agents, true, cx))
+            })
+            .when(!uninstalled_agents.is_empty(), |col| {
+                col.child(self.render_undetected_agents(&uninstalled_agents, window, cx))
+            })
+    }
+
+    fn open_add_agent_dialog(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let workspace = self.workspace.downgrade();
+        let s = self.workspace.read(cx).t();
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_custom_agent_name));
+        let directory = cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_custom_agent_dir));
+        let focus = name.read(cx).focus_handle(cx);
+        window.open_dialog(cx, move |dialog, _, _| {
+            let submit_name = name.clone();
+            let submit_directory = directory.clone();
+            let submit_workspace = workspace.clone();
+            let browse_directory = directory.downgrade();
+            let browse_workspace = workspace.clone();
+
+            dialog
+                .title(s.settings_add_custom_agent)
+                .w(px(444.))
+                .child(
+                    v_flex()
+                        .gap_3()
+                        .child(
+                            v_flex()
+                                .gap_1()
+                                .child(div().text_sm().child(s.custom_agent_name))
+                                .child(Input::new(&name).aria_label(s.custom_agent_name)),
+                        )
+                        .child(
+                            v_flex()
+                                .gap_1()
+                                .child(div().text_sm().child(s.custom_agent_directory))
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .gap_2()
+                                        .child(
+                                            div().flex_1().min_w_0().child(
+                                                Input::new(&directory)
+                                                    .aria_label(s.custom_agent_directory),
+                                            ),
+                                        )
+                                        .child(
+                                            Button::new("pick-custom-agent-dir")
+                                                .outline()
+                                                .flex_shrink_0()
+                                                .icon(IconName::FolderOpen)
+                                                .tooltip(s.btn_browse_folder)
+                                                .accessibility_label(s.btn_browse_folder)
+                                                .on_click(move |_, window, cx| {
+                                                    pick_custom_agent_directory(
+                                                        browse_directory.clone(),
+                                                        browse_workspace.clone(),
+                                                        s.prompt_pick_agent_dir,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                }),
+                                        ),
+                                ),
+                        ),
+                )
+                .footer(
+                    h_flex()
+                        .w_full()
+                        .justify_end()
+                        .gap_2()
+                        .child(
+                            Button::new("cancel-custom-agent")
+                                .outline()
+                                .label(s.btn_cancel)
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            Button::new("submit-custom-agent")
+                                .primary()
+                                .label(s.btn_add_agent)
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(
+                                        Box::new(Confirm { secondary: false }),
+                                        cx,
+                                    );
+                                }),
+                        ),
+                )
+                .on_ok(move |_, window, cx| {
+                    let name = submit_name.read(cx).value();
+                    let directory = submit_directory.read(cx).value();
+                    submit_workspace
+                        .update(cx, |ws, cx| {
+                            ws.add_custom_agent(&name, &directory, window, cx)
+                        })
+                        .unwrap_or(false)
+                })
+        });
+        window.focus(&focus, cx);
     }
 
     fn render_undetected_agents(
@@ -913,7 +894,7 @@ impl SettingsView {
                             .danger()
                             .ghost()
                             .disabled(!interactive)
-                            .xsmall()
+                            .small()
                             .icon(IconName::Delete)
                             .tooltip(s.btn_delete)
                             .on_click(cx.listener(
@@ -941,6 +922,41 @@ impl SettingsView {
             )
             .into_any_element()
     }
+}
+
+fn pick_custom_agent_directory(
+    directory: WeakEntity<InputState>,
+    workspace: WeakEntity<WorkspaceState>,
+    prompt: &'static str,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let selection = cx.prompt_for_paths(PathPromptOptions {
+        files: false,
+        directories: true,
+        multiple: false,
+        prompt: Some(prompt.into()),
+    });
+    window
+        .spawn(cx, async move |cx| {
+            let result = selection.await;
+            let _ = cx.update(|window, cx| match result {
+                Ok(Ok(Some(paths))) => {
+                    if let Some(path) = paths.into_iter().next() {
+                        let _ = directory.update(cx, |input, cx| {
+                            input.set_value(path.to_string_lossy().into_owned(), window, cx);
+                        });
+                    }
+                }
+                Ok(Err(error)) => {
+                    let _ = workspace.update(cx, |ws, cx| {
+                        ws.notify_toast(true, error.to_string(), window, cx);
+                    });
+                }
+                _ => {}
+            });
+        })
+        .detach();
 }
 
 fn card_group_box(

@@ -7015,6 +7015,7 @@ name = "unoskills-app"
 version = "0.4.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "gpui-kit",
  "reqwest",
  "serde_json",

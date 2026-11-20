@@ -4,6 +4,16 @@ use gpui_kit::{
     prelude::FluentBuilder,
 };
 
+pub fn format_install_count(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
 /// Formats an estimated token count into a compact string (`~940` or `~5.5k`).
 pub fn format_tokens_short(count: u32) -> String {
     if count >= 1000 {

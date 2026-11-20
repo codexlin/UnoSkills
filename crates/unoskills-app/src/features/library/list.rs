@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{ops::Range, path::Path};
 
 use gpui_kit::component::{
     ActiveTheme, Icon, IconName, StyledExt,
@@ -13,12 +13,46 @@ use gpui_kit::component::{
 use gpui_kit::{
     Context, IntoElement, ParentElement, Styled, div, prelude::FluentBuilder, px, uniform_list,
 };
+use unoskills_core::domain::SourceType;
 
 use crate::components::badges::TokenBadge;
 use crate::components::interactive::InteractiveCard;
 use crate::state::NavTab;
 
 use super::LibraryView;
+
+fn compact_source(source: &str, source_type: SourceType) -> String {
+    let repository = match source_type {
+        SourceType::SkillsSh => Some(source.split_once('@').map_or(source, |(repo, _)| repo)),
+        SourceType::Git => [
+            "https://github.com/",
+            "http://github.com/",
+            "git@github.com:",
+        ]
+        .into_iter()
+        .find_map(|prefix| source.strip_prefix(prefix)),
+        SourceType::Local | SourceType::Adopted => {
+            if let Some(parent) = Path::new(source).parent()
+                && let Some(folder) = parent.file_name()
+                && let Some(container) = parent.parent().and_then(Path::file_name)
+            {
+                return format!(
+                    "…/{}/{}",
+                    container.to_string_lossy(),
+                    folder.to_string_lossy()
+                );
+            }
+            None
+        }
+    };
+    if let Some(repository) = repository
+        && let Some((owner, rest)) = repository.split_once('/')
+        && let Some(repo) = rest.split('/').next().filter(|repo| !repo.is_empty())
+    {
+        return format!("{owner}/{}", repo.strip_suffix(".git").unwrap_or(repo));
+    }
+    source.to_owned()
+}
 
 impl LibraryView {
     pub(super) fn render_library_toolbar(
@@ -330,7 +364,10 @@ impl LibraryView {
                                                                 .text_xs()
                                                                 .text_color(muted)
                                                                 .truncate()
-                                                                .child(source.to_string()),
+                                                                .child(compact_source(
+                                                                    source,
+                                                                    skill.source_type,
+                                                                )),
                                                         ),
                                                 )
                                                 .child(

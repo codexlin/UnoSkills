@@ -1,15 +1,17 @@
 use std::rc::Rc;
 
+use gpui_kit::assets::IconName;
 use gpui_kit::base::transition;
-use gpui_kit::component::{ActiveTheme, h_flex};
+use gpui_kit::component::{ActiveTheme, Icon, h_flex};
 use gpui_kit::{
     App, Bounds, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
-    StatefulInteractiveElement, Styled, TextRun, Window, div, point, px, rems, size,
+    StatefulInteractiveElement, Styled, TextRun, Window, div, point, prelude::FluentBuilder, px,
+    rems, size,
 };
 
 use super::motion::control_transition;
 
-const TRACK_HEIGHT_REM: f32 = 1.75;
+const TRACK_HEIGHT_REM: f32 = 2.0;
 const TRACK_PADDING: f32 = 2.0;
 const SEGMENT_PADDING_X: f32 = 12.0;
 /// Segment text uses `.text_sm()` (0.875rem).
@@ -26,6 +28,7 @@ type SegmentHandler = dyn Fn(&usize, &mut Window, &mut App);
 pub struct SegmentedControl {
     id: SharedString,
     labels: Vec<SharedString>,
+    icons: Vec<IconName>,
     selected: usize,
     on_click: Option<Rc<SegmentHandler>>,
 }
@@ -39,9 +42,15 @@ impl SegmentedControl {
         Self {
             id: id.into(),
             labels: labels.into_iter().map(Into::into).collect(),
+            icons: Vec::new(),
             selected,
             on_click: None,
         }
+    }
+
+    pub fn icons(mut self, icons: impl IntoIterator<Item = IconName>) -> Self {
+        self.icons = icons.into_iter().collect();
+        self
     }
 
     pub fn on_click(mut self, listener: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self {
@@ -55,11 +64,13 @@ impl RenderOnce for SegmentedControl {
         let text_px = window.rem_size() * TEXT_REM;
         let track_height = window.rem_size() * TRACK_HEIGHT_REM;
         let font = window.text_style().font();
+        let icon_space = window.rem_size() * (TEXT_REM + 0.25);
 
         let widths: Vec<f32> = self
             .labels
             .iter()
-            .map(|label| {
+            .enumerate()
+            .map(|(index, label)| {
                 let run = TextRun {
                     len: label.len(),
                     font: font.clone(),
@@ -69,7 +80,12 @@ impl RenderOnce for SegmentedControl {
                     .text_system()
                     .shape_line(label.clone(), text_px, &[run], None)
                     .width();
-                f32::from(width).ceil() + SEGMENT_PADDING_X * 2.0 + 2.0
+                let icon_width = if index < self.icons.len() {
+                    f32::from(icon_space)
+                } else {
+                    0.
+                };
+                f32::from(width).ceil() + icon_width + SEGMENT_PADDING_X * 2.0 + 2.0
             })
             .collect();
         let selected = self.selected.min(widths.len().saturating_sub(1));
@@ -101,6 +117,7 @@ impl RenderOnce for SegmentedControl {
         let segments = self.labels.into_iter().enumerate().map(|(ix, label)| {
             let is_selected = ix == selected;
             let on_click = self.on_click.clone();
+            let icon = self.icons.get(ix).copied();
             div()
                 .id(SharedString::from(format!("{}-seg-{ix}", self.id)))
                 .w(px(widths[ix]))
@@ -109,6 +126,7 @@ impl RenderOnce for SegmentedControl {
                 .flex()
                 .items_center()
                 .justify_center()
+                .gap_1()
                 .text_sm()
                 .whitespace_nowrap()
                 .text_color(if is_selected { active_fg } else { idle_fg })
@@ -127,6 +145,9 @@ impl RenderOnce for SegmentedControl {
                     if let Some(handler) = &on_click {
                         handler(&ix, window, cx);
                     }
+                })
+                .when_some(icon, |segment, icon| {
+                    segment.child(Icon::new(icon).size(text_px).flex_shrink_0())
                 })
                 .child(label)
         });

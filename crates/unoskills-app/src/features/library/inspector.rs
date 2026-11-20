@@ -1,3 +1,4 @@
+use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{
     ActiveTheme, Icon, IconName, Sizable, StyledExt, WindowExt,
     alert::Alert,
@@ -9,11 +10,12 @@ use gpui_kit::component::{
     scroll::ScrollableElement,
     switch::Switch,
     text::TextView,
+    tooltip::Tooltip,
     v_flex,
 };
 use gpui_kit::{
-    ClipboardItem, Context, InteractiveElement, IntoElement, ParentElement, Styled, div,
-    prelude::FluentBuilder, px,
+    ClipboardItem, Context, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
 use unoskills_core::Skill;
 
@@ -81,7 +83,20 @@ impl LibraryView {
                                     .truncate()
                                     .child(skill.name.clone()),
                             )
-                            .child(div().text_xs().text_color(muted).truncate().child(meta)),
+                            .child(
+                                div()
+                                    .id("library-skill-source")
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .truncate()
+                                    .tooltip({
+                                        let meta = meta.clone();
+                                        move |window, cx| {
+                                            Tooltip::new(meta.clone()).build(window, cx)
+                                        }
+                                    })
+                                    .child(meta),
+                            ),
                     )
                     .when(editing, |row| {
                         row.child(
@@ -120,7 +135,10 @@ impl LibraryView {
                 pane.child(
                     page_tabs(
                         "skill-inspector-tabs",
-                        [s.library_deployment, s.library_preview],
+                        [
+                            (AssetIcon::Network, s.library_deployment),
+                            (AssetIcon::FileText, s.library_preview),
+                        ],
                         usize::from(preview),
                         cx,
                     )
@@ -352,7 +370,7 @@ impl LibraryView {
                             .flex_1()
                             .min_w_0()
                             .font_semibold()
-                            .child(s.deploy_to_agents),
+                            .child(s.library_deployment_targets),
                     )
                     .child(
                         div()

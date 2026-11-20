@@ -6,12 +6,12 @@ use gpui_kit::component::{
     input::Input,
     resizable_panel,
     scroll::ScrollableElement,
-    tag::Tag,
+    select::Select,
     v_flex,
 };
 use gpui_kit::{
-    Context, InteractiveElement, IntoElement, ParentElement, ScrollStrategy,
-    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px, rems, uniform_list,
+    Context, IntoElement, ParentElement, Styled, div, prelude::FluentBuilder, px, rems,
+    uniform_list,
 };
 use unoskills_core::{StackManifest, StackSource};
 
@@ -41,9 +41,6 @@ impl StacksView {
         let filter_row = if is_local {
             None
         } else {
-            let tags = self.available_tags(cx);
-            let active_tag = self.active_tag.clone();
-            let focus_border = theme.primary;
             Some(
                 v_flex()
                     .w_full()
@@ -78,58 +75,16 @@ impl StacksView {
                                 ),
                             ),
                     )
-                    .when(!tags.is_empty(), |this| {
-                        this.child(div().w_full().min_w_0().overflow_x_scrollbar().child(
-                            h_flex().gap_1().pb_2().children(
-                                std::iter::once(None).chain(tags.into_iter().map(Some)).map(
-                                    |tag| {
-                                        let is_active = match (&active_tag, &tag) {
-                                            (Some(active), Some(tag)) => {
-                                                active.eq_ignore_ascii_case(tag)
-                                            }
-                                            (None, None) => true,
-                                            _ => false,
-                                        };
-                                        let label =
-                                            tag.as_deref().unwrap_or(s.filter_all_tags).to_owned();
-                                        let id = tag.as_ref().map_or_else(
-                                            || "stack-tag-all".to_owned(),
-                                            |tag| format!("stack-tag-value-{}", tag.to_lowercase()),
-                                        );
-                                        div()
-                                            .id(id)
-                                            .flex_shrink_0()
-                                            .rounded_sm()
-                                            .border_1()
-                                            .border_color(theme.background.opacity(0.))
-                                            .focusable()
-                                            .tab_stop(true)
-                                            .focus_visible(|style| style.border_color(focus_border))
-                                            .cursor_pointer()
-                                            .role(gpui_kit::Role::Button)
-                                            .aria_label(label.clone())
-                                            .aria_selected(is_active)
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.active_tag =
-                                                    if is_active { None } else { tag.clone() };
-                                                this.stack_scroll
-                                                    .scroll_to_item(0, ScrollStrategy::Top);
-                                                cx.notify();
-                                            }))
-                                            .child(
-                                                if is_active {
-                                                    Tag::primary()
-                                                } else {
-                                                    Tag::secondary().outline()
-                                                }
-                                                .small()
-                                                .child(label),
-                                            )
-                                    },
-                                ),
-                            ),
-                        ))
-                    }),
+                    .child(
+                        div().w(px(168.)).max_w_full().child(
+                            Select::new(&self.tag_filter)
+                                .id("stack-tag-filter")
+                                .small()
+                                .accessibility_label(s.stack_tag_filter)
+                                .menu_width(px(240.))
+                                .menu_max_h(px(360.)),
+                        ),
+                    ),
             )
         };
 

@@ -1,5 +1,6 @@
 mod sections;
 
+use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{
     ActiveTheme, IndexPath,
     button::{Button, ButtonVariants},
@@ -33,8 +34,6 @@ pub struct SettingsView {
     pub(super) github_token_input: Entity<InputState>,
     pub(super) backup_repo_input: Entity<InputState>,
     pub(super) backup_branch_input: Entity<InputState>,
-    pub(super) custom_agent_name_input: Entity<InputState>,
-    pub(super) custom_agent_dir_input: Entity<InputState>,
     installed_fonts: Vec<String>,
     pub(super) show_undetected_agents: bool,
     _subscriptions: Vec<Subscription>,
@@ -132,10 +131,6 @@ impl SettingsView {
             input.set_value(saved_backup_branch, window, cx);
             input
         });
-        let custom_agent_name_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_custom_agent_name));
-        let custom_agent_dir_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_custom_agent_dir));
 
         let sub_lang = cx.subscribe_in(
             &lang_select,
@@ -231,12 +226,6 @@ impl SettingsView {
                     this.backup_repo_input.update(cx, |input, cx| {
                         input.set_placeholder(s.ph_git_backup_repo, window, cx);
                     });
-                    this.custom_agent_name_input.update(cx, |input, cx| {
-                        input.set_placeholder(s.ph_custom_agent_name, window, cx);
-                    });
-                    this.custom_agent_dir_input.update(cx, |input, cx| {
-                        input.set_placeholder(s.ph_custom_agent_dir, window, cx);
-                    });
                     cx.notify();
                 }
                 WorkspaceEvent::NavigateToSettings(section) => {
@@ -258,8 +247,6 @@ impl SettingsView {
             github_token_input,
             backup_repo_input,
             backup_branch_input,
-            custom_agent_name_input,
-            custom_agent_dir_input,
             installed_fonts,
             show_undetected_agents: false,
             _subscriptions: vec![sub_lang, sub_ui_font, sub_mono_font, sub_ws],
@@ -294,11 +281,31 @@ impl Render for SettingsView {
         let primary = theme.primary;
 
         let sections = [
-            (SettingsSection::General, s.settings_general),
-            (SettingsSection::Appearance, s.settings_appearance_tab),
-            (SettingsSection::SyncAndNetwork, s.settings_network),
-            (SettingsSection::Agents, s.settings_agents_registry),
-            (SettingsSection::Updates, s.settings_updates_tab),
+            (
+                SettingsSection::General,
+                s.settings_general,
+                AssetIcon::SlidersHorizontal,
+            ),
+            (
+                SettingsSection::Appearance,
+                s.settings_appearance_tab,
+                AssetIcon::Palette,
+            ),
+            (
+                SettingsSection::SyncAndNetwork,
+                s.settings_network,
+                AssetIcon::Cloud,
+            ),
+            (
+                SettingsSection::Agents,
+                s.settings_agents_registry,
+                AssetIcon::Bot,
+            ),
+            (
+                SettingsSection::Updates,
+                s.settings_updates_tab,
+                AssetIcon::Info,
+            ),
         ];
         let section_content = match active {
             SettingsSection::General => self.render_general_section(cx).into_any_element(),
@@ -332,16 +339,17 @@ impl Render for SettingsView {
                     .child(
                         v_flex()
                             .h_full()
-                            .w(px(168.))
+                            .w(px(184.))
                             .flex_shrink_0()
                             .gap_1()
                             .p_3()
                             .border_r_1()
                             .border_color(border)
-                            .children(sections.map(|(section, label)| {
+                            .children(sections.map(|(section, label, icon)| {
                                 Button::new(format!("settings-{section:?}"))
                                     .ghost()
                                     .w_full()
+                                    .icon(icon)
                                     .accessibility_label(label)
                                     .child(
                                         div()

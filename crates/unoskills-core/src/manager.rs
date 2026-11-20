@@ -1010,7 +1010,7 @@ impl UnoSkillsManager {
         let mut failed = Vec::new();
 
         for item in &stack.skills {
-            let existing = self.store.find_skill(&item.name)?;
+            let existing = item.installed_in(&self.store.list_skills()?).cloned();
             let skill = if let Some(s) = existing {
                 skipped_existing.push(s.name.clone());
                 Some(s)
@@ -1349,6 +1349,43 @@ impl UnoSkillsManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stack_install_skips_a_skill_previously_installed_by_source_under_another_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+        let source = tmp.path().join("source-skill");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(
+            source.join("SKILL.md"),
+            "---\nname: Actual skill\n---\n# Skill",
+        )
+        .unwrap();
+        let source_ref = source.to_string_lossy().into_owned();
+        manager.install_from_ref(&source_ref).unwrap();
+        std::fs::remove_dir_all(source).unwrap();
+        let stack = StackManifest {
+            id: "aliased-stack".into(),
+            name: "Aliased stack".into(),
+            author: String::new(),
+            description: String::new(),
+            tags: Vec::new(),
+            recommended_agents: Vec::new(),
+            verified: false,
+            source: StackSource::Local,
+            skills: vec![StackSkillRef {
+                name: "Manifest alias".into(),
+                source: source_ref,
+                note: String::new(),
+            }],
+        };
+
+        let summary = manager.install_stack(&stack, &[]).unwrap();
+
+        assert_eq!(summary.skipped_existing, ["Actual skill"]);
+        assert!(summary.installed.is_empty());
+        assert!(summary.failed.is_empty());
+    }
 
     #[test]
     fn full_lifecycle_install_deploy_shared_dir_and_stack() {

@@ -102,9 +102,9 @@ impl Lang {
 
     pub fn busy_adopting_all(self, count: usize) -> String {
         match self {
-            Self::ZhCn => format!("正在批量收编 {count} 个技能..."),
-            Self::En => format!("Adopting {count} skill(s)..."),
-            Self::Ja => format!("{count} 件のスキルを取り込み中..."),
+            Self::ZhCn => format!("正在将 {count} 个本机技能纳入技能库..."),
+            Self::En => format!("Adding {count} local skills to the library..."),
+            Self::Ja => format!("ローカルスキル {count} 件をライブラリに追加中..."),
         }
     }
 
@@ -124,11 +124,27 @@ impl Lang {
         }
     }
 
+    pub fn label_with_count(self, label: &str, count: usize) -> String {
+        match self {
+            Self::ZhCn | Self::Ja => format!("{label}（{count}）"),
+            Self::En => format!("{label} ({count})"),
+        }
+    }
+
+    pub fn adopt_confirm_title(self, count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("将 {count} 个技能纳入技能库？"),
+            Self::En if count == 1 => "Add 1 skill to the library?".into(),
+            Self::En => format!("Add {count} skills to the library?"),
+            Self::Ja => format!("スキル {count} 件をライブラリに追加しますか？"),
+        }
+    }
+
     pub fn toast_adopted_all(self, ok: usize, failed: usize) -> String {
         match self {
-            Self::ZhCn => format!("已批量收编 {ok} 个技能（跳过/失败 {failed} 个）"),
-            Self::En => format!("Adopted {ok} skill(s) into Library ({failed} skipped/failed)."),
-            Self::Ja => format!("{ok} 件のスキルを取り込みました（スキップ/失敗 {failed} 件）"),
+            Self::ZhCn => format!("已将 {ok} 个技能纳入技能库（失败 {failed} 个）"),
+            Self::En => format!("Added {ok} skills to the library ({failed} failed)."),
+            Self::Ja => format!("{ok} 件のスキルをライブラリに追加しました（失敗 {failed} 件）"),
         }
     }
 
@@ -141,10 +157,17 @@ impl Lang {
     }
 
     pub fn stack_install_counts(self, new: usize, existing: usize) -> String {
+        if new == 0 {
+            return match self {
+                Self::ZhCn => format!("已在库中 {existing} 项"),
+                Self::En => format!("{existing} already in the library"),
+                Self::Ja => format!("導入済み {existing} 件"),
+            };
+        }
         match self {
-            Self::ZhCn => format!("待新增 {new} 项，已在库中 {existing} 项"),
-            Self::En => format!("{new} to add, {existing} already in the library"),
-            Self::Ja => format!("追加予定 {new} 件、ライブラリに {existing} 件"),
+            Self::ZhCn => format!("安装 {new} 项，已在库中 {existing} 项"),
+            Self::En => format!("{new} to install, {existing} already in the library"),
+            Self::Ja => format!("{new} 件をインストール、導入済み {existing} 件"),
         }
     }
 
@@ -555,6 +578,7 @@ pub struct Strings {
     pub settings_appearance_tab: &'static str,
     pub market_all_sources: &'static str,
     pub market_filter_scope: &'static str,
+    pub adopt_confirm_benefit: &'static str,
     pub adopt_confirm_description: &'static str,
     pub stack_actions: &'static str,
     pub expand_sidebar: &'static str,
@@ -577,6 +601,7 @@ pub struct Strings {
     pub discover_adopt_tab: &'static str,
     pub market_add_to_library: &'static str,
     pub market_source_label: &'static str,
+    pub market_source_search: &'static str,
     pub market_search_results: &'static str,
     pub market_sort: &'static str,
     pub market_open_skill: &'static str,
@@ -586,12 +611,25 @@ pub struct Strings {
     pub stacks_import_title: &'static str,
     pub adopt_select_group: &'static str,
     pub adopt_clear_selection: &'static str,
+    pub nav_home: &'static str,
+    pub home_workspace: &'static str,
+    pub home_deployed: &'static str,
+    pub home_agents: &'static str,
+    pub home_intake: &'static str,
+    pub home_intake_total: &'static str,
+    pub home_intake_scope: &'static str,
+    pub home_intake_empty: &'static str,
+    pub home_recent: &'static str,
+    pub home_market_rank: &'static str,
+    pub home_market_installs: &'static str,
+    pub home_market_empty: &'static str,
+    pub home_refresh_market: &'static str,
+    pub home_view_market: &'static str,
     pub nav_library: &'static str,
     pub nav_stacks: &'static str,
     pub nav_discover: &'static str,
     pub nav_settings: &'static str,
     pub tooltip_refresh: &'static str,
-    pub agents_detected_suffix: &'static str,
 
     // Library
     pub btn_install: &'static str,
@@ -615,10 +653,11 @@ pub struct Strings {
     pub confirm_conflict_title: &'static str,
     pub btn_install_from_link: &'static str,
     pub filter_all_tags: &'static str,
+    pub stack_tag_filter: &'static str,
     pub btn_browse_folder: &'static str,
     pub prompt_pick_skill_dir: &'static str,
     pub prompt_pick_agent_dir: &'static str,
-    pub deploy_to_agents: &'static str,
+    pub library_deployment_targets: &'static str,
     pub no_installed_agents: &'static str,
     pub ph_skill_md: &'static str,
 
@@ -639,7 +678,7 @@ pub struct Strings {
     pub recommended_agents: &'static str,
     pub included_skills: &'static str,
     pub already_in_library: &'static str,
-    pub will_install: &'static str,
+    pub btn_install_all_stack_skills: &'static str,
     pub create_stack_desc: &'static str,
     pub field_stack_name: &'static str,
     pub field_stack_author: &'static str,
@@ -659,6 +698,7 @@ pub struct Strings {
     pub quick_install_title: &'static str,
     pub ph_install_source: &'static str,
     pub ph_market_search: &'static str,
+    pub market_search_hint: &'static str,
     pub btn_search: &'static str,
     pub btn_trending: &'static str,
     pub board_trending: &'static str,
@@ -692,6 +732,7 @@ pub struct Strings {
     pub mode_copy: &'static str,
     pub settings_appearance: &'static str,
     pub settings_appearance_desc: &'static str,
+    pub theme_system: &'static str,
     pub theme_dark: &'static str,
     pub theme_light: &'static str,
     pub settings_language: &'static str,
@@ -719,6 +760,8 @@ pub struct Strings {
     pub settings_root_dir: &'static str,
     pub settings_agents_registry: &'static str,
     pub settings_add_custom_agent: &'static str,
+    pub custom_agent_name: &'static str,
+    pub custom_agent_directory: &'static str,
     pub ph_custom_agent_name: &'static str,
     pub ph_custom_agent_dir: &'static str,
     pub btn_add_agent: &'static str,
@@ -742,7 +785,7 @@ pub struct Strings {
     pub confirm_detach_project_title: &'static str,
     pub prompt_pick_project_folder: &'static str,
     pub toast_project_detached: &'static str,
-    pub busy_loading_trending: &'static str,
+    pub busy_loading_market: &'static str,
     pub busy_checking_updates: &'static str,
     pub ph_stack_search: &'static str,
     pub badge_community: &'static str,

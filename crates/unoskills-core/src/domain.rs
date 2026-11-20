@@ -210,6 +210,37 @@ pub struct StackSkillRef {
     pub note: String,
 }
 
+impl StackSkillRef {
+    pub fn matches_source(&self, reference: &str) -> bool {
+        let source = self.source.trim();
+        !source.is_empty()
+            && (source == reference
+                || source.strip_prefix("~/").is_some_and(|path| {
+                    dirs::home_dir().is_some_and(|home| home.join(path).as_os_str() == reference)
+                }))
+    }
+
+    /// Match the installed source first, then fall back to the manifest's skill name.
+    pub fn installed_in<'a>(&self, skills: &'a [Skill]) -> Option<&'a Skill> {
+        let name = self.name.trim().to_lowercase();
+        skills
+            .iter()
+            .find(|skill| {
+                skill
+                    .source_ref
+                    .as_deref()
+                    .is_some_and(|source| self.matches_source(source))
+            })
+            .or_else(|| {
+                skills.iter().find(|skill| {
+                    skill.id.to_lowercase() == name
+                        || skill.slug.to_lowercase() == name
+                        || skill.name.to_lowercase() == name
+                })
+            })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StackInstallSummary {
     pub stack_id: String,

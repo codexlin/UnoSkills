@@ -1,14 +1,16 @@
 use std::ops::Range;
 
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Icon, IconName, Sizable, StyledExt, WindowExt,
+    ActiveTheme, Disableable, Icon, IconName, Sizable, StyledExt,
     alert::Alert,
     button::{Button, ButtonVariants},
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle},
+    group_box::{GroupBox, GroupBoxVariants},
     h_flex,
     input::Input,
     menu::{DropdownMenu, PopupMenuItem},
     scroll::ScrollableElement,
+    select::Select,
     spinner::Spinner,
     tag::Tag,
     tooltip::Tooltip,
@@ -16,30 +18,20 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, rems,
+    StatefulInteractiveElement, StyleRefinement, Styled, div, prelude::FluentBuilder, px, rems,
     uniform_list,
 };
 
-use unoskills_core::{MarketplaceSkill, source::skillssh_detail_url};
+use gpui_kit::assets::IconName as AssetIcon;
+use unoskills_core::source::skillssh_detail_url;
 
-use crate::components::badges::StatusBadge;
-use crate::components::interactive::InteractiveCard;
+use crate::components::badges::format_install_count;
 use crate::state::MarketInstallStatus;
 
 use super::{DiscoverView, MarketBoard};
 
 const MARKET_COLUMNS: usize = 3;
-const MARKET_CARD_HEIGHT: f32 = 4.75;
-
-fn format_installs(n: u64) -> String {
-    if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}k", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
-}
+const MARKET_CARD_HEIGHT: f32 = 6.25;
 
 fn market_rank(rank: usize, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
@@ -50,7 +42,7 @@ fn market_rank(rank: usize, cx: &App) -> impl IntoElement {
             .text_xs()
             .font_semibold()
             .child(
-                Icon::new(gpui_kit::assets::IconName::Trophy)
+                Icon::new(AssetIcon::Trophy)
                     .size_3()
                     .text_color(theme.primary),
             )
@@ -73,11 +65,7 @@ fn market_rank(rank: usize, cx: &App) -> impl IntoElement {
             .child(label)
             .into_any_element(),
     };
-    h_flex()
-        .min_w(rems(1.75))
-        .flex_shrink_0()
-        .justify_center()
-        .child(rank_label)
+    h_flex().flex_shrink_0().justify_center().child(rank_label)
 }
 
 impl DiscoverView {
@@ -100,21 +88,19 @@ impl DiscoverView {
         };
         let current_board = self.market_board;
         let count_badge = match self.market_total {
-            Some(total) if !self.market_search_active && !filtered && total > item_count => {
+            _ if filtered => format!("{} · {item_count}", s.market_source_filter),
+            Some(total) if !self.market_search_active && total > item_count => {
                 format!("{item_count} / {total}")
             }
-            _ => format!("{item_count}"),
+            _ => item_count.to_string(),
         };
 
         let boards = [
-            (MarketBoard::Trending, s.board_trending),
-            (MarketBoard::Hot, s.board_hot),
-            (MarketBoard::AllTime, s.board_all_time),
+            MarketBoard::Trending,
+            MarketBoard::Hot,
+            MarketBoard::AllTime,
         ];
-        let board_label = boards
-            .iter()
-            .find(|(board, _)| *board == current_board)
-            .map_or(s.board_trending, |(_, label)| *label);
+        let board_label = current_board.label(s);
         let board_view = cx.weak_entity();
 
         v_flex()
@@ -131,17 +117,17 @@ impl DiscoverView {
                     .items_center()
                     .flex_wrap()
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(160.))
-                            .max_w(px(360.))
-                            .child(Input::new(&self.market_search_input).cleanable(true)),
+                        div().flex_1().min_w(px(160.)).max_w(px(360.)).child(
+                            Input::new(&self.market_search_input)
+                                .aria_label(s.ph_market_search)
+                                .cleanable(true),
+                        ),
                     )
                     .child(
                         Button::new("search-market-btn")
                             .ghost()
                             .icon(IconName::Search)
-                            .tooltip(s.btn_search)
+                            .tooltip(s.market_search_hint)
                             .accessibility_label(s.btn_search)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 let query = this.market_search_input.read(cx).value().to_string();
@@ -159,10 +145,10 @@ impl DiscoverView {
                             })
                             .tooltip(s.market_sort)
                             .dropdown_menu(move |mut menu, _, _| {
-                                for (board, label) in boards {
+                                for board in boards {
                                     let view = board_view.clone();
                                     menu = menu.item(
-                                        PopupMenuItem::new(label)
+                                        PopupMenuItem::new(board.label(s))
                                             .checked(current_board == board)
                                             .on_click(move |_, window, cx| {
                                                 let _ = view.update(cx, |view, cx| {
@@ -176,7 +162,34 @@ impl DiscoverView {
                                 menu
                             }),
                     )
-                    .child(self.source_filter_menu(cx))
+                    .child(
+                        h_flex()
+                            .flex_shrink_0()
+                            .gap_1()
+                            .child(
+                                div().w(rems(11.)).child(
+                                    Select::new(&self.market_source_select)
+                                        .id("market-source-filter")
+                                        .accessibility_label(s.market_source_label)
+                                        .search_placeholder(s.market_source_search)
+                                        .menu_width(px(288.))
+                                        .menu_max_h(px(300.))
+                                        .disabled(self.marketplace_results.is_empty()),
+                                ),
+                            )
+                            .when(filtered, |row| {
+                                row.child(
+                                    Button::new("market-clear-source-filter")
+                                        .ghost()
+                                        .icon(IconName::Close)
+                                        .accessibility_label(s.market_clear_source_filter)
+                                        .tooltip(s.market_clear_source_filter)
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.set_market_source_filter(None, window, cx);
+                                        })),
+                                )
+                            }),
+                    )
                     .child(
                         Button::new("refresh-market-btn")
                             .ghost()
@@ -213,23 +226,6 @@ impl DiscoverView {
                         .child(Alert::error("market-error", error).banner().small()),
                 )
             })
-            .when_some(self.market_source_filter.as_ref(), |page, filter| {
-                page.child(
-                    h_flex().w_full().px_5().pt_2().child(
-                        Button::new("market-clear-source-filter")
-                            .outline()
-                            .small()
-                            .min_w_0()
-                            .icon(gpui_kit::assets::IconName::X)
-                            .label(format!("{} · {}", s.market_source_filter, filter.source))
-                            .accessibility_label(s.market_clear_source_filter)
-                            .tooltip(s.market_clear_source_filter)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.set_market_source_filter(None, cx);
-                            })),
-                    ),
-                )
-            })
             .child(if is_loading && item_count == 0 {
                 v_flex()
                     .id("market-loading")
@@ -250,7 +246,8 @@ impl DiscoverView {
                                     .flex_1()
                                     .min_w_0()
                                     .h(rems(MARKET_CARD_HEIGHT))
-                                    .p_2()
+                                    .px_3()
+                                    .py_2()
                                     .justify_between()
                                     .rounded(theme.radius_lg)
                                     .border_1()
@@ -258,6 +255,16 @@ impl DiscoverView {
                                     .bg(theme.group_box)
                                     .child(div().w_1_2().h_3().rounded_sm().bg(theme.skeleton))
                                     .child(div().w_2_5().h_2().rounded_sm().bg(theme.skeleton))
+                                    .child(
+                                        h_flex()
+                                            .justify_between()
+                                            .child(
+                                                div().w_1_4().h_2().rounded_sm().bg(theme.skeleton),
+                                            )
+                                            .child(
+                                                div().w_1_4().h_6().rounded_sm().bg(theme.skeleton),
+                                            ),
+                                    )
                             }))
                     }))
                     .into_any_element()
@@ -352,9 +359,10 @@ impl DiscoverView {
 
                                         let start = row_ix * MARKET_COLUMNS;
                                         let cards = (start..start + MARKET_COLUMNS).map(|index| {
-                                            div().flex_1().min_w_0().children(
-                                                this.render_market_card(index, window, cx),
-                                            )
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .children(this.render_market_card(index, cx))
                                         });
                                         div()
                                             .w_full()
@@ -374,102 +382,104 @@ impl DiscoverView {
             })
     }
 
-    fn source_filter_menu(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
-        let s = self.workspace.read(cx).t();
-        let view = cx.weak_entity();
-        Button::new("market-source-menu")
-            .outline()
-            .icon(IconName::ChevronDown)
-            .label(s.market_source_label)
-            .tooltip(s.market_filter_scope)
-            .dropdown_menu(move |mut menu, _, cx| {
-                let Some((sources, selected)) = view
-                    .update(cx, |view, _| {
-                        let sources = view
-                            .marketplace_results
-                            .iter()
-                            .filter(|item| !item.source.is_empty())
-                            .map(|item| item.source.clone())
-                            .collect::<std::collections::BTreeSet<_>>();
-                        (
-                            sources,
-                            view.market_source_filter
-                                .as_ref()
-                                .map(|filter| filter.source.clone()),
-                        )
-                    })
-                    .ok()
-                else {
-                    return menu;
-                };
-                let selection_view = view.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(s.market_all_sources)
-                        .checked(selected.is_none())
-                        .on_click(move |_, _, cx| {
-                            let _ = selection_view
-                                .update(cx, |view, cx| view.set_market_source_filter(None, cx));
-                        }),
-                );
-                for source in sources {
-                    let selection_view = view.clone();
-                    let checked = selected.as_deref() == Some(source.as_str());
-                    menu = menu.item(
-                        PopupMenuItem::new(source.clone())
-                            .checked(checked)
-                            .on_click(move |_, _, cx| {
-                                let _ = selection_view.update(cx, |view, cx| {
-                                    view.set_market_source_filter(Some(source.clone()), cx);
-                                });
-                            }),
-                    );
-                }
-                menu
-            })
-    }
-
-    fn render_market_card(
-        &self,
-        index: usize,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    fn render_market_card(&self, index: usize, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (index, item) = self.market_result(index)?;
         let ws = self.workspace.read(cx);
         let s = ws.t();
         let theme = cx.theme();
         let muted = theme.muted_foreground;
         let rank = (!self.market_search_active).then_some(index + 1);
-        let installs = format!("{} {}", format_installs(item.installs), s.installs_unit);
         let name = item.name.clone();
         let source = item.source.clone();
+        let identity = format!("{name} · {source}");
+        let source_selected = self
+            .market_source_filter
+            .as_ref()
+            .is_some_and(|filter| filter.source == source);
+        let installs = format!(
+            "{} {}",
+            format_install_count(item.installs),
+            s.installs_unit
+        );
+        let total_installs = format!("{} {}", item.installs, s.installs_unit);
         let status = ws.market_install_status(item);
-        let detail = item.clone();
-        let card = InteractiveCard::new(format!("market-card-{}", item.id), v_flex(), false, cx);
-        let card = if rank == Some(1) {
-            card.surface(
-                theme.group_box,
-                theme.list_hover,
-                theme.border.blend(theme.primary.opacity(0.48)),
-            )
+        let pending = ws.is_source_installing(&item.install_ref());
+        let border = if rank == Some(1) {
+            theme.border.blend(theme.primary.opacity(0.48))
         } else {
-            card
+            theme.border
         };
+        let (action_label, action_icon, action_tooltip) = match status {
+            MarketInstallStatus::Available => (
+                s.market_add_to_library,
+                AssetIcon::Plus,
+                s.market_add_to_library,
+            ),
+            MarketInstallStatus::Installed => {
+                (s.market_open_skill, AssetIcon::Check, s.already_in_library)
+            }
+            MarketInstallStatus::SameName => (
+                s.market_same_name,
+                AssetIcon::CircleAlert,
+                s.market_same_name,
+            ),
+        };
+        let item_for_action = item.clone();
+        let primary_action = Button::new("market-skill-action")
+            .outline()
+            .small()
+            .flex_shrink_0()
+            .icon(action_icon)
+            .label(action_label)
+            .tooltip(action_tooltip)
+            .accessibility_label(format!("{action_label} · {identity}"))
+            .loading(pending)
+            .disabled(status == MarketInstallStatus::SameName)
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.workspace.update(cx, |ws, cx| {
+                    let source = item_for_action.install_ref();
+                    match ws.market_install_status(&item_for_action) {
+                        MarketInstallStatus::Available => {
+                            ws.install_source_async(&source, false, window, cx);
+                        }
+                        MarketInstallStatus::Installed => {
+                            let key = source.to_lowercase();
+                            if let Some(id) = ws.skills().iter().find_map(|skill| {
+                                skill
+                                    .source_ref
+                                    .as_ref()
+                                    .filter(|reference| reference.to_lowercase() == key)
+                                    .map(|_| skill.id.clone())
+                            }) {
+                                ws.open_library_skill(id, cx);
+                            }
+                        }
+                        MarketInstallStatus::SameName => {}
+                    }
+                });
+            }));
+
         Some(
-            card.accessible(format!("{name} · {source}"))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.open_market_detail(detail.clone(), window, cx)
-                }))
+            GroupBox::new()
+                .id(format!("market-card-{}", item.id))
+                .outline()
                 .w_full()
-                .h(rems(MARKET_CARD_HEIGHT))
-                .p_3()
-                .overflow_hidden()
-                .justify_between()
+                .content_style(
+                    StyleRefinement::default()
+                        .h(rems(MARKET_CARD_HEIGHT))
+                        .px_3()
+                        .py_2()
+                        .gap_1()
+                        .justify_between()
+                        .rounded(theme.radius_lg)
+                        .bg(theme.group_box)
+                        .border_color(border),
+                )
                 .child(
                     h_flex()
+                        .w_full()
                         .gap_2()
-                        .h_6()
-                        .when_some(rank, |row, rank| row.child(market_rank(rank, cx)))
+                        .h_5()
                         .child(
                             div()
                                 .id("market-name")
@@ -478,154 +488,110 @@ impl DiscoverView {
                                 .text_sm()
                                 .font_semibold()
                                 .truncate()
-                                .tooltip({
-                                    let name = name.clone();
-                                    move |window, cx| Tooltip::new(name.clone()).build(window, cx)
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(name.clone()).build(window, cx)
                                 })
-                                .child(name),
+                                .child(item.name.clone()),
                         )
                         .when(item.is_official, |row| {
                             row.child(
-                                Icon::new(gpui_kit::assets::IconName::BadgeCheck)
-                                    .size_4()
-                                    .text_color(muted),
+                                div()
+                                    .id("market-official")
+                                    .flex_shrink_0()
+                                    .aria_label(s.market_official)
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(s.market_official).build(window, cx)
+                                    })
+                                    .child(
+                                        Icon::new(AssetIcon::BadgeCheck)
+                                            .size_4()
+                                            .text_color(theme.primary),
+                                    ),
                             )
                         })
-                        .when(status == MarketInstallStatus::Installed, |row| {
+                        .when_some(rank, |row, rank| row.child(market_rank(rank, cx))),
+                )
+                .child(
+                    h_flex()
+                        .w_full()
+                        .gap_2()
+                        .h_5()
+                        .text_xs()
+                        .text_color(muted)
+                        .when(!source.is_empty(), |row| {
                             row.child(
-                                div()
+                                Button::new("market-filter-card-source")
+                                    .ghost()
+                                    .xsmall()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .px_0()
+                                    .text_color(if source_selected {
+                                        theme.primary
+                                    } else {
+                                        muted
+                                    })
+                                    .icon(AssetIcon::GitFork)
+                                    .accessibility_label(format!(
+                                        "{} · {identity}",
+                                        s.market_filter_scope
+                                    ))
+                                    .tooltip(format!("{} · {source}", s.market_filter_scope))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .text_left()
+                                            .truncate()
+                                            .child(source.clone()),
+                                    )
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.set_market_source_filter(
+                                            Some(source.clone()),
+                                            window,
+                                            cx,
+                                        );
+                                    })),
+                            )
+                        })
+                        .when_some(skillssh_detail_url(item), |row, url| {
+                            row.child(
+                                Button::new("market-open-external")
+                                    .ghost()
+                                    .xsmall()
                                     .flex_shrink_0()
-                                    .text_xs()
-                                    .text_color(theme.success)
-                                    .child(s.already_in_library),
+                                    .icon(IconName::ExternalLink)
+                                    .tooltip(s.market_view_details)
+                                    .accessibility_label(format!(
+                                        "{} · {identity}",
+                                        s.market_view_details
+                                    ))
+                                    .on_click(move |_, _, cx| cx.open_url(url.as_str())),
                             )
                         }),
                 )
                 .child(
                     h_flex()
+                        .w_full()
                         .gap_2()
-                        .h_5()
-                        .text_xs()
-                        .text_color(muted)
+                        .h_6()
                         .child(
-                            div()
-                                .id("market-source")
+                            h_flex()
+                                .id("market-installs")
                                 .flex_1()
                                 .min_w_0()
-                                .truncate()
-                                .tooltip({
-                                    let source = source.clone();
-                                    move |window, cx| Tooltip::new(source.clone()).build(window, cx)
+                                .gap_2()
+                                .text_xs()
+                                .text_color(muted)
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(total_installs.clone()).build(window, cx)
                                 })
-                                .child(source),
+                                .child(Icon::new(AssetIcon::Download).size_3().flex_shrink_0())
+                                .child(div().min_w_0().truncate().child(installs)),
                         )
-                        .child(div().flex_shrink_0().child(installs)),
+                        .child(primary_action),
                 )
                 .into_any_element(),
         )
-    }
-
-    fn open_market_detail(
-        &self,
-        item: MarketplaceSkill,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let workspace = self.workspace.downgrade();
-        window.open_sheet(cx, move |sheet, _, cx| {
-            let Some(workspace) = workspace.upgrade() else {
-                return sheet;
-            };
-            let ws = workspace.read(cx);
-            let s = ws.t();
-            let theme = cx.theme();
-            let muted = theme.muted_foreground;
-            let source = item.install_ref();
-            let status = ws.market_install_status(&item);
-            let pending = ws.is_source_installing(&source);
-            let in_library = ws
-                .skills()
-                .iter()
-                .find(|skill| {
-                    skill
-                        .source_ref
-                        .as_deref()
-                        .is_some_and(|r| r.to_lowercase() == source.to_lowercase())
-                })
-                .map(|skill| skill.id.clone());
-            let workspace = workspace.downgrade();
-            let action = match status {
-                MarketInstallStatus::Installed => s.market_open_skill,
-                _ => s.market_add_to_library,
-            };
-            let details = v_flex()
-                .w_full()
-                .gap_3()
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child(s.market_source_label),
-                        )
-                        .child(div().text_sm().child(item.source.clone())),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .child(format!("{} {}", item.installs, s.installs_unit)),
-                )
-                .when(item.is_official, |pane| {
-                    pane.child(StatusBadge::info(s.market_official).outline())
-                })
-                .when(status == MarketInstallStatus::Installed, |pane| {
-                    pane.child(StatusBadge::success(s.already_in_library).outline())
-                })
-                .when(status == MarketInstallStatus::SameName, |pane| {
-                    pane.child(StatusBadge::warning(s.market_same_name).outline())
-                });
-
-            sheet
-                .size(px(416.))
-                .title(item.name.clone())
-                .child(details)
-                .footer(
-                    h_flex()
-                        .w_full()
-                        .gap_2()
-                        .justify_end()
-                        .flex_wrap()
-                        .when_some(skillssh_detail_url(&item), |row, url| {
-                            row.child(
-                                Button::new("market-detail-external")
-                                    .outline()
-                                    .icon(IconName::ExternalLink)
-                                    .label(s.market_view_details)
-                                    .on_click(move |_, _, cx| cx.open_url(url.as_str())),
-                            )
-                        })
-                        .child(
-                            Button::new("market-detail-install")
-                                .primary()
-                                .label(action)
-                                .loading(pending)
-                                .disabled(status == MarketInstallStatus::SameName)
-                                .on_click(move |_, window, cx| {
-                                    if let Some(id) = &in_library {
-                                        window.close_sheet(cx);
-                                        let _ = workspace.update(cx, |ws, cx| {
-                                            ws.open_library_skill(id.clone(), cx)
-                                        });
-                                    } else if status == MarketInstallStatus::Available {
-                                        let _ = workspace.update(cx, |ws, cx| {
-                                            ws.install_source_async(&source, false, window, cx)
-                                        });
-                                    }
-                                }),
-                        ),
-                )
-        });
     }
 }

@@ -22,10 +22,13 @@ use gpui_kit::{
 use super::DiscoverView;
 use crate::components::badges::TokenBadge;
 
+const MAX_INITIALLY_EXPANDED_SKILLS: usize = 8;
+
 pub(super) struct AdoptGroup {
     key: String,
     name: String,
     indices: Vec<usize>,
+    expanded: bool,
 }
 
 pub(super) enum AdoptRow {
@@ -67,6 +70,12 @@ impl DiscoverView {
             .map(|((name, key), indices)| AdoptGroup {
                 name: name.clone(),
                 key: key.clone(),
+                expanded: !query.is_empty()
+                    || self
+                        .adopt_expansion
+                        .get(key)
+                        .copied()
+                        .unwrap_or(indices.len() <= MAX_INITIALLY_EXPANDED_SKILLS),
                 indices,
             })
             .collect();
@@ -77,11 +86,23 @@ impl DiscoverView {
         self.adopt_rows.clear();
         for (index, group) in self.adopt_groups.iter().enumerate() {
             self.adopt_rows.push(AdoptRow::Group(index));
-            if !self.collapsed_adopt_groups.contains(&group.key) {
+            if group.expanded {
                 self.adopt_rows
                     .extend(group.indices.iter().copied().map(AdoptRow::Candidate));
             }
         }
+    }
+
+    fn toggle_adopt_group(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(group) = self.adopt_groups.iter_mut().find(|group| group.key == key) else {
+            return;
+        };
+        group.expanded = !group.expanded;
+        if self.adopt_search_input.read(cx).value().trim().is_empty() {
+            self.adopt_expansion.insert(key.to_owned(), group.expanded);
+        }
+        self.rebuild_adopt_rows();
+        cx.notify();
     }
 
     fn confirm_adopt(&self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
@@ -96,8 +117,7 @@ impl DiscoverView {
         if candidates.is_empty() || ws.adopting_all() {
             return;
         }
-        let selected = ws.lang().adopt_selected_count(candidates.len());
-        let description = s.adopt_confirm_description;
+        let title = ws.lang().adopt_confirm_title(candidates.len());
         let workspace = self.workspace.downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
             let workspace = workspace.clone();
@@ -105,8 +125,13 @@ impl DiscoverView {
             alert
                 .confirm()
                 .centered()
-                .title(selected.clone())
-                .description(description)
+                .title(title.clone())
+                .description(
+                    v_flex()
+                        .gap_2()
+                        .child(div().child(s.adopt_confirm_benefit))
+                        .child(div().child(s.adopt_confirm_description)),
+                )
                 .ok_text(s.btn_adopt)
                 .cancel_text(s.btn_cancel)
                 .on_ok(move |_, window, cx| {
@@ -126,7 +151,8 @@ impl DiscoverView {
         let busy = ws.adopting_all();
         let count = self.adopt_rows.len();
         let selected = self.selected_adopt_paths.len();
-        let selected_label = ws.lang().adopt_selected_count(selected);
+        let lang = ws.lang();
+        let selected_label = lang.adopt_selected_count(selected);
 
         v_flex()
             .size_full()
@@ -217,8 +243,7 @@ impl DiscoverView {
                                                 let all_selected = paths.iter().all(|path| {
                                                     this.selected_adopt_paths.contains(path)
                                                 });
-                                                let collapsed =
-                                                    this.collapsed_adopt_groups.contains(&key);
+                                                let expanded = group.expanded;
                                                 h_flex()
                                                     .gap_2()
                                                     .bg(theme.secondary)
@@ -226,10 +251,10 @@ impl DiscoverView {
                                                     .child(
                                                         Button::new(format!("adopt-group-{key}"))
                                                             .ghost()
-                                                            .icon(if collapsed {
-                                                                IconName::ChevronRight
-                                                            } else {
+                                                            .icon(if expanded {
                                                                 IconName::ChevronDown
+                                                            } else {
+                                                                IconName::ChevronRight
                                                             })
                                                             .min_w_0()
                                                             .flex_shrink_1()
@@ -240,15 +265,9 @@ impl DiscoverView {
                                                             ))
                                                             .on_click(cx.listener(
                                                                 move |this, _, _, cx| {
-                                                                    if !this
-                                                                        .collapsed_adopt_groups
-                                                                        .remove(&key)
-                                                                    {
-                                                                        this.collapsed_adopt_groups
-                                                                            .insert(key.clone());
-                                                                    }
-                                                                    this.rebuild_adopt_rows();
-                                                                    cx.notify();
+                                                                    this.toggle_adopt_group(
+                                                                        &key, cx,
+                                                                    );
                                                                 },
                                                             )),
                                                     )
@@ -260,6 +279,7 @@ impl DiscoverView {
                                                         ))
                                                         .ghost()
                                                         .small()
+                                                        .flex_shrink_0()
                                                         .label(if all_selected {
                                                             s.adopt_clear_selection
                                                         } else {
@@ -371,6 +391,7 @@ impl DiscoverView {
                         .child(
                             Button::new("adopt-clear-selection")
                                 .ghost()
+                                .flex_shrink_0()
                                 .label(s.adopt_clear_selection)
                                 .disabled(busy)
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -381,7 +402,8 @@ impl DiscoverView {
                         .child(
                             Button::new("adopt-confirm-selection")
                                 .primary()
-                                .label(format!("{} ({selected})", s.btn_adopt))
+                                .flex_shrink_0()
+                                .label(lang.label_with_count(s.btn_adopt, selected))
                                 .loading(busy)
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.confirm_adopt(window, cx)

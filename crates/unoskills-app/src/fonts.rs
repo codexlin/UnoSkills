@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
-use gpui_kit::component::Theme;
-use gpui_kit::{App, Hsla, SharedString, px, rgb};
+use gpui_kit::component::{Theme, ThemeMode};
+use gpui_kit::{App, Hsla, SharedString, WindowAppearance, px, rgb};
 
 use crate::i18n::Lang;
 
@@ -10,6 +10,63 @@ pub const DEFAULT_FONT_SIZE: f32 = 14.0;
 pub const FONT_SIZE_CHOICES: [f32; 4] = [13.0, 14.0, 15.0, 16.0];
 pub const DEFAULT_CORNER_RADIUS: f32 = 8.0;
 pub const RADIUS_CHOICES: [f32; 5] = [0.0, 4.0, 6.0, 8.0, 12.0];
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AppearancePreference {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl AppearancePreference {
+    pub fn from_code(code: &str) -> Self {
+        match code.trim().to_ascii_lowercase().as_str() {
+            "light" => Self::Light,
+            "dark" => Self::Dark,
+            _ => Self::System,
+        }
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    pub fn resolve(self, appearance: WindowAppearance) -> ThemeMode {
+        match self {
+            Self::System => appearance.into(),
+            Self::Light => ThemeMode::Light,
+            Self::Dark => ThemeMode::Dark,
+        }
+    }
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::*;
+
+    #[test]
+    fn saved_preferences_match_their_intended_mode() {
+        for (code, appearance, expected) in [
+            (" Light ", WindowAppearance::Dark, ThemeMode::Light),
+            ("dark", WindowAppearance::Light, ThemeMode::Dark),
+            ("system", WindowAppearance::VibrantDark, ThemeMode::Dark),
+            ("system", WindowAppearance::VibrantLight, ThemeMode::Light),
+            ("", WindowAppearance::Dark, ThemeMode::Dark),
+        ] {
+            let preference = AppearancePreference::from_code(code);
+            assert_eq!(preference.resolve(appearance), expected);
+            assert_eq!(
+                AppearancePreference::from_code(preference.code()),
+                preference
+            );
+        }
+    }
+}
 
 /// Theme presets for surfaces, controls, selection, and typography contrast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -448,7 +505,7 @@ pub fn apply_fonts_to_theme(settings: &FontSettings, lang: Lang, cx: &mut App) {
                     c(0xE6E2D6),
                     c(0xDAD9D4),
                     c(0x141413),
-                    c(0x83827D),
+                    c(0x65645E),
                     c(0xC96442),
                     c(0xB85737),
                     c(0xA34B2E),
@@ -478,7 +535,7 @@ pub fn apply_fonts_to_theme(settings: &FontSettings, lang: Lang, cx: &mut App) {
                     c(0xE6E8E6),
                     c(0xDFDFDF),
                     c(0x171717),
-                    c(0x707070),
+                    c(0x626262),
                     c(0x169C68),
                     c(0x128356),
                     c(0x0E6B46),
@@ -493,7 +550,7 @@ pub fn apply_fonts_to_theme(settings: &FontSettings, lang: Lang, cx: &mut App) {
                     c(0xDCE0E8),
                     c(0xBCC0CC),
                     c(0x4C4F69),
-                    c(0x6C6F85),
+                    c(0x55586E),
                     c(0x8839EF),
                     c(0x7626DE),
                     c(0x641BC4),
@@ -508,7 +565,7 @@ pub fn apply_fonts_to_theme(settings: &FontSettings, lang: Lang, cx: &mut App) {
                     c(0xDCE7F3),
                     c(0xCBD5E1),
                     c(0x1E293B),
-                    c(0x64748B),
+                    c(0x56667C),
                     c(0x16A34A),
                     c(0x15803D),
                     c(0x166534),

@@ -4,48 +4,34 @@ mod marketplace;
 use adopt::{AdoptGroup, AdoptRow};
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     path::PathBuf,
 };
 
+use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::base::actions::Confirm;
 use gpui_kit::component::{
-    Disableable, IconName, WindowExt,
+    Disableable, IconName, IndexPath, WindowExt,
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
+    searchable_list::{SearchableListItem, SearchableVec},
+    select::{SelectEvent, SelectState},
     v_flex,
 };
 use gpui_kit::{
     AppContext, Context, Entity, Focusable, IntoElement, ParentElement, PathPromptOptions, Render,
-    ScrollStrategy, Styled, Subscription, UniformListScrollHandle, Window, div, px,
+    ScrollStrategy, SharedString, Styled, Subscription, UniformListScrollHandle, Window, div, px,
 };
 use unoskills_core::MarketplaceSkill;
 
 use crate::components::page_header::{PageHeader, page_tabs};
-use crate::state::{NavTab, WorkspaceEvent, WorkspaceState};
+use crate::state::{MarketBoard, MarketFirstPage, NavTab, WorkspaceEvent, WorkspaceState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DiscoverSubTab {
     Marketplace,
     Adopt,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum MarketBoard {
-    Trending,
-    Hot,
-    AllTime,
-}
-
-impl MarketBoard {
-    pub(super) fn as_api_str(self) -> &'static str {
-        match self {
-            Self::Trending => "trending",
-            Self::Hot => "hot",
-            Self::AllTime => "all-time",
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +45,45 @@ pub(super) struct CachedMarketBoard {
 struct MarketSourceFilter {
     source: String,
     indices: Vec<usize>,
+}
+
+#[derive(Clone)]
+struct MarketSourceChoice {
+    label: SharedString,
+    source: Option<String>,
+}
+
+impl SearchableListItem for MarketSourceChoice {
+    type Value = Option<String>;
+
+    fn title(&self) -> SharedString {
+        self.label.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.source
+    }
+}
+
+fn market_source_choices(
+    results: &[MarketplaceSkill],
+    all_sources: &'static str,
+) -> SearchableVec<MarketSourceChoice> {
+    let sources: BTreeSet<_> = results
+        .iter()
+        .map(|item| &item.source)
+        .filter(|source| !source.is_empty())
+        .collect();
+    let all = MarketSourceChoice {
+        label: all_sources.into(),
+        source: None,
+    };
+    let choices =
+        std::iter::once(all).chain(sources.into_iter().map(|source| MarketSourceChoice {
+            label: source.as_str().into(),
+            source: Some(source.clone()),
+        }));
+    SearchableVec::new(choices.collect::<Vec<_>>())
 }
 
 /// Discover page: Quick Install, the skills.sh Marketplace (native JSON
@@ -80,6 +105,7 @@ pub struct DiscoverView {
     market_search_origin: Option<(MarketBoard, usize)>,
     market_error: Option<String>,
     market_source_filter: Option<MarketSourceFilter>,
+    market_source_select: Entity<SelectState<SearchableVec<MarketSourceChoice>>>,
     /// Monotonic counter guarding against out-of-order async leaderboard/search replies.
     pub(super) market_req_seq: u64,
     pub(super) market_scroll_handle: UniformListScrollHandle,
@@ -87,7 +113,7 @@ pub struct DiscoverView {
     adopt_groups: Vec<AdoptGroup>,
     adopt_rows: Vec<AdoptRow>,
     pub(super) selected_adopt_paths: HashSet<PathBuf>,
-    pub(super) collapsed_adopt_groups: HashSet<String>,
+    pub(super) adopt_expansion: HashMap<String, bool>,
     pub(super) install_source_input: Entity<InputState>,
     pub(super) market_search_input: Entity<InputState>,
     pub(super) adopt_search_input: Entity<InputState>,
@@ -107,6 +133,24 @@ impl DiscoverView {
             cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_market_search));
         let adopt_search_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(s.ph_adopt_search));
+        let market_source_select = cx.new(|cx| {
+            SelectState::new(
+                market_source_choices(&[], s.market_all_sources),
+                Some(IndexPath::default()),
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+        let source_sub = cx.subscribe_in(
+            &market_source_select,
+            window,
+            |this, _, event: &SelectEvent<_>, window, cx| {
+                if let SelectEvent::Confirm(Some(source)) = event {
+                    this.set_market_source_filter(source.clone(), window, cx);
+                }
+            },
+        );
 
         let market_sub = cx.subscribe_in(
             &market_search_input,
@@ -138,6 +182,8 @@ impl DiscoverView {
             |this, _input, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.refilter_adopt(cx);
+                    this.adopt_scroll_handle
+                        .scroll_to_item(0, ScrollStrategy::Top);
                     cx.notify();
                 }
             },
@@ -146,8 +192,25 @@ impl DiscoverView {
             &workspace,
             window,
             |this, _ws, event: &WorkspaceEvent, window, cx| match event {
-                WorkspaceEvent::NavigateTo(NavTab::Discover) => {
+                WorkspaceEvent::NavigateTo(NavTab::Discover)
+                    if this.sub_tab == DiscoverSubTab::Marketplace =>
+                {
                     this.ensure_market_loaded(window, cx)
+                }
+                WorkspaceEvent::OpenLocalSkills => {
+                    this.sub_tab = DiscoverSubTab::Adopt;
+                    cx.notify();
+                }
+                WorkspaceEvent::OpenMarketBoard(board) => {
+                    this.sub_tab = DiscoverSubTab::Marketplace;
+                    this.switch_market_board(*board, false, window, cx);
+                    if this.market_source_filter.is_some() {
+                        this.set_market_source_filter(None, window, cx);
+                    }
+                    cx.notify();
+                }
+                WorkspaceEvent::MarketFirstPageChanged(board) => {
+                    this.apply_market_first_page(*board, window, cx);
                 }
                 WorkspaceEvent::OpenInstallDialog => this.open_install_dialog(window, cx),
                 WorkspaceEvent::LanguageChanged => this.apply_language(window, cx),
@@ -178,19 +241,20 @@ impl DiscoverView {
             market_search_origin: None,
             market_error: None,
             market_source_filter: None,
+            market_source_select,
             market_req_seq: 0,
             market_scroll_handle: UniformListScrollHandle::new(),
             adopt_scroll_handle: UniformListScrollHandle::new(),
             adopt_groups: Vec::new(),
             adopt_rows: Vec::new(),
             selected_adopt_paths: HashSet::new(),
-            collapsed_adopt_groups: HashSet::new(),
+            adopt_expansion: HashMap::new(),
             install_source_input,
             market_search_input,
             adopt_search_input,
             _subscriptions: Subscription::join(
                 market_sub,
-                Subscription::join(adopt_sub, workspace_sub),
+                Subscription::join(source_sub, Subscription::join(adopt_sub, workspace_sub)),
             ),
         };
         view.refilter_adopt(cx);
@@ -218,6 +282,7 @@ impl DiscoverView {
             .update(cx, |state, cx| state.set_placeholder(ph_market, window, cx));
         self.adopt_search_input
             .update(cx, |state, cx| state.set_placeholder(ph_adopt, window, cx));
+        self.refresh_market_source_choices(window, cx);
         cx.notify();
     }
 
@@ -330,25 +395,53 @@ impl DiscoverView {
             .scroll_to_item(0, ScrollStrategy::Top);
     }
 
-    fn set_market_source_filter(&mut self, source: Option<String>, cx: &mut Context<Self>) {
-        self.market_source_filter = source.map(|source| MarketSourceFilter {
-            source,
-            indices: Vec::new(),
+    fn set_market_source_filter(
+        &mut self,
+        source: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.market_source_filter = source.map(|source| {
+            let indices = self.market_source_indices(&source);
+            MarketSourceFilter { source, indices }
         });
-        self.update_market_source_indices();
+        self.sync_market_source_selection(window, cx);
         self.reset_market_list();
         cx.notify();
     }
 
-    fn update_market_source_indices(&mut self) {
-        if let Some(filter) = &mut self.market_source_filter {
-            filter.indices = self
-                .marketplace_results
-                .iter()
-                .enumerate()
-                .filter_map(|(index, item)| (item.source == filter.source).then_some(index))
-                .collect();
+    fn market_source_indices(&self, source: &str) -> Vec<usize> {
+        self.marketplace_results
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| (item.source == source).then_some(index))
+            .collect()
+    }
+
+    fn sync_market_source_selection(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let selected = self
+            .market_source_filter
+            .as_ref()
+            .map(|filter| filter.source.clone());
+        self.market_source_select.update(cx, |state, cx| {
+            if state.selected_value() != Some(&selected) {
+                state.set_selected_value(&selected, window, cx);
+            }
+        });
+    }
+
+    fn refresh_market_source_choices(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mut filter) = self.market_source_filter.take() {
+            filter.indices = self.market_source_indices(&filter.source);
+            self.market_source_filter = (!filter.indices.is_empty()).then_some(filter);
         }
+        let choices = market_source_choices(
+            &self.marketplace_results,
+            self.workspace.read(cx).t().market_all_sources,
+        );
+        self.market_source_select
+            .update(cx, |state, cx| state.set_items(choices, window, cx));
+        self.sync_market_source_selection(window, cx);
     }
 
     fn market_result_count(&self) -> usize {
@@ -394,14 +487,13 @@ impl DiscoverView {
         self.market_loading_more = false;
         self.market_load_more_failed = false;
         self.market_req_seq = self.market_req_seq.wrapping_add(1);
-        let req_seq = self.market_req_seq;
-
         if !force_refresh && let Some(cached) = self.market_board_cache.get(&board) {
             self.market_loading = false;
             self.marketplace_results = cached.items.clone();
             self.market_next_page = cached.next_page;
             self.market_total = cached.total;
             self.market_has_more = cached.has_more;
+            self.refresh_market_source_choices(window, cx);
             self.market_scroll_handle
                 .scroll_to_item(resumed_row.unwrap_or(0), ScrollStrategy::Top);
             cx.notify();
@@ -414,57 +506,58 @@ impl DiscoverView {
             self.market_total = None;
             self.market_has_more = false;
         }
-        let busy_token = self.workspace.update(cx, |ws, cx| {
-            let label = ws.t().busy_loading_trending;
-            ws.begin_busy(label, cx)
+        self.refresh_market_source_choices(window, cx);
+        self.workspace.update(cx, |ws, cx| {
+            ws.load_market_first_page(board, force_refresh, window, cx);
         });
+        self.apply_market_first_page(board, window, cx);
         cx.notify();
+    }
 
-        let mgr = self.workspace.read(cx).manager().clone();
-        let api_board = board.as_api_str();
-        let bg = cx.background_executor().clone();
-        cx.spawn_in(window, async move |this, cx| {
-            let res = bg
-                .spawn(async move { mgr.marketplace_leaderboard_page(api_board, 0) })
-                .await;
+    fn apply_market_first_page(
+        &mut self,
+        board: MarketBoard,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let page = self.workspace.read(cx).market_first_page(board);
+        if !self.market_loading || self.market_search_active || self.market_board != board {
+            // A refresh from Home invalidates this view's paginated cache.
+            if matches!(page, Some(MarketFirstPage::Loaded(_))) {
+                self.market_board_cache.remove(&board);
+            }
+            return;
+        }
 
-            let _ = this.update_in(cx, |view, window, cx| {
-                view.workspace
-                    .update(cx, |ws, cx| ws.end_busy(busy_token, cx));
-                match res {
-                    Ok(page_data) => {
-                        let cached = CachedMarketBoard {
-                            items: page_data.items,
-                            next_page: page_data.page + 1,
-                            total: page_data.total,
-                            has_more: page_data.has_more,
-                        };
-                        if view.market_req_seq == req_seq {
-                            view.market_board_cache.insert(board, cached.clone());
-                            view.market_loading = false;
-                            view.marketplace_results = cached.items;
-                            view.market_next_page = cached.next_page;
-                            view.market_total = cached.total;
-                            view.market_has_more = cached.has_more;
-                            view.update_market_source_indices();
-                            view.reset_market_list();
-                            cx.notify();
-                        }
-                    }
-                    Err(e) => {
-                        if view.market_req_seq == req_seq {
-                            view.market_loading = false;
-                            view.market_error = Some(e.to_string());
-                            view.workspace.update(cx, |ws, cx| {
-                                ws.notify_toast(true, format!("{e}"), window, cx)
-                            });
-                            cx.notify();
-                        }
-                    }
-                }
-            });
-        })
-        .detach();
+        match page {
+            Some(MarketFirstPage::Loaded(page)) => {
+                self.market_loading = false;
+                self.marketplace_results = page.items.clone();
+                self.market_next_page = page.page + 1;
+                self.market_total = page.total;
+                self.market_has_more = page.has_more;
+                self.market_board_cache.insert(
+                    board,
+                    CachedMarketBoard {
+                        items: self.marketplace_results.clone(),
+                        next_page: self.market_next_page,
+                        total: self.market_total,
+                        has_more: self.market_has_more,
+                    },
+                );
+                self.refresh_market_source_choices(window, cx);
+                self.reset_market_list();
+            }
+            Some(MarketFirstPage::Failed(error)) => {
+                self.market_loading = false;
+                let error = error.clone();
+                self.market_error = Some(error.clone());
+                self.workspace
+                    .update(cx, |ws, cx| ws.notify_toast(true, error, window, cx));
+            }
+            _ => return,
+        }
+        cx.notify();
     }
 
     /// Fetches the next page for the active leaderboard and appends deduplicated
@@ -519,7 +612,7 @@ impl DiscoverView {
                         }
                         // Stop auto-paging if upstream returned no new unique items.
                         view.market_has_more = page_data.has_more && appended > 0;
-                        view.update_market_source_indices();
+                        view.refresh_market_source_choices(window, cx);
                         view.market_board_cache.insert(
                             board,
                             CachedMarketBoard {
@@ -573,6 +666,7 @@ impl DiscoverView {
         self.market_search_active = true;
         self.market_source_filter = None;
         self.marketplace_results.clear();
+        self.refresh_market_source_choices(window, cx);
         self.market_loading = true;
         self.market_loading_more = false;
         self.market_load_more_failed = false;
@@ -604,6 +698,7 @@ impl DiscoverView {
                 match res {
                     Ok(items) => {
                         view.marketplace_results = items;
+                        view.refresh_market_source_choices(window, cx);
                         view.reset_market_list();
                         cx.notify();
                     }
@@ -623,8 +718,11 @@ impl DiscoverView {
 
 impl Render for DiscoverView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let s = self.workspace.read(cx).t();
-        let adopt_count = self.workspace.read(cx).adopt_candidates().len();
+        let ws = self.workspace.read(cx);
+        let s = ws.t();
+        let adopt_tab = ws
+            .lang()
+            .label_with_count(s.discover_adopt_tab, ws.adopt_candidates().len());
         let selected_idx = match self.sub_tab {
             DiscoverSubTab::Marketplace => 0,
             DiscoverSubTab::Adopt => 1,
@@ -649,8 +747,8 @@ impl Render for DiscoverView {
                 page_tabs(
                     "discover-sub-tabs",
                     [
-                        s.discover_market_tab.to_string(),
-                        format!("{} ({adopt_count})", s.discover_adopt_tab),
+                        (AssetIcon::Store, s.discover_market_tab.to_string()),
+                        (AssetIcon::ArchiveRestore, adopt_tab),
                     ],
                     selected_idx,
                     cx,

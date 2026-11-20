@@ -4,26 +4,59 @@ use std::sync::Arc;
 
 use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{Theme, ThemeMode, WindowExt};
+use gpui_kit::component::{Theme, WindowExt};
 use gpui_kit::{ClipboardItem, Context, EventEmitter, SharedString, Window};
 use unoskills_core::updater::{DownloadedUpdate, UpdateCheckOutcome, launch_platform_installer};
 use unoskills_core::{
-    AdoptCandidate, AgentCategory, AgentInfo, CustomAgentRecord, DeployMode, MarketplaceSkill,
-    ProjectWorkspace, Skill, StackManifest, UnoSkillsManager,
+    AdoptCandidate, AgentCategory, AgentInfo, CustomAgentRecord, DeployMode, MarketplacePage,
+    MarketplaceSkill, ProjectWorkspace, Skill, StackManifest, StackSkillRef, UnoSkillsManager,
 };
 
 use crate::fonts::{
-    self, AccentPalette, DEFAULT_CORNER_RADIUS, DEFAULT_FONT_SIZE, FONT_AUTO, FontSettings,
+    self, AccentPalette, AppearancePreference, DEFAULT_CORNER_RADIUS, DEFAULT_FONT_SIZE, FONT_AUTO,
+    FontSettings,
 };
 use crate::i18n::{Lang, Strings};
 
 /// Top-level navigation target, shared between the shell and feature views.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavTab {
+    Home,
     Library,
     Stacks,
     Discover,
     Settings,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MarketBoard {
+    Trending,
+    Hot,
+    AllTime,
+}
+
+impl MarketBoard {
+    pub fn as_api_str(self) -> &'static str {
+        match self {
+            Self::Trending => "trending",
+            Self::Hot => "hot",
+            Self::AllTime => "all-time",
+        }
+    }
+
+    pub fn label(self, strings: &Strings) -> &'static str {
+        match self {
+            Self::Trending => strings.board_trending,
+            Self::Hot => strings.board_hot,
+            Self::AllTime => strings.board_all_time,
+        }
+    }
+}
+
+pub enum MarketFirstPage {
+    Loading,
+    Loaded(MarketplacePage),
+    Failed(String),
 }
 
 /// Sub-section inside the Settings view, supporting direct deep-linking
@@ -54,6 +87,10 @@ pub enum WorkspaceEvent {
     NavigateTo(NavTab),
     /// The Settings view should switch its active sub-section.
     NavigateToSettings(SettingsSection),
+    OpenMyStacks,
+    OpenLocalSkills,
+    OpenMarketBoard(MarketBoard),
+    MarketFirstPageChanged(MarketBoard),
     OpenInstallDialog,
     SelectLibrarySkill(String),
     /// The shared busy indicator (TitleBar spinner) changed.
@@ -75,7 +112,7 @@ pub enum MarketInstallStatus {
 pub struct WorkspaceState {
     manager: Arc<UnoSkillsManager>,
     lang: Lang,
-    theme_mode: Option<ThemeMode>,
+    appearance: AppearancePreference,
     skills: Vec<Skill>,
     installed_skill_names: HashSet<String>,
     installed_source_refs: HashSet<String>,
@@ -88,6 +125,7 @@ pub struct WorkspaceState {
     community_stacks: Vec<StackManifest>,
     local_stacks: Vec<StackManifest>,
     adopt_candidates: Vec<AdoptCandidate>,
+    market_first_pages: HashMap<MarketBoard, MarketFirstPage>,
     deploy_mode: DeployMode,
     font_settings: FontSettings,
     checking_updates: bool,
@@ -118,13 +156,12 @@ impl WorkspaceState {
             .unwrap_or(Lang::ZhCn);
         gpui_kit::component::set_locale(lang.code());
 
-        let theme_mode = manager.get_setting("theme").ok().flatten().and_then(|v| {
-            match v.trim().to_ascii_lowercase().as_str() {
-                "dark" => Some(ThemeMode::Dark),
-                "light" => Some(ThemeMode::Light),
-                _ => None,
-            }
-        });
+        let appearance = manager
+            .get_setting("theme")
+            .ok()
+            .flatten()
+            .map(|value| AppearancePreference::from_code(&value))
+            .unwrap_or_default();
 
         let ui_font = manager
             .get_setting("ui_font")
@@ -160,7 +197,7 @@ impl WorkspaceState {
         let mut state = Self {
             manager,
             lang,
-            theme_mode,
+            appearance,
             skills: Vec::new(),
             installed_skill_names: HashSet::new(),
             installed_source_refs: HashSet::new(),
@@ -173,6 +210,7 @@ impl WorkspaceState {
             community_stacks: Vec::new(),
             local_stacks: Vec::new(),
             adopt_candidates: Vec::new(),
+            market_first_pages: HashMap::new(),
             deploy_mode: DeployMode::Symlink,
             font_settings: FontSettings {
                 ui_font,
@@ -196,11 +234,13 @@ impl WorkspaceState {
         state
     }
 
-    /// Applies persisted appearance (Light/Dark) and language-aware fonts at startup.
+    /// Applies the persisted appearance and language-aware fonts at startup.
     pub fn apply_initial_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mode) = self.theme_mode {
-            Theme::change(mode, Some(window), cx);
-        }
+        Theme::change(
+            self.appearance.resolve(window.appearance()),
+            Some(window),
+            cx,
+        );
         fonts::apply_fonts_to_theme(&self.font_settings, self.lang, cx);
         // Fetch the remote community stacks index once at startup, silently.
         self.refresh_community_stacks(true, window, cx);
@@ -222,6 +262,10 @@ impl WorkspaceState {
 
     pub fn t(&self) -> &'static Strings {
         self.lang.t()
+    }
+
+    pub fn appearance(&self) -> AppearancePreference {
+        self.appearance
     }
 
     pub fn skills(&self) -> &[Skill] {
@@ -388,16 +432,27 @@ impl WorkspaceState {
         self.deploy_mode = self.manager.default_deploy_mode();
     }
 
-    pub fn set_theme_mode(&mut self, mode: ThemeMode, window: &mut Window, cx: &mut Context<Self>) {
-        self.theme_mode = Some(mode);
-        let value = if mode.is_dark() { "dark" } else { "light" };
-        let _ = self.manager.set_setting("theme", value);
-        Theme::change(mode, Some(window), cx);
-        // Re-apply custom/language-aware fonts after `Theme::change` reloads theme config.
-        let fs = self.font_settings.clone();
-        let lang = self.lang;
-        fonts::apply_fonts_to_theme(&fs, lang, cx);
+    pub fn set_appearance(
+        &mut self,
+        appearance: AppearancePreference,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = self.manager.set_setting("theme", appearance.code()) {
+            self.notify_toast(true, error.to_string(), window, cx);
+            return;
+        }
+        self.appearance = appearance;
+        self.sync_appearance(window, cx);
         cx.emit(WorkspaceEvent::SettingsChanged);
+    }
+
+    pub fn sync_appearance(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let mode = self.appearance.resolve(window.appearance());
+        if mode != Theme::global(cx).mode {
+            Theme::change(mode, Some(window), cx);
+            fonts::apply_fonts_to_theme(&self.font_settings, self.lang, cx);
+        }
     }
 
     pub fn set_language(&mut self, lang: Lang, cx: &mut Context<Self>) {
@@ -668,6 +723,61 @@ impl WorkspaceState {
 
     pub fn navigate(&mut self, tab: NavTab, cx: &mut Context<Self>) {
         cx.emit(WorkspaceEvent::NavigateTo(tab));
+    }
+
+    pub fn open_my_stacks(&mut self, cx: &mut Context<Self>) {
+        self.navigate(NavTab::Stacks, cx);
+        cx.emit(WorkspaceEvent::OpenMyStacks);
+    }
+
+    pub fn open_local_skills(&mut self, cx: &mut Context<Self>) {
+        cx.emit(WorkspaceEvent::OpenLocalSkills);
+        self.navigate(NavTab::Discover, cx);
+    }
+
+    pub fn open_market_board(&mut self, board: MarketBoard, cx: &mut Context<Self>) {
+        cx.emit(WorkspaceEvent::OpenMarketBoard(board));
+        self.navigate(NavTab::Discover, cx);
+    }
+
+    pub fn market_first_page(&self, board: MarketBoard) -> Option<&MarketFirstPage> {
+        self.market_first_pages.get(&board)
+    }
+
+    pub fn load_market_first_page(
+        &mut self,
+        board: MarketBoard,
+        refresh: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.market_first_page(board) {
+            Some(MarketFirstPage::Loading) => return,
+            Some(MarketFirstPage::Loaded(_)) if !refresh => return,
+            _ => {}
+        }
+
+        self.market_first_pages
+            .insert(board, MarketFirstPage::Loading);
+        cx.emit(WorkspaceEvent::MarketFirstPageChanged(board));
+        let busy_token = self.begin_busy(self.t().busy_loading_market, cx);
+        let manager = self.manager.clone();
+        let background = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = background
+                .spawn(async move { manager.marketplace_leaderboard_page(board.as_api_str(), 0) })
+                .await;
+            let _ = this.update_in(cx, |state, _, cx| {
+                state.end_busy(busy_token, cx);
+                let page = match result {
+                    Ok(page) => MarketFirstPage::Loaded(page),
+                    Err(error) => MarketFirstPage::Failed(error.to_string()),
+                };
+                state.market_first_pages.insert(board, page);
+                cx.emit(WorkspaceEvent::MarketFirstPageChanged(board));
+            });
+        })
+        .detach();
     }
 
     pub fn open_library_skill(&mut self, skill_id: String, cx: &mut Context<Self>) {
@@ -1146,6 +1256,21 @@ impl WorkspaceState {
         self.stack_install_failures
             .get(stack_id)
             .map_or(&[], Vec::as_slice)
+    }
+
+    pub fn install_stack_skill_async(
+        &mut self,
+        stack_id: &str,
+        skill: &StackSkillRef,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if skill.installed_in(&self.skills).is_none()
+            && self.install_source_async(&skill.source, false, window, cx)
+            && let Some(failures) = self.stack_install_failures.get_mut(stack_id)
+        {
+            failures.retain(|(name, _)| name != &skill.name);
+        }
     }
 
     pub fn install_stack_async(

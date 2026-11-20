@@ -1,5 +1,6 @@
+use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, StyledExt, h_flex,
+    ActiveTheme, Icon, StyledExt, h_flex,
     tab::{Tab, TabBar},
 };
 use gpui_kit::{
@@ -59,7 +60,7 @@ impl RenderOnce for PageHeader {
 /// Underlined tabs are navigation within a page or inspector.
 pub fn page_tabs(
     id: impl Into<ElementId>,
-    labels: impl IntoIterator<Item = impl Into<SharedString>>,
+    tabs: impl IntoIterator<Item = (IconName, impl Into<SharedString>)>,
     selected: usize,
     cx: &App,
 ) -> TabBar {
@@ -71,5 +72,8 @@ pub fn page_tabs(
         .border_b_1()
         .border_color(cx.theme().border)
         .selected_index(selected)
-        .children(labels.into_iter().map(|label| Tab::new().label(label)))
+        .children(
+            tabs.into_iter()
+                .map(|(icon, label)| Tab::new().label(label).prefix(Icon::new(icon).size_3p5())),
+        )
 }
