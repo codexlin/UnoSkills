@@ -9,9 +9,9 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString,
-    Styled, Subscription, Window, div, prelude::FluentBuilder, px,
+    Styled, Subscription, Task, Window, div, prelude::FluentBuilder, px,
 };
-use unoskills_core::{StackManifest, StackProjectDeploySummary};
+use unoskills_core::{StackManifest, StackProjectDeployStatus, StackProjectDeploySummary};
 
 use super::StacksView;
 use crate::state::{WorkspaceEvent, WorkspaceState};
@@ -71,6 +71,8 @@ struct ProjectDeployForm {
     project: Entity<TargetSelect>,
     agent: Entity<TargetSelect>,
     running: bool,
+    status: Option<Result<StackProjectDeployStatus, String>>,
+    status_task: Option<Task<()>>,
     result: Option<Result<StackProjectDeploySummary, String>>,
     _subscriptions: [Subscription; 3],
 }
@@ -115,8 +117,8 @@ impl ProjectDeployForm {
         let agent =
             cx.new(|cx| SelectState::new(SearchableVec::new(agents), agent_index, window, cx));
         let subscriptions = [
-            cx.subscribe(&project, Self::target_changed),
-            cx.subscribe(&agent, Self::target_changed),
+            cx.subscribe_in(&project, window, Self::target_changed),
+            cx.subscribe_in(&agent, window, Self::target_changed),
             cx.subscribe_in(
                 &workspace,
                 window,
@@ -130,7 +132,9 @@ impl ProjectDeployForm {
                         this.agent.update(cx, |state, cx| {
                             state.set_items(SearchableVec::new(agents), window, cx);
                         });
-                        cx.notify();
+                        if !this.running {
+                            this.check_status(window, cx);
+                        }
                     }
                     WorkspaceEvent::LanguageChanged => cx.notify(),
                     _ => {}
@@ -143,6 +147,8 @@ impl ProjectDeployForm {
             project,
             agent,
             running: false,
+            status: None,
+            status_task: None,
             result: None,
             _subscriptions: subscriptions,
         }
@@ -150,12 +156,45 @@ impl ProjectDeployForm {
 
     fn target_changed(
         &mut self,
-        _: Entity<TargetSelect>,
+        _: &Entity<TargetSelect>,
         _: &SelectEvent<SearchableVec<DeploymentTarget>>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.result = None;
+        self.check_status(window, cx);
+    }
+
+    fn selected_target(&self, cx: &Context<Self>) -> Option<(String, String)> {
+        Some((
+            self.project.read(cx).selected_value()?.clone(),
+            self.agent.read(cx).selected_value()?.clone(),
+        ))
+    }
+
+    fn check_status(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.status_task = None;
+        self.status = None;
         cx.notify();
+        let Some((project, agent)) = self.selected_target(cx) else {
+            return;
+        };
+        let manager = self.workspace.read(cx).manager().clone();
+        let stack = self.stack.clone();
+        let background = cx.background_executor().clone();
+        self.status_task = Some(cx.spawn_in(window, async move |form, cx| {
+            let status = background
+                .spawn(async move {
+                    manager
+                        .stack_project_deploy_status(&stack, &project, &agent)
+                        .map_err(|error| format!("{error:#}"))
+                })
+                .await;
+            let _ = form.update_in(cx, |form, _, cx| {
+                form.status = Some(status);
+                cx.notify();
+            });
+        }));
     }
 
     fn attach_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -169,20 +208,22 @@ impl ProjectDeployForm {
                         state.set_selected_value(&id, window, cx);
                     });
                     form.result = None;
-                    cx.notify();
+                    form.check_status(window, cx);
                 });
             });
         });
     }
 
     fn deploy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(project), Some(agent)) = (
-            self.project.read(cx).selected_value().cloned(),
-            self.agent.read(cx).selected_value().cloned(),
-        ) else {
+        let Some((project, agent)) = self.selected_target(cx) else {
             return;
         };
-        if self.running {
+        if self.running
+            || !self
+                .status
+                .as_ref()
+                .is_some_and(|status| status.as_ref().is_ok_and(|status| status.pending > 0))
+        {
             return;
         }
         self.running = true;
@@ -207,10 +248,10 @@ impl ProjectDeployForm {
                 ws.reload_all(cx);
                 ws.end_busy(token, cx);
             });
-            let _ = form.update_in(cx, |form, _, cx| {
+            let _ = form.update_in(cx, |form, window, cx| {
                 form.running = false;
                 form.result = Some(result);
-                cx.notify();
+                form.check_status(window, cx);
             });
         })
         .detach();
@@ -228,28 +269,28 @@ impl Render for ProjectDeployForm {
             .projects()
             .iter()
             .find(|project| Some(&project.id) == project_id);
-        let mut deployed = 0;
-        let mut pending = 0;
-        let mut unavailable = 0;
-        for item in &self.stack.skills {
-            match item.deployable_in(ws.skills()) {
-                Some(skill) => match (project_id, agent_key) {
-                    (Some(project), Some(agent))
-                        if skill.is_deployed_to_project(project, agent) =>
-                    {
-                        deployed += 1;
-                    }
-                    _ => pending += 1,
-                },
-                None => unavailable += 1,
-            }
-        }
+        let status = self.status.as_ref().and_then(|status| status.as_ref().ok());
+        let pending = status.map_or(0, |status| status.pending);
+        let unavailable = status.map_or(0, |status| status.unavailable);
+        let conflicts = status.map_or(0, |status| status.conflicts);
+        let status_error = self
+            .status
+            .as_ref()
+            .and_then(|status| status.as_ref().err());
         let has_agents = ws
             .agents()
             .iter()
             .any(|agent| agent.installed && agent.enabled);
         let muted = cx.theme().muted_foreground;
-        let progress = project.is_some() && agent_key.is_some();
+        let has_target = project.is_some() && agent_key.is_some();
+        let checking = has_target && self.status.is_none();
+        let progress = match status {
+            Some(status) => {
+                lang.stack_project_progress(status.deployed, self.stack.skills.len(), pending)
+            }
+            None if checking => s.stack_project_checking.to_owned(),
+            None => String::new(),
+        };
         let result = self.result.as_ref().map(|result| match result {
             Ok(summary) => {
                 let message = lang.stack_project_result(summary);
@@ -330,23 +371,52 @@ impl Render for ProjectDeployForm {
                         .child(s.stack_no_deploy_agents),
                 )
             })
-            .when(progress, |form| {
+            .when(has_target, |form| {
                 form.child(
-                    div()
-                        .text_sm()
-                        .font_medium()
-                        .child(lang.stack_project_progress(
-                            deployed,
-                            self.stack.skills.len(),
-                            pending,
-                        )),
+                    h_flex()
+                        .w_full()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_sm()
+                                .font_medium()
+                                .child(progress),
+                        )
+                        .child(
+                            Button::new("refresh-project-deploy-status")
+                                .ghost()
+                                .flex_shrink_0()
+                                .icon(IconName::RefreshCw)
+                                .tooltip(s.stack_project_refresh)
+                                .accessibility_label(s.stack_project_refresh)
+                                .loading(checking)
+                                .disabled(self.running || checking)
+                                .on_click(cx.listener(|form, _, window, cx| {
+                                    form.result = None;
+                                    form.check_status(window, cx);
+                                })),
+                        ),
                 )
+            })
+            .when_some(status_error, |form, error| {
+                form.child(Alert::error("stack-project-check-error", error.clone()).banner())
             })
             .when(unavailable > 0, |form| {
                 form.child(
                     Alert::warning(
                         "stack-project-unavailable",
                         lang.stack_project_unavailable(unavailable),
+                    )
+                    .banner(),
+                )
+            })
+            .when(conflicts > 0, |form| {
+                form.child(
+                    Alert::warning(
+                        "stack-project-conflicts",
+                        lang.stack_project_conflicts(conflicts),
                     )
                     .banner(),
                 )
@@ -372,7 +442,7 @@ impl Render for ProjectDeployForm {
                             .primary()
                             .label(s.stack_deploy_apply)
                             .loading(self.running)
-                            .disabled(!progress || pending == 0)
+                            .disabled(!has_target || pending == 0)
                             .on_click(cx.listener(|form, _, window, cx| {
                                 form.deploy(window, cx);
                             })),

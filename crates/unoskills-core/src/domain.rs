@@ -154,6 +154,8 @@ pub struct ProjectDeployment {
     pub agent_key: String,
     pub target_path: PathBuf,
     pub mode: DeployMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy_hash: Option<String>,
     pub synced_at: i64,
 }
 
@@ -250,6 +252,14 @@ impl StackSkillRef {
         self.installed_in(skills)
             .filter(|skill| !self.has_source_conflict(skill))
     }
+}
+
+#[derive(Debug, Default)]
+pub struct StackProjectDeployStatus {
+    pub deployed: usize,
+    pub pending: usize,
+    pub unavailable: usize,
+    pub conflicts: usize,
 }
 
 #[derive(Debug, Default)]

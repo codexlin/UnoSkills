@@ -211,6 +211,18 @@ impl Lang {
         }
     }
 
+    pub fn stack_project_conflicts(self, count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("{count} 项的目标目录已被占用或内容已变更。处理后可刷新状态。"),
+            Self::En => format!(
+                "{count} deployment targets are occupied or have changed. Resolve them, then refresh."
+            ),
+            Self::Ja => format!(
+                "{count} 件の配備先が使用中か、内容が変更されています。解決後に更新してください。"
+            ),
+        }
+    }
+
     pub fn stack_project_result(
         self,
         summary: &unoskills_core::StackProjectDeploySummary,
@@ -706,6 +718,8 @@ pub struct Strings {
     pub stack_deploy_apply: &'static str,
     pub stack_deploy_busy: &'static str,
     pub stack_project_target_conflict: &'static str,
+    pub stack_project_checking: &'static str,
+    pub stack_project_refresh: &'static str,
     pub empty_local_stacks_title: &'static str,
     pub empty_featured_stacks_title: &'static str,
     pub empty_stacks_desc: &'static str,

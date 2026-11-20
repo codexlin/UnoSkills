@@ -514,6 +514,18 @@ fn deploy_stack_to_project_skips_existing_and_preserves_unmanaged_skills() {
     let custom = unmanaged.join("SKILL.md");
     std::fs::write(&custom, "user skill").unwrap();
 
+    let status = manager
+        .stack_project_deploy_status(&stack, &project.id, agent_key)
+        .unwrap();
+    assert_eq!(
+        (
+            status.deployed,
+            status.pending,
+            status.unavailable,
+            status.conflicts
+        ),
+        (1, 1, 2, 1)
+    );
     let result = manager
         .deploy_stack_to_project(&stack, &project.id, agent_key)
         .unwrap();
@@ -524,7 +536,7 @@ fn deploy_stack_to_project_skips_existing_and_preserves_unmanaged_skills() {
     assert_eq!(result.failed.len(), 1);
     assert_eq!(result.failed[0].0, "conflict");
     assert!(result.failed[0].1.contains("TARGET_CONFLICT"));
-    assert_eq!(std::fs::read_to_string(custom).unwrap(), "user skill");
+    assert_eq!(std::fs::read_to_string(&custom).unwrap(), "user skill");
     assert!(project_skills.join("design/SKILL.md").is_file());
     assert!(!project_skills.join("same-name").exists());
     assert!(std::fs::read_dir(agent_dir).unwrap().next().is_none());
@@ -536,6 +548,355 @@ fn deploy_stack_to_project_skips_existing_and_preserves_unmanaged_skills() {
         (retry.deployed, retry.already_deployed, retry.failed.len()),
         (0, 2, 1)
     );
+
+    let preserved_dir = project.path.join("preserved-skill");
+    std::fs::rename(unmanaged, &preserved_dir).unwrap();
+    let retry = manager
+        .deploy_stack_to_project(&stack, &project.id, agent_key)
+        .unwrap();
+    assert_eq!(
+        (retry.deployed, retry.already_deployed, retry.unavailable),
+        (1, 2, 2)
+    );
+    assert!(retry.failed.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(preserved_dir.join("SKILL.md")).unwrap(),
+        "user skill"
+    );
+    assert!(project_skills.join("conflict/extra.txt").is_file());
+}
+
+#[test]
+fn project_stack_deployment_repairs_missing_files_and_preserves_replacements() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let agent_path = tmp.path().join("global-codex");
+    manager
+        .set_agent_override("codex", agent_path.to_str())
+        .unwrap();
+    let review = tmp.path().join("review");
+    create_skill_dir(&review, "review", "Review skill", &["qa"]);
+    let skill = manager.install_from_ref(review.to_str().unwrap()).unwrap();
+    let stack = manager
+        .create_stack_from_skills("QA", "", "", vec![], std::slice::from_ref(&skill.id))
+        .unwrap();
+
+    for mode in [DeployMode::Copy, DeployMode::Symlink] {
+        manager.set_default_deploy_mode(mode).unwrap();
+        let path = tmp.path().join(mode.as_str());
+        std::fs::create_dir(&path).unwrap();
+        let project = manager.add_project(&path, None).unwrap();
+        let target = project.path.join(".codex/skills/review");
+        let deploy = || {
+            manager
+                .deploy_stack_to_project(&stack, &project.id, "codex")
+                .unwrap()
+        };
+        let status = || {
+            manager
+                .stack_project_deploy_status(&stack, &project.id, "codex")
+                .unwrap()
+        };
+        assert_eq!(deploy().deployed, 1);
+        assert_eq!((status().deployed, status().pending), (1, 0));
+        let recorded_mode = manager
+            .find_skill(&skill.id)
+            .unwrap()
+            .unwrap()
+            .project_deployments
+            .iter()
+            .find(|dep| dep.project_id == project.id)
+            .unwrap()
+            .mode;
+
+        if mode == DeployMode::Copy {
+            let original = std::fs::read_to_string(target.join("SKILL.md")).unwrap();
+            manager
+                .save_skill_markdown(
+                    &skill.id,
+                    &format!("{original}\nA newer library version.\n"),
+                )
+                .unwrap();
+            assert_eq!(status().deployed, 1);
+            assert_eq!(
+                std::fs::read_to_string(target.join("SKILL.md")).unwrap(),
+                original
+            );
+        }
+
+        std::fs::rename(&target, path.join("previous-deployment")).unwrap();
+        let missing = status();
+        assert_eq!(
+            (missing.deployed, missing.pending, missing.conflicts),
+            (0, 1, 0)
+        );
+        manager
+            .set_default_deploy_mode(if recorded_mode == DeployMode::Copy {
+                DeployMode::Symlink
+            } else {
+                DeployMode::Copy
+            })
+            .unwrap();
+        let repaired = deploy();
+        assert_eq!((repaired.deployed, repaired.already_deployed), (1, 0));
+        assert!(repaired.failed.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(target.join("extra.txt")).unwrap(),
+            "supporting asset"
+        );
+        assert_eq!(status().deployed, 1);
+        assert_eq!(
+            manager
+                .find_skill(&skill.id)
+                .unwrap()
+                .unwrap()
+                .project_deployments
+                .iter()
+                .find(|dep| dep.project_id == project.id)
+                .unwrap()
+                .mode,
+            recorded_mode
+        );
+
+        std::fs::rename(&target, path.join("repaired-deployment")).unwrap();
+        std::fs::create_dir(&target).unwrap();
+        let marker = target.join("SKILL.md");
+        std::fs::write(&marker, "project-specific recipe").unwrap();
+        let occupied = status();
+        assert_eq!(
+            (occupied.deployed, occupied.pending, occupied.conflicts),
+            (0, 0, 1)
+        );
+        let refused = deploy();
+        assert_eq!(refused.deployed, 0);
+        assert!(refused.failed[0].1.contains("TARGET_CONFLICT"));
+        assert_eq!(
+            std::fs::read_to_string(&marker).unwrap(),
+            "project-specific recipe"
+        );
+    }
+    assert_eq!(
+        manager.list_skills().unwrap()[0].project_deployments.len(),
+        2
+    );
+}
+
+#[test]
+fn project_stack_status_supports_copy_records_created_before_fingerprints() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("uno");
+    let manager = UnoSkillsManager::open_at(root.clone()).unwrap();
+    manager.set_default_deploy_mode(DeployMode::Copy).unwrap();
+    let agent_path = tmp.path().join("global-codex");
+    manager
+        .set_agent_override("codex", agent_path.to_str())
+        .unwrap();
+    let review = tmp.path().join("review");
+    create_skill_dir(&review, "review", "Review skill", &["qa"]);
+    let skill = manager.install_from_ref(review.to_str().unwrap()).unwrap();
+    let stack = manager
+        .create_stack_from_skills("QA", "", "", vec![], std::slice::from_ref(&skill.id))
+        .unwrap();
+    let project_path = tmp.path().join("project");
+    std::fs::create_dir(&project_path).unwrap();
+    let project = manager.add_project(&project_path, None).unwrap();
+    manager
+        .deploy_stack_to_project(&stack, &project.id, "codex")
+        .unwrap();
+    drop(manager);
+
+    let conn = rusqlite::Connection::open(root.join("unoskills.db")).unwrap();
+    conn.execute("ALTER TABLE project_deployments DROP COLUMN copy_hash", [])
+        .unwrap();
+    drop(conn);
+    let manager = UnoSkillsManager::open_at(root).unwrap();
+    let status = manager
+        .stack_project_deploy_status(&stack, &project.id, "codex")
+        .unwrap();
+    assert_eq!(
+        (status.deployed, status.pending, status.conflicts),
+        (1, 0, 0)
+    );
+    assert!(
+        manager.list_skills().unwrap()[0].project_deployments[0]
+            .copy_hash
+            .is_none()
+    );
+}
+
+#[test]
+fn project_stack_deployment_is_scoped_and_persists_after_reopening() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("uno");
+    let manager = UnoSkillsManager::open_at(root.clone()).unwrap();
+    manager
+        .set_default_deploy_mode(DeployMode::Symlink)
+        .unwrap();
+
+    for key in ["codex", "claude_code"] {
+        let global_dir = tmp.path().join(key);
+        std::fs::create_dir(&global_dir).unwrap();
+        manager
+            .set_agent_override(key, global_dir.to_str())
+            .unwrap();
+    }
+    let project_a_path = tmp.path().join("project-a");
+    let project_b_path = tmp.path().join("project-b");
+    std::fs::create_dir(&project_a_path).unwrap();
+    std::fs::create_dir(&project_b_path).unwrap();
+    let project_a = manager.add_project(&project_a_path, None).unwrap();
+    let project_b = manager.add_project(&project_b_path, None).unwrap();
+
+    let review = tmp.path().join("review");
+    create_skill_dir(&review, "review", "Review skill", &["qa"]);
+    let skill = manager.install_from_ref(review.to_str().unwrap()).unwrap();
+    let mut stack = manager
+        .create_stack_from_skills("QA", "", "", vec![], std::slice::from_ref(&skill.id))
+        .unwrap();
+    stack.skills[0].name = "older-review-name".into();
+    let codex_a = project_a.path.join(".codex/skills/review");
+    let claude_a = project_a.path.join(".claude/skills/review");
+    let codex_b = project_b.path.join(".codex/skills/review");
+
+    let first = manager
+        .deploy_stack_to_project(&stack, &project_a.id, "codex")
+        .unwrap();
+    assert_eq!(first.deployed, 1);
+    assert!(first.failed.is_empty());
+    assert!(codex_a.join("extra.txt").is_file());
+    assert!(!claude_a.exists());
+    assert!(!codex_b.exists());
+    #[cfg(unix)]
+    assert_eq!(std::fs::read_link(&codex_a).unwrap(), skill.central_path);
+
+    drop(manager);
+    let manager = UnoSkillsManager::open_at(root).unwrap();
+    let retry = manager
+        .deploy_stack_to_project(&stack, &project_a.id, "codex")
+        .unwrap();
+    assert_eq!((retry.deployed, retry.already_deployed), (0, 1));
+    for (project, agent) in [(&project_a, "claude_code"), (&project_b, "codex")] {
+        let result = manager
+            .deploy_stack_to_project(&stack, &project.id, agent)
+            .unwrap();
+        assert_eq!((result.deployed, result.already_deployed), (1, 0));
+        assert!(result.failed.is_empty());
+    }
+    assert!(claude_a.join("SKILL.md").is_file());
+    assert!(codex_b.join("SKILL.md").is_file());
+    assert!(
+        std::fs::read_dir(tmp.path().join("codex"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+    assert!(
+        std::fs::read_dir(tmp.path().join("claude_code"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+
+    stack.skills.clear();
+    manager.save_local_stack(&stack).unwrap();
+    let skill = manager.list_skills().unwrap().pop().unwrap();
+    assert_eq!(skill.project_deployments.len(), 3);
+    assert!(skill.deployments.is_empty());
+    assert!(codex_a.join("SKILL.md").is_file());
+}
+
+#[test]
+fn project_stack_deployment_rejects_unavailable_targets_before_writing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let project_path = tmp.path().join("project");
+    std::fs::create_dir(&project_path).unwrap();
+    let project = manager.add_project(&project_path, None).unwrap();
+    let review = tmp.path().join("review");
+    create_skill_dir(&review, "review", "Review skill", &["qa"]);
+    let skill = manager.install_from_ref(review.to_str().unwrap()).unwrap();
+    let stack = manager
+        .create_stack_from_skills("QA", "", "", vec![], std::slice::from_ref(&skill.id))
+        .unwrap();
+
+    let agent_path = tmp.path().join("global-codex");
+    manager
+        .set_agent_override("codex", agent_path.to_str())
+        .unwrap();
+    manager.set_agent_enabled("codex", false).unwrap();
+    let error = manager
+        .deploy_stack_to_project(&stack, &project.id, "codex")
+        .unwrap_err();
+    assert!(error.to_string().contains("no longer available"));
+    let error = manager
+        .deploy_stack_to_project(&stack, &project.id, "nonexistent_agent")
+        .unwrap_err();
+    assert!(error.to_string().contains("no longer available"));
+    assert!(std::fs::read_dir(&project_path).unwrap().next().is_none());
+
+    manager.set_agent_enabled("codex", true).unwrap();
+    std::fs::remove_dir(&project_path).unwrap();
+    let error = manager
+        .deploy_stack_to_project(&stack, &project.id, "codex")
+        .unwrap_err();
+    assert!(error.to_string().contains("directory no longer exists"));
+    let error = manager
+        .deploy_stack_to_project(&stack, "unknown-project", "codex")
+        .unwrap_err();
+    assert!(error.to_string().contains("Project workspace not found"));
+    assert!(!project_path.exists());
+    assert!(
+        manager.list_skills().unwrap()[0]
+            .project_deployments
+            .is_empty()
+    );
+}
+
+#[test]
+fn project_stack_deployment_preserves_shared_agent_targets() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    manager.set_default_deploy_mode(DeployMode::Copy).unwrap();
+    for agent in ["amp", "replit"] {
+        let global_dir = tmp.path().join(agent);
+        manager
+            .set_agent_override(agent, global_dir.to_str())
+            .unwrap();
+    }
+    let project_dir = tmp.path().join("project");
+    std::fs::create_dir(&project_dir).unwrap();
+    let project = manager.add_project(&project_dir, None).unwrap();
+    let review = tmp.path().join("review");
+    create_skill_dir(&review, "review", "Review skill", &["qa"]);
+    let skill = manager.install_from_ref(review.to_str().unwrap()).unwrap();
+    let stack = manager
+        .create_stack_from_skills("QA", "", "", vec![], std::slice::from_ref(&skill.id))
+        .unwrap();
+
+    for agent in ["amp", "replit"] {
+        let result = manager
+            .deploy_stack_to_project(&stack, &project.id, agent)
+            .unwrap();
+        assert_eq!((result.deployed, result.already_deployed), (1, 0));
+        assert!(result.failed.is_empty());
+    }
+    let skill = manager.list_skills().unwrap().pop().unwrap();
+    let target = &skill.project_deployments[0].target_path;
+    assert_eq!(skill.project_deployments.len(), 2);
+    assert_eq!(target, &skill.project_deployments[1].target_path);
+    manager
+        .undeploy_skill_from_project(&skill.id, &project.id, "amp")
+        .unwrap();
+    assert!(target.join("SKILL.md").is_file());
+    let retry = manager
+        .deploy_stack_to_project(&stack, &project.id, "replit")
+        .unwrap();
+    assert_eq!((retry.deployed, retry.already_deployed), (0, 1));
+    manager
+        .undeploy_skill_from_project(&skill.id, &project.id, "replit")
+        .unwrap();
+    assert!(!target.exists());
+    assert!(skill.central_path.join("SKILL.md").is_file());
 }
 
 #[test]
