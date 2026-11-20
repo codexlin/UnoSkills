@@ -7012,9 +7012,10 @@ checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
 name = "unoskills-app"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "gpui-kit",
  "reqwest",
  "serde_json",
@@ -7023,7 +7024,7 @@ dependencies = [
 
 [[package]]
 name = "unoskills-cli"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -7034,7 +7035,7 @@ dependencies = [
 
 [[package]]
 name = "unoskills-core"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chrono",

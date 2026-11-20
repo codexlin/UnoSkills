@@ -8,8 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-11-21
+
+### Added / 新增
+
+- **Home workspace / 首页工作区** — Open the skill library, local skills, Agent settings, and My Stacks from Home. See recent additions, the seven-day intake chart, and the skills.sh leaderboard.
+- **Project stack deployment / 组合部署到项目** — Select a project and an Agent, check what is already deployed, and add the missing skills from your library in one operation.
+- **Follow system appearance / 跟随系统外观** — Let UnoSkills follow the operating system theme and switch to light or dark manually in Settings.
+
+### Changed / 改进
+
+- **Project deployment checks / 项目部署核对** — Check the files on disk, restore missing copies or links in their original mode, and keep user files when a target is occupied or changed.
+- **Marketplace and Stacks / 市场与技能组合** — Browse a three-column marketplace with direct install and source filtering. My Stacks opens first, and individual skills in a stack can be installed from the detail view.
+- **Local skills / 本机技能** — Find existing Agent skills under a clearer label and review what will be managed before adding them to the library.
+
+## [v0.4.0] - 2026-11-20
+
 ### ✨ Features / 新特性
 
+- **Desktop workbench redesign / 桌面工作台改版**: refreshed sidebar and settings navigation, compact Library with per-Agent deployment switches, three-column Marketplace, and grouped adoption.
 - **Community Stacks Remote Index (Stage 1) / 社区组合远程索引**：fetches curated stacks from the GitHub-hosted `community/index.json` via the `StackRegistry` trait with **ETag caching** (`304` never re-downloads) and an **offline cached fallback**; the default URL is overridable via the `stacks_registry_url` setting.
   - New `community/` tree in the repo: seed `index.json` (5 curated stacks) + a contribution guide — submitting a community stack is now just a PR.
   - Stacks UI merges featured + community stacks with a **Community badge**; CLI `stack list` gains a Community section and `stack install` resolves community ids.

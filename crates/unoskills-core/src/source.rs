@@ -462,6 +462,34 @@ pub fn search_skillssh(
         .collect())
 }
 
+/// The public detail page for a skill from the skills.sh catalog.
+pub fn skillssh_detail_url(skill: &MarketplaceSkill) -> Option<reqwest::Url> {
+    let source = skill.source.split('/');
+    if source.clone().count() > 2
+        || source.clone().any(|part| matches!(part, "" | "." | ".."))
+        || matches!(skill.skill_id.as_str(), "" | "." | "..")
+    {
+        return None;
+    }
+    let mut url = reqwest::Url::parse("https://www.skills.sh/").ok()?;
+    url.path_segments_mut()
+        .ok()?
+        .pop_if_empty()
+        .extend(source.chain(std::iter::once(skill.skill_id.as_str())));
+    Some(url)
+}
+
+fn normalize_market_description(description: &str) -> Option<String> {
+    let normalized = description.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return None;
+    }
+    if let Some((end, _)) = normalized.char_indices().nth(400) {
+        return Some(format!("{}…", normalized[..end].trim_end()));
+    }
+    Some(normalized)
+}
+
 fn parse_skillssh_html(html: &str) -> Result<Vec<MarketplaceSkill>> {
     let marker = r#"<script id="__NEXT_DATA__" type="application/json">"#;
     if let Some(start_idx) = html.find(marker) {
@@ -506,6 +534,8 @@ fn parse_skillssh_html(html: &str) -> Result<Vec<MarketplaceSkill>> {
                 name,
                 source,
                 installs: caps["installs"].parse().unwrap_or(0),
+                description: None,
+                is_official: false,
             });
         }
     }
@@ -545,6 +575,10 @@ fn parse_skills_json_array(arr: &[serde_json::Value]) -> Vec<MarketplaceSkill> {
                 name,
                 source,
                 installs,
+                description: item["description"]
+                    .as_str()
+                    .and_then(normalize_market_description),
+                is_official: item["isOfficial"].as_bool().unwrap_or(false),
             });
         }
     }
@@ -554,6 +588,18 @@ fn parse_skills_json_array(arr: &[serde_json::Value]) -> Vec<MarketplaceSkill> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skillssh_detail_url_keeps_catalog_identity() {
+        let items = parse_skills_json_array(&[
+            serde_json::json!({"source":"owner/repo", "skillId":"read docs", "isOfficial":true}),
+            serde_json::json!({"source":"owner/..", "skillId":"bad"}),
+        ]);
+        let url = skillssh_detail_url(&items[0]).unwrap();
+        assert_eq!(url.as_str(), "https://www.skills.sh/owner/repo/read%20docs");
+        assert!(items[0].is_official);
+        assert!(skillssh_detail_url(&items[1]).is_none());
+    }
 
     #[test]
     fn resolves_all_source_ref_forms() {

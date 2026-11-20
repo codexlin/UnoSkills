@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UnoSkills 桌面界面原型</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .desk {
+    --surface: light-dark(#fcfcfd, #14171d);
+    --rail: light-dark(#f3f5f9, #181c23);
+    --panel: light-dark(#fff, #1d222c);
+    --ink: light-dark(#182232, #e8edf5);
+    --quiet: light-dark(#526071, #a9b3c4);
+    --line: light-dark(#dce2eb, #343d4e);
+    --action: light-dark(#315ac5, #a6bcff);
+    --action-ink: light-dark(#fff, #14223e);
+    --success-text: light-dark(#176634, #8bd1a3);
+    --warning-text: light-dark(#795000, #eec884);
+    --selection: color-mix(in srgb, var(--action) 13%, var(--panel));
+    color-scheme: dark;
+    container: desk / inline-size;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font: 14px/1.45 Inter, "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  .desk.light { color-scheme: light; }
+  .desk button, .desk select, .desk input { font: inherit; color: inherit; }
+  h1,h2,h3,p { margin: 0; }
+  h1 { font-size: 20px; line-height: 1.3; font-weight: 650; }
+  h2 { font-size: 18px; line-height: 1.35; }
+  h3 { font-size: 14px; }
+  .muted, small { color: var(--quiet); font-size: 12px; }
+  .numeric { font-variant-numeric: tabular-nums; }
+  .strong { font-weight: 620; }
+  .truncate { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .stack { display: grid; gap: 4px; min-width: 0; }
+  .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .titlebar, .pagehead, .toolbar, .statusbar, .line, .nav, .tabs { display: flex; align-items: center; gap: 8px; }
+  .titlebar { height: 36px; padding-inline: 12px; background: var(--rail); border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; font-size: 13px; }
+  .titlebar .ico { color: var(--action); }
+  .push { margin-inline-start: auto; }
+  .frame { display: grid; grid-template-columns: 184px minmax(0,1fr); min-height: 520px; }
+  .sidebar { display: flex; flex-direction: column; gap: 4px; padding: 12px 8px 8px; background: var(--rail); border-inline-end: 1px solid var(--line); border-radius: 0 0 0 8px; }
+  .nav { width: 100%; padding-inline: 10px; height: 36px; text-align: start; white-space: nowrap; }
+  .sidebar .bottom { margin-top: auto; display: grid; gap: 4px; }
+  .nav[aria-current] { background: var(--selection); color: var(--action); }
+  .page { min-width: 0; }
+  .pagehead { min-height: 56px; padding: 8px 20px; justify-content: space-between; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .toolbar { min-height: 48px; padding: 8px 20px; flex-wrap: wrap; }
+  .toolbar input { flex: 1 1 160px; max-width: 280px; min-width: 0; }
+  .toolbar select { max-width: 100%; }
+  .btn, .iconbtn, input, select { height: 32px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); min-width: 0; }
+  .btn { padding-inline: 10px; white-space: nowrap; }
+  .iconbtn { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; }
+  .ghost, .nav { border: 1px solid transparent; background: transparent; border-radius: 6px; }
+  button:not(:disabled) { cursor: pointer; }
+  button:disabled { opacity: .58; }
+  button:not(:disabled):hover { background-color: var(--selection); }
+  .btn.primary { color: var(--action-ink); background: var(--action); border-color: transparent; font-weight: 600; }
+  .btn.primary:not(:disabled):hover { filter: brightness(.96); }
+  button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--action); outline-offset: 1px;
+  }
+  input, select { padding-inline: 8px; }
+  input::placeholder { color: var(--quiet); }
+  .tabs { border-bottom: 1px solid var(--line); padding-inline: 20px; gap: 16px; }
+  .tab { height: 36px; padding: 0 2px; color: var(--quiet); border: 0; border-bottom: 2px solid transparent; background: transparent; }
+  .tab[aria-selected="true"] { color: var(--action); border-color: var(--action); font-weight: 620; }
+  .split { display: grid; grid-template-columns: minmax(220px, 42fr) minmax(260px, 58fr); border-top: 1px solid var(--line); }
+  .split.stacks { grid-template-columns: minmax(224px, 304px) minmax(275px, 1fr); }
+  .index { min-width: 0; }
+  .listhead, .skillrow { display: grid; align-items: center; grid-template-columns: minmax(0,1fr) 53px 66px; gap: 8px; width: 100%; padding-inline: 12px; text-align: start; }
+  .listhead { min-height: 34px; border-bottom: 1px solid var(--line); }
+  .skillrow { min-height: 48px; background: transparent; border: 1px solid transparent; border-bottom-color: var(--line); }
+  .skillrow[aria-pressed="true"], .stackrow[aria-pressed="true"] { background: var(--selection); border-color: color-mix(in srgb,var(--action) 45%,var(--line)); }
+  .listhead span:not(:first-child), .skillrow span:not(.stack) > .numeric { text-align: end; }
+  .skillrow > .numeric { text-align: end; }
+  .detail { min-width: 0; border-inline-start: 1px solid var(--line); background: var(--panel); }
+  .detailhead { padding: 16px 16px 12px; align-items: start; }
+  .detail .tabs { padding-inline: 16px; }
+  .content { padding: 16px; display: grid; gap: 12px; }
+  .grouphead { min-height: 30px; justify-content: space-between; }
+  .rows { border-top: 1px solid var(--line); }
+  .agent-row, .package-row, .option-row { min-height: 36px; justify-content: space-between; border-bottom: 1px solid var(--line); }
+  .package-row { min-height: 40px; }
+  .option-row { min-height: 56px; padding-block: 8px; }
+  .state { font-size: 12px; flex: none; color: var(--quiet); }
+  .state.good { color: var(--success-text); }
+  .state.alert { color: var(--warning-text); }
+  .overflow-menu { position: relative; }
+  .overflow-menu summary { list-style: none; cursor: pointer; font-weight: 700; }
+  .overflow-menu summary::-webkit-details-marker { display: none; }
+  .overflow-options { position: absolute; z-index: 2; inset: 32px 0 auto auto; min-width: 132px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .overflow-options button { display: block; width: 100%; text-align: start; border-color: transparent; }
+  .agent-row .btn { height: 28px; min-width: 56px; }
+  .stackrow { background: transparent; border: 1px solid transparent; border-bottom-color: var(--line); min-height: 60px; padding: 8px 12px; width: 100%; text-align: start; }
+  .info { border: 1px solid var(--line); padding: 9px 10px; font-size: 12px; color: var(--quiet); border-radius: 6px; }
+  .catalog { container: catalog / inline-size; padding: 0 20px 16px; }
+  .catalog .numeric { margin-block: 2px 10px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: minmax(0,1fr); }
+  @container catalog (min-width: 540px) { .grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+  @container catalog (min-width: 816px) { .grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+  .card { min-width: 0; min-height: 76px; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); text-align: start; }
+  .card.lead { border-color: color-mix(in srgb,var(--action) 65%,var(--line)); }
+  .card .line { min-width: 0; }
+  .rank { min-width: 27px; flex: none; color: var(--quiet); }
+  .rank.top { color: var(--action); }
+  .statusbar { min-height: 48px; justify-content: space-between; }
+  .groups { padding: 0 20px 16px; }
+  .groups details { margin-bottom: 12px; }
+  .groups summary { cursor: pointer; padding: 6px; }
+  .groups label { min-height: 40px; border-top: 1px solid var(--line); }
+  .groups input { height: auto; accent-color: var(--action); }
+  .settings { display: grid; grid-template-columns: 156px minmax(0,680px); padding: 16px 20px; gap: 16px; }
+  .settings-side { display: grid; align-content: start; gap: 4px; }
+  .settings-side button { text-align: start; min-height: 32px; padding-inline: 8px; }
+  .settings-side [aria-pressed="true"] { background: var(--selection); color: var(--action); }
+  .empty { padding: 20px; color: var(--quiet); }
+  dialog { width: min(416px, calc(100% - 24px)); padding: 16px; border-radius: 8px; border: 1px solid var(--line); color: var(--ink); background: var(--panel); }
+  dialog.drawer { inset: 8px 8px 8px auto; margin: 0; max-height: calc(100% - 16px); }
+  dialog::backdrop { background: color-mix(in srgb, var(--surface) 68%, transparent); }
+  dialog .content { padding: 12px 0 0; }
+  dialog a { color: var(--action); }
+  .notification { padding: 6px 12px; min-height: 30px; display: flex; justify-content: end; font-size: 12px; color: var(--quiet); border-top: 1px solid var(--line); }
+  .notification:empty { display: none; }
+  @container desk (max-width: 1079px) {
+    .frame { grid-template-columns: 56px minmax(0,1fr); }
+    .nav { justify-content: center; padding: 0; }
+    .nav .label { display: none; }
+  }
+  @container desk (max-width: 630px) {
+    .split, .split.stacks { grid-template-columns: minmax(0, 1fr); }
+    .detail { border-inline-start: 0; border-top: 1px solid var(--line); }
+    .toolbar,.pagehead,.catalog,.settings,.groups { padding-inline: 10px; }
+    .tabs { padding-inline: 10px; }
+    .settings { grid-template-columns: minmax(0, 1fr); }
+    .settings-side { display: flex; flex-wrap: wrap; }
+    .option-row { flex-wrap: wrap; }
+  }
+  @container desk (max-width: 380px) {
+    .listhead, .skillrow { grid-template-columns: minmax(0,1fr) 51px; }
+    .listhead .tokens, .skillrow .tokens { display: none; }
+    .catalog .card { min-height: 68px; }
+  }
+</style>
+</head>
+<body>
+<main class="desk" id="desk" aria-label="UnoSkills 桌面界面原型">
+  <div class="titlebar">
+    <svg class="ico" style="stroke:none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <path
+    d="M194 499 377 383V729C383 809.5 422 867 493.5 873C563 870 615 829 666 772C627 782 621.5 787 595.5 787C519 787 440 724 440 623C446 564 472 500 501 451C586 269 711 191 830 191C964 197 1048 275 1060 404V731L889 838V485C898 399 850 358 801 352C718.5 349 648 395 571 479C605 465 634 458 655.5 458C753.5 446 829 547 817 625C805 765.5 716 931 593 1003C533 1036 477 1042 450.5 1042C314 1036 206 930 194 771ZM624 526C681.438 526 728 572.562 728 630C728 687.438 681.438 734 624 734C566.562 734 520 687.438 520 630C520 572.562 566.562 526 624 526Z"
+    transform="translate(-16.384 -14.336) scale(.128)"
+    fill="currentColor"
+    fill-rule="evenodd"
+  />
+</svg>
+    <strong>UnoSkills</strong>
+    <span class="push muted">交互原型</span>
+    <button class="iconbtn ghost" id="theme" title="切换主题" aria-label="切换主题">◐</button>
+  </div>
+  <div class="frame">
+    <nav class="sidebar" id="navigation" aria-label="主导航"></nav>
+    <section class="page" id="page"></section>
+  </div>
+  <div class="notification" id="message" role="status"></div>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icons = {
+    library:'<path d="M12 6v15M3 5h5l4 2 4-2h5v13h-5l-4 2-4-2H3z"/>',
+    stacks:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    discover:'<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
+    settings:'<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2" fill="var(--rail)"/><circle cx="15" cy="12" r="2" fill="var(--rail)"/><circle cx="10" cy="18" r="2" fill="var(--rail)"/>',
+    agents:'<rect x="4" y="7" width="16" height="13" rx="3"/><path d="M12 4v3M8 13h1m6 0h1M9 16h6"/>'
+  };
+  const icon = key => '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">'+icons[key]+'</svg>';
+  const pages = {library:'技能库', stacks:'技能组合', discover:'发现', settings:'设置'};
+  const local = [
+    ['frontend-design','anthropics/skills','~2.3k'],
+    ['impeccable','skills.sh','~3.2k'],
+    ['design-taste-frontend','skills.sh','~7.7k'],
+    ['landing-page-design','本机收编','~5.5k']
+  ];
+  const agents = ['Claude Code','Codex','Antigravity','OpenCode','Gemini CLI','Kimi Code CLI'];
+  const catalog = [
+    ['ai-video-generation','beltsh/superpowers','29.4k'],
+    ['ai-image-generation','beltsh/superpowers','29.4k'],
+    ['twitter-automation','beltsh/superpowers','29.4k'],
+    ['ai-avatar-video','beltsh/superpowers','29.4k'],
+    ['design-mobile-apps','designed-by-ai/skills','22.4k'],
+    ['agent-browser','vercel-labs/agent-browser','17.2k'],
+    ['find-skills','vercel-labs/skills','15.6k'],
+    ['website-builder','flowkit-labs/skills','15.4k'],
+    ['ai-image-generation','gencraft-labs/skills','15.4k']
+  ];
+  const stacks = [
+    ['React & Next.js 高效出海栈','渲染性能、UI 审查与前端设计',['vercel-react-best-practices','web-design-guidelines','frontend-design']],
+    ['Anthropic 官方精品组合','设计、文档和技能创建',['frontend-design','docx','skill-creator']],
+    ['Superpowers 工程纪律栈','从需求拆解到测试与审查',['brainstorming','writing-plans','test-driven-development']]
+  ];
+  const candidates = [['orchestration','Claude Code','~946'],['orca-computer-use','Claude Code','~710'],['agent-desktop','Codex','~1.7k'],['bna-ui','Codex','~686']];
+  const settings = ['通用','外观','网络与备份','Agent','关于与更新'];
+  const baseDeployments = [[1,2],[1,2],[1,2],[0]];
+  const state = { page:'library', selected:0, scope:0, agent:'all', libraryTab:0, stackTab:0, stack:0, discover:0, board:'热门趋势', source:'all', query:'', settings:0 };
+  const changes = new Map();
+  const installed = new Set();
+  const adopted = new Set();
+  const chosen = new Set();
+  let dialogAction = null;
+  let dialogTrigger = null;
+  const button = (name, action, value='', style='') => '<button type="button" class="btn '+style+'" data-action="'+action+'" data-value="'+value+'">'+name+'</button>';
+  const overflow = (label,actions) => '<details class="overflow-menu push"><summary class="iconbtn ghost" aria-label="'+label+'">⋯</summary><div class="overflow-options">'+actions.map(name=>button(name,'sample')).join('')+'</div></details>';
+  const header = (title, actions='') => '<header class="pagehead"><h1>'+title+'</h1><div class="line">'+actions+'</div></header>';
+  const tabs = (names, selected, action) => '<div class="tabs" role="tablist" aria-label="视图">'+names.map((name,index) =>
+    '<button type="button" class="tab" role="tab" aria-selected="'+(index===selected)+'" tabindex="'+(index===selected?0:-1)+'" data-action="'+action+'" data-value="'+index+'">'+name+'</button>').join('')+'</div>';
+  const search = label => '<input type="search" id="search" aria-label="'+label+'" placeholder="'+label+'" value="'+escapeHtml(state.query)+'">';
+  const select = (id,label,options,selected) => '<select id="'+id+'" aria-label="'+label+'">'+options.map(([value,name]) =>
+    '<option value="'+escapeHtml(value)+'" '+(String(value)===String(selected)?'selected':'')+'>'+escapeHtml(name)+'</option>').join('')+'</select>';
+  function nav() {
+    const item = (key,label,action) => '<button type="button" class="nav" title="'+label+'" aria-label="'+label+'" '+(state.page===key?'aria-current="page" ':'')+'data-action="'+action+'" data-value="'+key+'">'+icon(key)+'<span class="label">'+label+'</span></button>';
+    $('navigation').innerHTML = ['library','stacks','discover'].map(key => item(key,pages[key],'nav')).join('')
+      + '<div class="bottom">'+item('agents','6 个可用 Agent','agents')+item('settings',pages.settings,'nav')+'</div>';
+  }
+  const matches = list => list.some(value => String(value).toLowerCase().includes(state.query.trim().toLowerCase()));
+  const resultEmpty = name => '<div class="empty">'+name+'</div>';
+  function deployed(skill,agent) {
+    return changes.get([state.scope,skill,agent].join(':')) ?? (state.scope===0 && baseDeployments[skill].includes(agent));
+  }
+  function library() {
+    const skill = local[state.selected];
+    const filters = select('scope','部署范围',[[0,'全局'],[1,'项目 Web']],state.scope)
+      + select('agent','按 Agent 筛选',[['all','所有 Agent'],...agents.map((name,index)=>[index,name])],state.agent);
+    const items = local.map(([name,source,count],i) => {
+      if (!matches([name,source]) || (state.agent!=='all' && !deployed(i,Number(state.agent)))) return '';
+      const coverage = agents.filter((_,agent)=>deployed(i,agent)).length;
+      return '<button class="skillrow" type="button" aria-pressed="'+(i===state.selected)+'" data-action="skill" data-value="'+i+'"><span class="stack"><span class="strong truncate" title="'+name+'">'+name+'</span><small class="truncate" title="'+source+'">'+source+'</small></span><span class="numeric">'+coverage+' / 6</span><small class="numeric tokens">'+count+'</small></button>';
+    }).join('');
+    const rows = agents.map((name,i) => {
+      const active = deployed(state.selected,i);
+      return '<div class="line agent-row"><span class="truncate">'+name+'</span><span class="state push '+(active?'good':'')+'">'+(active?'已部署':'可部署')+'</span>'
+        + button(active?'移除':'部署','deploy',i)+'</div>';
+    }).join('');
+    const inspector = state.libraryTab===0
+      ? '<div class="content"><div class="line grouphead"><h3>部署目标</h3><small>'+ (state.scope===0?'全局范围':'项目 Web') +'</small></div><div class="rows">'+rows+'</div></div>'
+      : '<div class="content"><h3>SKILL.md</h3><p>'+escapeHtml(['用于构建和调整界面设计。','用于审视和优化前端界面。','提供网页设计和审查流程。','提供落地页设计指导。'][state.selected])+'</p></div>';
+    return header('技能库',button('安装技能','install-link'))
+      + '<div class="toolbar">'+search('搜索技能')+filters+'</div>'
+      + '<div class="split"><div class="index"><div class="listhead muted"><span>技能</span><span>部署</span><span class="tokens">估算 tokens</span></div>'
+      + (items || resultEmpty('没有符合条件的技能'))+'</div><article class="detail"><div class="line detailhead"><div class="stack"><h2 class="truncate" title="'+skill[0]+'">'+skill[0]+'</h2><small class="truncate">'+skill[1]+'　'+skill[2]+' tokens</small></div>'+overflow('技能操作',['检查更新','打开目录','复制路径'])+'</div>'
+      + tabs(['部署','预览'],state.libraryTab,'library-tab')+inspector+'</article></div>';
+  }
+
+  function stackPage() {
+    const stack = stacks[state.stack];
+    const items = stacks.map(([name,description,skills],i) => !matches([name,description]) ? '' :
+      '<button type="button" class="stack stackrow" aria-pressed="'+(i===state.stack)+'" data-action="stack" data-value="'+i+'"><span class="strong truncate">'+name+'</span><small class="truncate">'+skills.length+' 项　'+description+'</small></button>').join('');
+    const rows = stack[2].map(name => {
+      const present = local.some(([skill])=>skill===name) || installed.has(name);
+      return '<div class="line package-row"><span class="truncate" title="'+name+'">'+name+'</span><span class="state '+(present?'good':'')+'">'+(present?'已在库中':'待新增')+'</span></div>';
+    }).join('');
+    const existing = stack[2].filter(name=>local.some(([skill])=>skill===name)||installed.has(name)).length;
+    return header('技能组合',button('导入 TOML','stack-import')+button('新建组合','stack-create'))
+      + tabs(['推荐','我的组合'],state.stackTab,'stack-tab')
+      + '<div class="toolbar">'+search('搜索组合')+'</div>'
+      + (state.stackTab===1 ? resultEmpty('还没有保存的组合。使用「新建组合」或「导入 TOML」添加。')
+        : '<div class="split stacks"><div class="index">'+(items||resultEmpty('没有符合条件的组合'))+'</div><article class="detail"><div class="line detailhead"><div class="stack"><h2>'+stack[0]+'</h2><small>'+stack[1]+'</small></div>'+overflow('组合操作',['复制 TOML','分享 Gist'])+'</div><div class="content"><h3>包含的技能</h3><div class="rows">'+rows+'</div><div class="line statusbar"><small>待新增 '+(stack[2].length-existing)+' 项，已在库中 '+existing+' 项</small>'+button('加入技能库','stack-install','','primary')+'</div></div></article></div>');
+  }
+
+  function market() {
+    const searchActive = state.query.trim().length>0;
+    const catalogWithIndices = catalog.map((row,index)=>({row,index}));
+    if (state.board==='飙升榜') catalogWithIndices.push(...catalogWithIndices.splice(0,3));
+    if (state.board==='总榜') catalogWithIndices.reverse();
+    const sources = [...new Set(catalog.map(([,source])=>source))];
+    const cards = catalogWithIndices.map(({row:[name,source,count],index},rank) => {
+      if (!matches([name,source]) || (state.source!=='all' && state.source!==source)) return '';
+      return '<button type="button" class="card stack '+(!searchActive&&rank===0?'lead':'')+'" data-action="market-item" data-value="'+index+'" title="'+name+' · '+source+'"><span class="line">'+(searchActive?'':'<small class="rank numeric '+(rank<3?'top':'')+'">#'+(rank+1)+'</small>')
+        + '<strong class="truncate">'+name+'</strong>'+(installed.has('market-'+index)?'<span class="state good push">已入库</span>':'')+'</span><span class="line"><small class="truncate">'+source+'</small><small class="push" style="white-space:nowrap">'+count+' 次</small></span></button>';
+    }).join('');
+    return '<div class="toolbar">'+search('搜索 skills.sh')
+      + select('board','榜单',['热门趋势','飙升榜','总榜'].map(name=>[name,name]),state.board)
+      + select('source','按来源筛选',[['all','所有来源'],...sources.map(source=>[source,source])],state.source)
+      + '<button type="button" class="iconbtn ghost" data-action="refresh" title="刷新榜单" aria-label="刷新榜单">↻</button></div>'
+      + '<div class="catalog"><div class="numeric muted">'+(searchActive?'搜索结果':escapeHtml(state.board))+(state.source!=='all'?' · 已加载结果':'')+'</div><div class="grid">'+(cards||resultEmpty('没有匹配的技能'))+'</div></div>';
+  }
+
+  function adopt() {
+    const groups = ['Claude Code','Codex'].map(agent => {
+      const rows = candidates.map(([name,owner,count],i)=>owner!==agent||adopted.has(i)||!matches([name,owner])?'':'<label class="line"><input type="checkbox" data-candidate="'+i+'" '+(chosen.has(i)?'checked':'')+'><span class="truncate">'+name+'</span><small class="push">'+count+' tokens</small></label>').filter(Boolean);
+      return rows.length?'<details open><summary>'+agent+'　<small>'+rows.length+' 项</small></summary>'+rows.join('')+'</details>':'';
+    }).join('');
+    return '<div class="toolbar">'+search('按技能名或 Agent 筛选')+button('重新扫描','refresh')+'</div><div class="groups">'+(groups||resultEmpty('此范围内没有待收编的技能'))
+      + '<div class="line statusbar"><small>已选择 '+chosen.size+' 项</small><button type="button" class="btn primary" data-action="adopt-confirm" '+(chosen.size?'':'disabled')+'>收编 '+chosen.size+' 项</button></div></div>';
+  }
+  function discover() { return header('发现',button('从链接安装','install-link'))+tabs(['市场','收编'],state.discover,'discover-tab')+(state.discover===0?market():adopt()); }
+
+  const option = (name,description,control) => '<div class="line option-row"><div class="stack"><span class="strong">'+name+'</span><small>'+description+'</small></div>'+control+'</div>';
+  function settingsPage() {
+    const options = [
+      () => option('界面语言','菜单与组件语言',select('locale','界面语言',[['zh','简体中文'],['en','English'],['ja','日本語']],'zh'))
+        + option('默认部署方式','用于后续新部署',select('mode','默认部署方式',[['link','软链接'],['copy','复制']],'link'))
+        + option('技能库目录','~/.unoskills/skills',button('打开目录','sample')),
+      () => option('主题','更改立即预览',button($('desk').classList.contains('light')?'切换深色':'切换浅色','theme'))
+        + option('界面字号','缩放菜单与正文',select('font-size','界面字号',[[13,'13 px'],[14,'14 px'],[15,'15 px'],[16,'16 px']],14))
+        + option('界面字体','自动匹配语言',select('font-family','界面字体',[['auto','自动'],['system','系统字体']],'auto')),
+      () => option('代理','用于访问技能市场和远程仓库','<input type="url" aria-label="代理地址" placeholder="代理 URL">')
+        + option('Git 备份','备份库地址与同步状态',button('配置备份','sample')),
+      () => '<div class="line grouphead"><h3>已检测</h3><small>6 项</small></div><div class="rows">'
+        + agents.map(name=>'<div class="line agent-row"><span>'+name+'</span><small>技能目录可用</small></div>').join('')+'</div>'
+        + '<details><summary>未检测到的 Agent</summary><div class="empty">安装 Agent 后重新扫描。</div></details>',
+      () => option('版本','UnoSkills '+ '0.3.x',button('检查更新','sample'))
+    ];
+    return header('设置',state.settings===3?button('添加 Agent','agent-add'):'')
+      + '<div class="settings"><nav class="settings-side" aria-label="设置分区">'+settings.map((name,index)=>'<button type="button" class="ghost" aria-pressed="'+(index===state.settings)+'" data-action="settings" data-value="'+index+'">'+name+'</button>').join('')
+      + '</nav><section><h2>'+settings[state.settings]+'</h2><div class="rows" style="margin-top:12px">'+options[state.settings]()+'</div></section></div>';
+  }
+
+  function draw() {
+    nav();
+    $('page').innerHTML = ({library,stacks:stackPage,discover,settings:settingsPage})[state.page]();
+  }
+  function say(message) { $('message').textContent = message; }
+  function focusControl(control) {
+    if (!control) return;
+    if (control.isConnected) { control.focus({preventScroll:true}); return; }
+    const {action,value=''}=control.dataset;
+    const replacement=[...document.querySelectorAll('[data-action]')].find(el=>el.dataset.action===action&&(el.dataset.value??'')===value);
+    (replacement ?? document.querySelector('.nav[aria-current]'))?.focus({preventScroll:true});
+  }
+  function modal(title,body,actionLabel='',action=null,drawer=false) {
+    dialogTrigger=document.activeElement;
+    dialogAction=action;
+    $('dialog').classList.toggle('drawer',drawer);
+    $('dialog').innerHTML = '<div class="line"><h2 id="dialog-title">'+escapeHtml(title)+'</h2><button type="button" class="iconbtn ghost push" data-action="close" aria-label="关闭">×</button></div>'
+      + '<div class="content">'+body+(actionLabel?'<div class="line statusbar">'+button('返回','close')+button(actionLabel,'confirm','','primary')+'</div>':'')+'</div>';
+    $('dialog').showModal();
+  }
+  $('dialog').addEventListener('close',()=>{ focusControl(dialogTrigger); dialogAction=null; });
+  function changePage(key) { state.page=key; state.query=''; }
+  function handle(action,value) {
+    if (action==='nav') changePage(value);
+    if (action==='agents') { changePage('settings'); state.settings=3; }
+    if (action==='skill') { state.selected=Number(value); }
+    if (action==='library-tab') state.libraryTab=Number(value);
+    if (action==='stack-tab') { state.stackTab=Number(value); state.query=''; }
+    if (action==='stack') state.stack=Number(value);
+    if (action==='discover-tab') { state.discover=Number(value); state.query=''; }
+    if (action==='settings') state.settings=Number(value);
+    if (action==='theme') $('desk').classList.toggle('light');
+    if (action==='deploy') {
+      const agent=Number(value), on=deployed(state.selected,agent), key=[state.scope,state.selected,agent].join(':');
+      const apply=()=>{ changes.set(key,!on); say((on?'已移除部署':'已部署')+'　'+agents[agent]+' / '+(state.scope===0?'全局':'项目 Web')); };
+      if (on) { modal('移除部署','<p>'+local[state.selected][0]+' · '+agents[agent]+' · '+(state.scope===0?'全局':'项目 Web')+'</p>','移除部署',apply); return; }
+      apply();
+    }
+    if (action==='market-item') {
+      const index=Number(value), [name,source,count]=catalog[index];
+      const present=installed.has('market-'+index);
+      const detail='<div class="stack"><small>来源</small><strong>'+source+'</strong></div><div class="line"><small>安装量</small><strong>'+count+'</strong></div><small>加入本机技能库</small>';
+      modal(name,detail,present?'查看技能库':'加入技能库',()=>{ if (present) changePage('library'); else { installed.add('market-'+index); say(name+' 已加入技能库（演示）'); }},true);
+      return;
+    }
+    if (action==='stack-install') { modal('加入技能库','<p>'+stacks[state.stack][0]+'</p>','确认加入',()=>{ stacks[state.stack][2].forEach(name=>installed.add(name)); say('已更新组合状态（演示）'); }); return; }
+    if (action==='adopt-confirm') { modal('收编 '+chosen.size+' 项','<p>把选中的本机技能加入技能库。</p>','确认收编',()=>{ chosen.forEach(i=>adopted.add(i)); say('已收编 '+chosen.size+' 项（演示）'); chosen.clear(); }); return; }
+    if (action==='install-link') { modal('从链接安装','<label class="stack">技能来源 <input aria-label="技能来源" placeholder="owner/repo@skill"></label>','确认来源',()=>say('已确认来源（演示）')); return; }
+    if (action==='stack-create') { modal('新建组合','<label class="stack">组合名称 <input aria-label="组合名称"></label>','保存示例',()=>say('已演示保存操作')); return; }
+    if (action==='stack-import') { modal('导入 TOML','<label class="stack">组合文件 <input type="file" accept=".toml" aria-label="组合文件"></label>'); return; }
+    if (action==='agent-add') { modal('添加 Agent','<label class="stack">名称 <input aria-label="名称"></label><label class="stack">技能目录 <input aria-label="技能目录"></label>'); return; }
+    if (action==='close') { $('dialog').close(); return; }
+    if (action==='confirm') { dialogAction?.(); $('dialog').close(); }
+    if (action==='refresh') say('已刷新当前展示（演示）');
+    if (action==='sample') {
+      const menu=$('page').querySelector('.overflow-menu[open]');
+      if (menu) { menu.open=false; menu.querySelector('summary').focus(); }
+      say('已展示该操作的入口');
+      return;
+    }
+    draw();
+  }
+  $('desk').addEventListener('click',event => {
+    const control=event.target.closest('[data-action]');
+    if (!event.target.closest('.overflow-menu')) {
+      const menu=$('page').querySelector('.overflow-menu[open]');
+      if (menu) menu.open=false;
+    }
+    if (!control) return;
+    const action=control.dataset.action, value=control.dataset.value??'';
+    handle(action,value);
+    if (!$('dialog').open && !control.isConnected && action!=='confirm') focusControl(control);
+  });
+  $('desk').addEventListener('change',event => {
+    const {id,value}=event.target;
+    if (id==='scope') state.scope=Number(value);
+    else if (id==='agent') state.agent=value;
+    else if (id==='board') state.board=value;
+    else if (id==='source') state.source=value;
+    else if (event.target.matches('[data-candidate]')) {
+      const index=Number(event.target.dataset.candidate);
+      if (event.target.checked) chosen.add(index); else chosen.delete(index);
+    } else { say('已选择 '+value+'（演示）'); return; }
+    draw();
+    if (id) $(id)?.focus({preventScroll:true});
+  });
+  $('desk').addEventListener('input',event=>{
+    if (event.target.id!=='search') return;
+    const caret=event.target.selectionStart;
+    state.query=event.target.value;
+    draw();
+    $('search').focus({preventScroll:true});
+    if (caret!==null) $('search').setSelectionRange(caret,caret);
+  });
+  $('desk').addEventListener('keydown',event=>{
+    const menu=$('page').querySelector('.overflow-menu[open]');
+    if (event.key==='Escape' && menu) { menu.open=false; menu.querySelector('summary').focus(); }
+    if ((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'&&$('search')) { event.preventDefault(); $('search').focus(); }
+    if (event.target.getAttribute('role')!=='tab'||!['ArrowLeft','ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    const tabs=[...event.target.parentNode.querySelectorAll('[role="tab"]')];
+    tabs[(tabs.indexOf(event.target)+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length].click();
+  });
+  $('theme').addEventListener('click',()=>handle('theme',''));
+  draw();
+</script>
+</body>
+</html>

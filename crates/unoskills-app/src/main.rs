@@ -37,6 +37,7 @@ fn main() {
             titlebar.title = Some("UnoSkills".into());
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(960.), px(600.))),
                 titlebar: Some(titlebar),
                 app_id: Some("dev.unoskills.UnoSkills".to_string()),
                 ..Default::default()

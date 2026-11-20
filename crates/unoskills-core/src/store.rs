@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -19,13 +19,13 @@ impl Store {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let conn = Connection::open(db_path)?;
+        let mut conn = Connection::open(db_path)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA foreign_keys = ON;",
         )?;
-        migrate(&conn)?;
+        migrate(&mut conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -396,12 +396,13 @@ impl Store {
     pub fn upsert_project_deployment(&self, dep: &ProjectDeployment) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO project_deployments (id, skill_id, project_id, agent_key, target_path, mode, synced_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO project_deployments (id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(skill_id, project_id, agent_key) DO UPDATE SET
                 target_path = excluded.target_path,
                 mode = excluded.mode,
-                synced_at = excluded.synced_at",
+                synced_at = excluded.synced_at,
+                copy_hash = excluded.copy_hash",
             params![
                 dep.id,
                 dep.skill_id,
@@ -410,7 +411,23 @@ impl Store {
                 dep.target_path.to_string_lossy().to_string(),
                 dep.mode.as_str(),
                 dep.synced_at,
+                dep.copy_hash,
             ],
+        )?;
+        Ok(())
+    }
+
+    pub fn record_refreshed_project_copy(
+        &self,
+        skill_id: &str,
+        target_path: &Path,
+        copy_hash: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE project_deployments SET copy_hash = ?1
+             WHERE skill_id = ?2 AND target_path = ?3 AND mode = 'copy'",
+            params![copy_hash, skill_id, target_path.to_string_lossy()],
         )?;
         Ok(())
     }
@@ -435,7 +452,7 @@ impl Store {
     ) -> Result<Vec<ProjectDeployment>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at
+            "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash
              FROM project_deployments WHERE project_id = ?1 ORDER BY agent_key ASC",
         )?;
         let rows = stmt.query_map(params![project_id], |row| {
@@ -447,6 +464,7 @@ impl Store {
                 target_path: PathBuf::from(row.get::<_, String>(4)?),
                 mode: DeployMode::from_str_lossy(&row.get::<_, String>(5)?),
                 synced_at: row.get(6)?,
+                copy_hash: row.get(7)?,
             })
         })?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
@@ -531,7 +549,7 @@ fn load_all_project_deployments(
     conn: &Connection,
 ) -> Result<HashMap<String, Vec<ProjectDeployment>>> {
     let mut stmt = conn.prepare(
-        "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at
+        "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash
          FROM project_deployments ORDER BY project_id ASC, agent_key ASC",
     )?;
     let mut map: HashMap<String, Vec<ProjectDeployment>> = HashMap::new();
@@ -544,6 +562,7 @@ fn load_all_project_deployments(
             target_path: PathBuf::from(row.get::<_, String>(4)?),
             mode: DeployMode::from_str_lossy(&row.get::<_, String>(5)?),
             synced_at: row.get(6)?,
+            copy_hash: row.get(7)?,
         })
     })?;
     for row in rows {
@@ -553,7 +572,7 @@ fn load_all_project_deployments(
     Ok(map)
 }
 
-fn migrate(conn: &Connection) -> Result<()> {
+fn migrate(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS skills (
             id TEXT PRIMARY KEY,
@@ -621,8 +640,22 @@ fn migrate(conn: &Connection) -> Result<()> {
             target_path TEXT NOT NULL,
             mode TEXT NOT NULL,
             synced_at INTEGER NOT NULL,
+            copy_hash TEXT,
             UNIQUE(skill_id, project_id, agent_key)
         );",
     )?;
+    let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let has_copy_hash: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_deployments') WHERE name = 'copy_hash')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_copy_hash {
+        transaction.execute(
+            "ALTER TABLE project_deployments ADD COLUMN copy_hash TEXT",
+            [],
+        )?;
+    }
+    transaction.commit()?;
     Ok(())
 }

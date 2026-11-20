@@ -154,6 +154,8 @@ pub struct ProjectDeployment {
     pub agent_key: String,
     pub target_path: PathBuf,
     pub mode: DeployMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy_hash: Option<String>,
     pub synced_at: i64,
 }
 
@@ -210,6 +212,64 @@ pub struct StackSkillRef {
     pub note: String,
 }
 
+impl StackSkillRef {
+    pub fn matches_source(&self, reference: &str) -> bool {
+        let source = self.source.trim();
+        !source.is_empty()
+            && (source == reference
+                || source.strip_prefix("~/").is_some_and(|path| {
+                    dirs::home_dir().is_some_and(|home| home.join(path).as_os_str() == reference)
+                }))
+    }
+
+    /// Match the installed source first, then fall back to the manifest's skill name.
+    pub fn installed_in<'a>(&self, skills: &'a [Skill]) -> Option<&'a Skill> {
+        let name = self.name.trim().to_lowercase();
+        skills
+            .iter()
+            .find(|skill| {
+                skill
+                    .source_ref
+                    .as_deref()
+                    .is_some_and(|source| self.matches_source(source))
+            })
+            .or_else(|| {
+                skills.iter().find(|skill| {
+                    skill.id.to_lowercase() == name
+                        || skill.slug.to_lowercase() == name
+                        || skill.name.to_lowercase() == name
+                })
+            })
+    }
+
+    pub fn has_source_conflict(&self, skill: &Skill) -> bool {
+        skill.source_ref.as_ref().is_some_and(|source| {
+            !source.eq_ignore_ascii_case(self.source.trim()) && !self.matches_source(source)
+        })
+    }
+
+    pub fn deployable_in<'a>(&self, skills: &'a [Skill]) -> Option<&'a Skill> {
+        self.installed_in(skills)
+            .filter(|skill| !self.has_source_conflict(skill))
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct StackProjectDeployStatus {
+    pub deployed: usize,
+    pub pending: usize,
+    pub unavailable: usize,
+    pub conflicts: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct StackProjectDeploySummary {
+    pub deployed: usize,
+    pub already_deployed: usize,
+    pub unavailable: usize,
+    pub failed: Vec<(String, String)>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StackInstallSummary {
     pub stack_id: String,
@@ -226,6 +286,10 @@ pub struct MarketplaceSkill {
     pub name: String,
     pub source: String,
     pub installs: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub is_official: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

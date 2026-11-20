@@ -1,59 +1,239 @@
-use std::ops::Range;
+use std::{ops::Range, path::Path};
 
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, Sizable, StyledExt,
+    ActiveTheme, Icon, IconName, StyledExt,
     button::{Button, ButtonVariants},
     empty::{Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle},
     h_flex,
     input::Input,
+    menu::{DropdownMenu, PopupMenuItem},
     scroll::ScrollableElement,
     v_flex,
 };
 use gpui_kit::{
-    Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px, uniform_list,
+    Context, IntoElement, ParentElement, Styled, div, prelude::FluentBuilder, px, uniform_list,
 };
+use unoskills_core::domain::SourceType;
 
-use crate::components::badges::{StatusBadge, TokenBadge};
+use crate::components::badges::TokenBadge;
+use crate::components::interactive::InteractiveCard;
 use crate::state::NavTab;
 
 use super::LibraryView;
 
+fn compact_source(source: &str, source_type: SourceType) -> String {
+    let repository = match source_type {
+        SourceType::SkillsSh => Some(source.split_once('@').map_or(source, |(repo, _)| repo)),
+        SourceType::Git => [
+            "https://github.com/",
+            "http://github.com/",
+            "git@github.com:",
+        ]
+        .into_iter()
+        .find_map(|prefix| source.strip_prefix(prefix)),
+        SourceType::Local | SourceType::Adopted => {
+            if let Some(parent) = Path::new(source).parent()
+                && let Some(folder) = parent.file_name()
+                && let Some(container) = parent.parent().and_then(Path::file_name)
+            {
+                return format!(
+                    "…/{}/{}",
+                    container.to_string_lossy(),
+                    folder.to_string_lossy()
+                );
+            }
+            None
+        }
+    };
+    if let Some(repository) = repository
+        && let Some((owner, rest)) = repository.split_once('/')
+        && let Some(repo) = rest.split('/').next().filter(|repo| !repo.is_empty())
+    {
+        return format!("{owner}/{}", repo.strip_suffix(".git").unwrap_or(repo));
+    }
+    source.to_owned()
+}
+
 impl LibraryView {
+    pub(super) fn render_library_toolbar(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let ws = self.workspace.read(cx);
+        let s = ws.t();
+        let projects = ws.projects().to_vec();
+        let selected_project = self.selected_project_id.clone();
+        let scope = projects
+            .iter()
+            .find(|project| Some(&project.id) == selected_project.as_ref())
+            .map_or_else(
+                || s.scope_global.to_string(),
+                |project| project.name.clone(),
+            );
+        let agents: Vec<_> = ws
+            .agents()
+            .iter()
+            .filter(|agent| agent.installed && agent.enabled)
+            .map(|agent| (agent.key.clone(), agent.display_name.clone()))
+            .collect();
+        let selected_agent = self.agent_filter.clone();
+        let agent_label = agents
+            .iter()
+            .find(|(key, _)| Some(key) == selected_agent.as_ref())
+            .map_or_else(
+                || s.library_all_agents.to_string(),
+                |(_, name)| name.clone(),
+            );
+        let scope_view = cx.weak_entity();
+        let agent_view = scope_view.clone();
+        let border = cx.theme().border;
+        h_flex()
+            .min_h(px(48.))
+            .px_5()
+            .py_2()
+            .gap_2()
+            .flex_wrap()
+            .border_b_1()
+            .border_color(border)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(160.))
+                    .max_w(px(280.))
+                    .child(Input::new(&self.library_search).cleanable(true)),
+            )
+            .child(
+                Button::new("library-scope")
+                    .outline()
+                    .max_w(px(224.))
+                    .label(scope)
+                    .icon(IconName::ChevronDown)
+                    .tooltip(s.library_scope)
+                    .dropdown_menu(move |mut menu, _, _| {
+                        let view = scope_view.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(s.scope_global)
+                                .checked(selected_project.is_none())
+                                .on_click(move |_, _, cx| {
+                                    let _ = view.update(cx, |view, cx| view.set_scope(None, cx));
+                                }),
+                        );
+                        for project in &projects {
+                            let id = project.id.clone();
+                            let view = scope_view.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(project.name.clone())
+                                    .checked(Some(&id) == selected_project.as_ref())
+                                    .on_click(move |_, _, cx| {
+                                        let _ = view.update(cx, |view, cx| {
+                                            view.set_scope(Some(id.clone()), cx)
+                                        });
+                                    }),
+                            );
+                        }
+                        let view = scope_view.clone();
+                        menu.separator()
+                            .item(PopupMenuItem::new(s.btn_add_project).on_click(
+                                move |_, window, cx| {
+                                    let _ = view.update(cx, |view, cx| {
+                                        view.pick_and_attach_project(window, cx)
+                                    });
+                                },
+                            ))
+                    }),
+            )
+            .child(
+                Button::new("library-agent-filter")
+                    .outline()
+                    .max_w(px(224.))
+                    .label(agent_label)
+                    .icon(IconName::ChevronDown)
+                    .tooltip(s.library_agent_filter)
+                    .dropdown_menu(move |mut menu, _, _| {
+                        let view = agent_view.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(s.library_all_agents)
+                                .checked(selected_agent.is_none())
+                                .on_click(move |_, _, cx| {
+                                    let _ = view.update(cx, |view, cx| {
+                                        view.agent_filter = None;
+                                        view.refilter(cx);
+                                        cx.notify();
+                                    });
+                                }),
+                        );
+                        for (key, label) in &agents {
+                            let key = key.clone();
+                            let view = agent_view.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(label.clone())
+                                    .checked(Some(&key) == selected_agent.as_ref())
+                                    .on_click(move |_, _, cx| {
+                                        let _ = view.update(cx, |view, cx| {
+                                            view.agent_filter = Some(key.clone());
+                                            view.refilter(cx);
+                                            cx.notify();
+                                        });
+                                    }),
+                            );
+                        }
+                        menu
+                    }),
+            )
+            .child(div().flex_1())
+            .child(
+                Button::new("refresh-library")
+                    .ghost()
+                    .icon(IconName::RefreshCw)
+                    .tooltip(s.tooltip_refresh)
+                    .accessibility_label(s.tooltip_refresh)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.reload_all(cx);
+                            ws.notify_toast(false, ws.t().toast_refreshed, window, cx);
+                        });
+                    })),
+            )
+    }
+
     pub(super) fn render_skill_list(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = cx.theme();
         let s = self.workspace.read(cx).t();
         let skills_empty = self.workspace.read(cx).skills().is_empty();
         let item_count = self.filtered_indices.len();
-
         v_flex()
             .size_full()
             .min_h_0()
-            .child(
-                v_flex()
-                    .p_3()
-                    .gap_2()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .justify_between()
-                            .child(div().text_base().font_semibold().child(s.my_skills))
-                            .child(
-                                Button::new("lib-add-skill")
-                                    .primary()
-                                    .xsmall()
-                                    .icon(IconName::Plus)
-                                    .label(s.btn_install)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.workspace
-                                            .update(cx, |ws, cx| ws.navigate(NavTab::Discover, cx));
-                                    })),
-                            ),
-                    )
-                    .child(Input::new(&self.library_search).small().cleanable(true)),
-            )
+            .overflow_hidden()
+            .when(item_count > 0, |pane| {
+                pane.child(
+                    h_flex()
+                        .h_8()
+                        .px_4()
+                        .gap_2()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .border_b_1()
+                        .border_color(theme.border)
+                        .child(div().flex_1().min_w_0().child(s.library_skill_column))
+                        .child(
+                            div()
+                                .w(px(76.))
+                                .flex_shrink_0()
+                                .text_right()
+                                .truncate()
+                                .child(s.library_deployment),
+                        )
+                        .child(
+                            div()
+                                .w(px(96.))
+                                .flex_shrink_0()
+                                .text_right()
+                                .truncate()
+                                .child(s.library_token_column),
+                        ),
+                )
+            })
             .child(if item_count == 0 {
                 v_flex()
                     .flex_1()
@@ -85,26 +265,25 @@ impl LibraryView {
                                     EmptyContent::new().child(
                                         h_flex()
                                             .gap_2()
+                                            .flex_wrap()
                                             .child(
-                                                Button::new("empty-go-stacks")
+                                                Button::new("empty-library-install")
                                                     .primary()
-                                                    .small()
-                                                    .label(s.btn_browse_stacks)
+                                                    .label(s.btn_install)
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.workspace.update(cx, |ws, cx| {
-                                                            ws.navigate(NavTab::Stacks, cx)
-                                                        });
+                                                            ws.open_install(cx)
+                                                        })
                                                     })),
                                             )
                                             .child(
                                                 Button::new("empty-go-discover")
                                                     .outline()
-                                                    .small()
                                                     .label(s.btn_discover_adopt)
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.workspace.update(cx, |ws, cx| {
                                                             ws.navigate(NavTab::Discover, cx)
-                                                        });
+                                                        })
                                                     })),
                                             ),
                                     ),
@@ -117,123 +296,100 @@ impl LibraryView {
                     .relative()
                     .flex_1()
                     .min_h_0()
-                    .size_full()
+                    .overflow_hidden()
                     .child(
                         uniform_list(
                             "library-skill-vlist",
                             item_count,
-                            cx.processor(|this, range: Range<usize>, _window, cx| {
-                                let theme = cx.theme();
-                                let s = this.workspace.read(cx).t();
-                                let skills = this.workspace.read(cx).skills();
-                                let accent = theme.accent;
-                                let bg_norm = theme.background;
-                                let primary = theme.primary;
-                                let border_subtle = theme.border.opacity(0.4);
-                                let muted = theme.muted_foreground;
-                                let selected_id = this.selected_skill_id.clone();
-
+                            cx.processor(|this, range: Range<usize>, _, cx| {
+                                let ws = this.workspace.read(cx);
+                                let agents: Vec<_> = ws
+                                    .agents()
+                                    .iter()
+                                    .filter(|agent| agent.installed && agent.enabled)
+                                    .collect();
+                                let muted = cx.theme().muted_foreground;
+                                let border = cx.theme().border;
                                 range
                                     .filter_map(|ix| {
-                                        let skill = skills.get(*this.filtered_indices.get(ix)?)?;
-                                        let is_selected =
-                                            selected_id.as_deref() == Some(skill.id.as_str());
+                                        let skill =
+                                            ws.skills().get(*this.filtered_indices.get(ix)?)?;
+                                        let selected = this.selected_skill_id.as_deref()
+                                            == Some(skill.id.as_str());
                                         let sid = skill.id.clone();
-                                        let dep_count = skill.deployments.len();
-
+                                        let deployed = agents
+                                            .iter()
+                                            .filter(|agent| this.deployed(skill, &agent.key))
+                                            .count();
+                                        let source = skill
+                                            .source_ref
+                                            .as_deref()
+                                            .unwrap_or_else(|| skill.source_type.as_str());
                                         Some(
-                                            div().w_full().px_2().py(px(3.)).child(
-                                                v_flex()
-                                                    .id(SharedString::from(format!(
-                                                        "skill-row-{}",
-                                                        skill.id
-                                                    )))
-                                                    .role(gpui_kit::Role::ListItem)
-                                                    .aria_label(skill.name.clone())
-                                                    .aria_selected(is_selected)
-                                                    .w_full()
-                                                    .h(px(74.))
-                                                    .px_3()
-                                                    .py_2()
-                                                    .rounded_md()
-                                                    .bg(if is_selected { accent } else { bg_norm })
-                                                    .border_1()
-                                                    .border_color(if is_selected {
-                                                        primary
-                                                    } else {
-                                                        border_subtle
-                                                    })
-                                                    .cursor_pointer()
-                                                    .justify_between()
-                                                    .on_click(cx.listener(
-                                                        move |this, _, window, cx| {
-                                                            this.select_skill(
-                                                                sid.clone(),
-                                                                window,
-                                                                cx,
-                                                            );
-                                                        },
-                                                    ))
-                                                    .child(
-                                                        h_flex()
-                                                            .items_center()
-                                                            .justify_between()
-                                                            .gap_2()
-                                                            .child(
-                                                                div()
-                                                                    .flex_1()
-                                                                    .min_w_0()
-                                                                    .text_sm()
-                                                                    .font_medium()
-                                                                    .truncate()
-                                                                    .child(skill.name.clone()),
-                                                            )
-                                                            .child(div().flex_shrink_0().child(
-                                                                TokenBadge::tokens(
-                                                                    skill.estimated_tokens,
-                                                                ),
-                                                            )),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .text_xs()
-                                                            .text_color(muted)
-                                                            .truncate()
-                                                            .child(
-                                                                skill
-                                                                    .description
-                                                                    .clone()
-                                                                    .unwrap_or_default(),
-                                                            ),
-                                                    )
-                                                    .child(
-                                                        h_flex()
-                                                            .items_center()
-                                                            .gap_1()
-                                                            .child(if dep_count > 0 {
-                                                                StatusBadge::success(format!(
-                                                                    "{dep_count} {}",
-                                                                    s.agents_unit
-                                                                ))
-                                                                .outline()
-                                                                .into_any_element()
-                                                            } else {
-                                                                StatusBadge::secondary(
-                                                                    s.library_only,
-                                                                )
-                                                                .into_any_element()
-                                                            })
-                                                            .children(
-                                                                skill.tags.iter().take(2).map(
-                                                                    |t| {
-                                                                        StatusBadge::secondary(
-                                                                            t.clone(),
-                                                                        )
-                                                                        .outline()
-                                                                    },
-                                                                ),
-                                                            ),
-                                                    ),
+                                            div().w_full().px_2().child(
+                                                InteractiveCard::new(
+                                                    format!("skill-row-{}", skill.id),
+                                                    h_flex(),
+                                                    selected,
+                                                    cx,
+                                                )
+                                                .surface(
+                                                    cx.theme().background,
+                                                    cx.theme().list_hover,
+                                                    border.opacity(0.),
+                                                )
+                                                .accessible(skill.name.clone())
+                                                .h(px(48.))
+                                                .w_full()
+                                                .px_2()
+                                                .gap_2()
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        this.select_skill(sid.clone(), window, cx)
+                                                    },
+                                                ))
+                                                .child(
+                                                    v_flex()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .child(
+                                                            div()
+                                                                .text_sm()
+                                                                .font_semibold()
+                                                                .truncate()
+                                                                .child(skill.name.clone()),
+                                                        )
+                                                        .child(
+                                                            div()
+                                                                .text_xs()
+                                                                .text_color(muted)
+                                                                .truncate()
+                                                                .child(compact_source(
+                                                                    source,
+                                                                    skill.source_type,
+                                                                )),
+                                                        ),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .w(px(76.))
+                                                        .flex_shrink_0()
+                                                        .text_right()
+                                                        .text_sm()
+                                                        .child(format!(
+                                                            "{deployed} / {}",
+                                                            agents.len()
+                                                        )),
+                                                )
+                                                .child(
+                                                    h_flex()
+                                                        .w(px(96.))
+                                                        .flex_shrink_0()
+                                                        .justify_end()
+                                                        .child(TokenBadge::tokens(
+                                                            skill.estimated_tokens,
+                                                        )),
+                                                ),
                                             ),
                                         )
                                     })
@@ -241,7 +397,6 @@ impl LibraryView {
                             }),
                         )
                         .size_full()
-                        .py_1()
                         .track_scroll(&self.library_scroll_handle),
                     )
                     .vertical_scrollbar(&self.library_scroll_handle)

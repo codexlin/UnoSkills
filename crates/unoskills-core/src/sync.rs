@@ -18,6 +18,8 @@ pub enum TargetState {
 /// Authorizes what `deploy_skill_dir` is allowed to replace at the destination.
 #[derive(Debug, Clone, Copy)]
 pub enum ReplacePolicy {
+    /// Create a new deployment without replacing any existing target.
+    CreateOnly,
     /// Refuse to overwrite anything we cannot prove is our own link.
     NoClobber,
     /// We have a DB deployment record matching this exact path and mode.
@@ -29,15 +31,16 @@ pub enum ReplacePolicy {
 impl ReplacePolicy {
     fn permits(self, state: TargetState) -> bool {
         match state {
-            TargetState::Absent | TargetState::LinkToSource => true,
+            TargetState::Absent => true,
+            TargetState::LinkToSource => !matches!(self, ReplacePolicy::CreateOnly),
             TargetState::ForeignLink => match self {
-                ReplacePolicy::NoClobber => false,
+                ReplacePolicy::CreateOnly | ReplacePolicy::NoClobber => false,
                 ReplacePolicy::Recorded(DeployMode::Symlink) => true,
                 ReplacePolicy::Recorded(DeployMode::Copy) => false,
                 ReplacePolicy::UserConfirmed => true,
             },
             TargetState::RealDir => match self {
-                ReplacePolicy::NoClobber => false,
+                ReplacePolicy::CreateOnly | ReplacePolicy::NoClobber => false,
                 ReplacePolicy::Recorded(DeployMode::Copy) => true,
                 ReplacePolicy::Recorded(DeployMode::Symlink) => false,
                 ReplacePolicy::UserConfirmed => true,
@@ -153,21 +156,22 @@ pub fn deploy_skill_dir(
             .with_context(|| format!("Failed to create parent dir {}", parent.display()))?;
     }
 
-    match mode {
-        DeployMode::Symlink => {
-            if create_dir_link(src, dst).is_ok() {
-                Ok(DeployMode::Symlink)
-            } else {
-                // Fallback to copy if OS denies symlink creation (e.g. unprivileged Windows).
-                copy_dir_recursive(src, dst)?;
-                Ok(DeployMode::Copy)
-            }
-        }
-        DeployMode::Copy => {
-            copy_dir_recursive(src, dst)?;
-            Ok(DeployMode::Copy)
-        }
+    if mode == DeployMode::Symlink && create_dir_link(src, dst).is_ok() {
+        return Ok(DeployMode::Symlink);
     }
+
+    // Reserve a new copy destination without following a path that appeared
+    // after the initial metadata check.
+    if matches!(policy, ReplacePolicy::CreateOnly) {
+        std::fs::create_dir(dst).with_context(|| {
+            format!(
+                "Failed to create a new deployment directory at {}",
+                dst.display()
+            )
+        })?;
+    }
+    copy_dir_recursive(src, dst)?;
+    Ok(DeployMode::Copy)
 }
 
 pub fn remove_managed_target(src: &Path, dst: &Path, recorded_mode: DeployMode) -> Result<bool> {

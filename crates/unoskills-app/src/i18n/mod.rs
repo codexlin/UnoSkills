@@ -30,22 +30,6 @@ impl Lang {
         }
     }
 
-    pub fn short_label(self) -> &'static str {
-        match self {
-            Self::ZhCn => "中",
-            Self::En => "EN",
-            Self::Ja => "日",
-        }
-    }
-
-    pub fn next(self) -> Self {
-        match self {
-            Self::ZhCn => Self::En,
-            Self::En => Self::Ja,
-            Self::Ja => Self::ZhCn,
-        }
-    }
-
     pub fn index(self) -> usize {
         match self {
             Self::ZhCn => 0,
@@ -118,9 +102,9 @@ impl Lang {
 
     pub fn busy_adopting_all(self, count: usize) -> String {
         match self {
-            Self::ZhCn => format!("正在批量收编 {count} 个技能..."),
-            Self::En => format!("Adopting {count} skill(s)..."),
-            Self::Ja => format!("{count} 件のスキルを取り込み中..."),
+            Self::ZhCn => format!("正在将 {count} 个本机技能纳入技能库..."),
+            Self::En => format!("Adding {count} local skills to the library..."),
+            Self::Ja => format!("ローカルスキル {count} 件をライブラリに追加中..."),
         }
     }
 
@@ -132,19 +116,35 @@ impl Lang {
         }
     }
 
-    pub fn toast_adopted(self, name: &str, agent: &str) -> String {
+    pub fn adopt_selected_count(self, count: usize) -> String {
         match self {
-            Self::ZhCn => format!("已从 {agent} 收编「{name}」到技能库"),
-            Self::En => format!("Adopted '{name}' from {agent} into Library."),
-            Self::Ja => format!("{agent} から「{name}」をライブラリに取り込みました"),
+            Self::ZhCn => format!("已选择 {count} 项"),
+            Self::En => format!("{count} selected"),
+            Self::Ja => format!("{count} 件を選択"),
+        }
+    }
+
+    pub fn label_with_count(self, label: &str, count: usize) -> String {
+        match self {
+            Self::ZhCn | Self::Ja => format!("{label}（{count}）"),
+            Self::En => format!("{label} ({count})"),
+        }
+    }
+
+    pub fn adopt_confirm_title(self, count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("将 {count} 个技能纳入技能库？"),
+            Self::En if count == 1 => "Add 1 skill to the library?".into(),
+            Self::En => format!("Add {count} skills to the library?"),
+            Self::Ja => format!("スキル {count} 件をライブラリに追加しますか？"),
         }
     }
 
     pub fn toast_adopted_all(self, ok: usize, failed: usize) -> String {
         match self {
-            Self::ZhCn => format!("已批量收编 {ok} 个技能（跳过/失败 {failed} 个）"),
-            Self::En => format!("Adopted {ok} skill(s) into Library ({failed} skipped/failed)."),
-            Self::Ja => format!("{ok} 件のスキルを取り込みました（スキップ/失敗 {failed} 件）"),
+            Self::ZhCn => format!("已将 {ok} 个技能纳入技能库（失败 {failed} 个）"),
+            Self::En => format!("Added {ok} skills to the library ({failed} failed)."),
+            Self::Ja => format!("{ok} 件のスキルをライブラリに追加しました（失敗 {failed} 件）"),
         }
     }
 
@@ -153,6 +153,21 @@ impl Lang {
             Self::ZhCn => format!("正在安装组合「{name}」..."),
             Self::En => format!("Installing stack '{name}'..."),
             Self::Ja => format!("スタック「{name}」をインストール中..."),
+        }
+    }
+
+    pub fn stack_install_counts(self, new: usize, existing: usize) -> String {
+        if new == 0 {
+            return match self {
+                Self::ZhCn => format!("已在库中 {existing} 项"),
+                Self::En => format!("{existing} already in the library"),
+                Self::Ja => format!("導入済み {existing} 件"),
+            };
+        }
+        match self {
+            Self::ZhCn => format!("安装 {new} 项，已在库中 {existing} 项"),
+            Self::En => format!("{new} to install, {existing} already in the library"),
+            Self::Ja => format!("{new} 件をインストール、導入済み {existing} 件"),
         }
     }
 
@@ -173,6 +188,51 @@ impl Lang {
             Self::Ja => format!(
                 "スタック「{name}」：新規 {installed}、既存スキップ {skipped}、失敗 {failed}"
             ),
+        }
+    }
+
+    pub fn stack_project_progress(self, deployed: usize, total: usize, pending: usize) -> String {
+        match self {
+            Self::ZhCn => format!("已部署 {deployed}/{total}，待部署 {pending} 项"),
+            Self::En => format!("{deployed}/{total} deployed · {pending} pending"),
+            Self::Ja => format!("配備済み {deployed}/{total} 件、配備待ち {pending} 件"),
+        }
+    }
+
+    pub fn stack_project_unavailable(self, count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("{count} 项未入库或来源不符。可在组合详情检查。"),
+            Self::En => format!(
+                "{count} skills are missing or have a different source. Check the stack details."
+            ),
+            Self::Ja => format!(
+                "{count} 件はライブラリにないか、ソースが異なります。スタックの詳細を確認してください。"
+            ),
+        }
+    }
+
+    pub fn stack_project_conflicts(self, count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("{count} 项的目标目录已被占用或内容已变更。处理后可刷新状态。"),
+            Self::En => format!(
+                "{count} deployment targets are occupied or have changed. Resolve them, then refresh."
+            ),
+            Self::Ja => format!(
+                "{count} 件の配備先が使用中か、内容が変更されています。解決後に更新してください。"
+            ),
+        }
+    }
+
+    pub fn stack_project_result(
+        self,
+        summary: &unoskills_core::StackProjectDeploySummary,
+    ) -> String {
+        let deployed = summary.deployed;
+        let failed = summary.failed.len();
+        match self {
+            Self::ZhCn => format!("本次部署 {deployed} 项，失败 {failed} 项"),
+            Self::En => format!("{deployed} deployed · {failed} failed"),
+            Self::Ja => format!("配備 {deployed} 件、失敗 {failed} 件"),
         }
     }
 
@@ -560,55 +620,106 @@ impl Lang {
 
 pub struct Strings {
     // Navigation & Chrome
-    pub workspace_group: &'static str,
+    pub settings_appearance_tab: &'static str,
+    pub market_all_sources: &'static str,
+    pub market_filter_scope: &'static str,
+    pub adopt_confirm_benefit: &'static str,
+    pub adopt_confirm_description: &'static str,
+    pub stack_actions: &'static str,
+    pub expand_sidebar: &'static str,
+    pub collapse_sidebar: &'static str,
+    pub library_deployment: &'static str,
+    pub library_preview: &'static str,
+    pub library_token_column: &'static str,
+    pub library_agent_filter: &'static str,
+    pub library_all_agents: &'static str,
+    pub library_scope: &'static str,
+    pub library_skill_column: &'static str,
+    pub library_deployed: &'static str,
+    pub library_not_deployed: &'static str,
+    pub library_skill_actions: &'static str,
+    pub library_copy_path: &'static str,
+    pub library_discard_title: &'static str,
+    pub library_discard_action: &'static str,
+    pub settings_updates_tab: &'static str,
+    pub discover_market_tab: &'static str,
+    pub discover_adopt_tab: &'static str,
+    pub market_add_to_library: &'static str,
+    pub market_source_label: &'static str,
+    pub market_source_search: &'static str,
+    pub market_search_results: &'static str,
+    pub market_sort: &'static str,
+    pub market_open_skill: &'static str,
+    pub stacks_create_title: &'static str,
+    pub stacks_preview_import: &'static str,
+    pub stacks_replace_import: &'static str,
+    pub stacks_import_title: &'static str,
+    pub adopt_select_group: &'static str,
+    pub adopt_clear_selection: &'static str,
+    pub nav_home: &'static str,
+    pub home_workspace: &'static str,
+    pub home_deployed: &'static str,
+    pub home_agents: &'static str,
+    pub home_intake: &'static str,
+    pub home_intake_total: &'static str,
+    pub home_intake_scope: &'static str,
+    pub home_intake_empty: &'static str,
+    pub home_recent: &'static str,
+    pub home_market_rank: &'static str,
+    pub home_market_installs: &'static str,
+    pub home_market_empty: &'static str,
+    pub home_refresh_market: &'static str,
+    pub home_view_market: &'static str,
     pub nav_library: &'static str,
     pub nav_stacks: &'static str,
     pub nav_discover: &'static str,
     pub nav_settings: &'static str,
     pub tooltip_refresh: &'static str,
-    pub tooltip_theme: &'static str,
-    pub tooltip_lang: &'static str,
-    pub agents_detected_suffix: &'static str,
 
     // Library
-    pub my_skills: &'static str,
     pub btn_install: &'static str,
     pub ph_search_skills: &'static str,
     pub empty_library_title: &'static str,
     pub empty_library_desc: &'static str,
     pub empty_search_title: &'static str,
     pub empty_search_desc: &'static str,
-    pub btn_browse_stacks: &'static str,
     pub btn_discover_adopt: &'static str,
-    pub library_only: &'static str,
-    pub agents_unit: &'static str,
     pub empty_select_skill_title: &'static str,
     pub empty_select_skill_desc: &'static str,
     pub btn_edit_skill: &'static str,
     pub btn_update_skill: &'static str,
     pub btn_save: &'static str,
     pub btn_cancel: &'static str,
+    pub btn_close: &'static str,
     pub btn_delete: &'static str,
     pub btn_replace: &'static str,
-    pub tooltip_remove_skill: &'static str,
     pub tooltip_reveal_folder: &'static str,
     pub confirm_delete_skill_title: &'static str,
     pub confirm_delete_stack_title: &'static str,
     pub confirm_conflict_title: &'static str,
+    pub btn_install_from_link: &'static str,
+    pub filter_all_tags: &'static str,
+    pub stack_tag_filter: &'static str,
     pub btn_browse_folder: &'static str,
     pub prompt_pick_skill_dir: &'static str,
     pub prompt_pick_agent_dir: &'static str,
-    pub deploy_to_agents: &'static str,
+    pub library_deployment_targets: &'static str,
     pub no_installed_agents: &'static str,
-    pub section_description: &'static str,
     pub ph_skill_md: &'static str,
 
     // Stacks
     pub stacks_title: &'static str,
-    pub stacks_subtitle: &'static str,
     pub tab_featured: &'static str,
     pub tab_my_stacks: &'static str,
-    pub tab_create_share: &'static str,
+    pub stack_deploy_project: &'static str,
+    pub stack_pick_project: &'static str,
+    pub stack_pick_agent: &'static str,
+    pub stack_no_deploy_agents: &'static str,
+    pub stack_deploy_apply: &'static str,
+    pub stack_deploy_busy: &'static str,
+    pub stack_project_target_conflict: &'static str,
+    pub stack_project_checking: &'static str,
+    pub stack_project_refresh: &'static str,
     pub empty_local_stacks_title: &'static str,
     pub empty_featured_stacks_title: &'static str,
     pub empty_stacks_desc: &'static str,
@@ -618,13 +729,11 @@ pub struct Strings {
     pub skills_unit: &'static str,
     pub empty_select_stack_title: &'static str,
     pub empty_select_stack_desc: &'static str,
-    pub btn_install_stack: &'static str,
     pub btn_copy_toml: &'static str,
     pub recommended_agents: &'static str,
     pub included_skills: &'static str,
     pub already_in_library: &'static str,
-    pub will_install: &'static str,
-    pub create_stack_title: &'static str,
+    pub btn_install_all_stack_skills: &'static str,
     pub create_stack_desc: &'static str,
     pub field_stack_name: &'static str,
     pub field_stack_author: &'static str,
@@ -632,7 +741,6 @@ pub struct Strings {
     pub field_select_skills: &'static str,
     pub no_skills_to_bundle: &'static str,
     pub btn_save_stack: &'static str,
-    pub import_stack_title: &'static str,
     pub import_stack_desc: &'static str,
     pub btn_import_stack: &'static str,
     pub ph_stack_name: &'static str,
@@ -642,17 +750,20 @@ pub struct Strings {
 
     // Discover
     pub discover_title: &'static str,
-    pub discover_subtitle: &'static str,
-    pub tab_marketplace_install: &'static str,
-    pub tab_adopt_existing: &'static str,
     pub quick_install_title: &'static str,
     pub ph_install_source: &'static str,
     pub ph_market_search: &'static str,
+    pub market_search_hint: &'static str,
     pub btn_search: &'static str,
     pub btn_trending: &'static str,
     pub board_trending: &'static str,
     pub board_hot: &'static str,
     pub board_all_time: &'static str,
+    pub market_view_details: &'static str,
+    pub market_source_filter: &'static str,
+    pub market_clear_source_filter: &'static str,
+    pub market_official: &'static str,
+    pub market_same_name: &'static str,
     pub market_loading: &'static str,
     pub market_loading_more: &'static str,
     pub btn_load_more: &'static str,
@@ -661,7 +772,6 @@ pub struct Strings {
     pub installs_unit: &'static str,
     pub ph_adopt_search: &'static str,
     pub btn_rescan: &'static str,
-    pub btn_adopt_all: &'static str,
     pub btn_adopt: &'static str,
     pub empty_adopt_done_title: &'static str,
     pub empty_adopt_done_desc: &'static str,
@@ -677,6 +787,7 @@ pub struct Strings {
     pub mode_copy: &'static str,
     pub settings_appearance: &'static str,
     pub settings_appearance_desc: &'static str,
+    pub theme_system: &'static str,
     pub theme_dark: &'static str,
     pub theme_light: &'static str,
     pub settings_language: &'static str,
@@ -703,8 +814,9 @@ pub struct Strings {
     pub ph_github_token: &'static str,
     pub settings_root_dir: &'static str,
     pub settings_agents_registry: &'static str,
-    pub settings_agents_registry_desc: &'static str,
     pub settings_add_custom_agent: &'static str,
+    pub custom_agent_name: &'static str,
+    pub custom_agent_directory: &'static str,
     pub ph_custom_agent_name: &'static str,
     pub ph_custom_agent_dir: &'static str,
     pub btn_add_agent: &'static str,
@@ -728,7 +840,7 @@ pub struct Strings {
     pub confirm_detach_project_title: &'static str,
     pub prompt_pick_project_folder: &'static str,
     pub toast_project_detached: &'static str,
-    pub busy_loading_trending: &'static str,
+    pub busy_loading_market: &'static str,
     pub busy_checking_updates: &'static str,
     pub ph_stack_search: &'static str,
     pub badge_community: &'static str,
@@ -757,4 +869,13 @@ pub struct Strings {
     pub busy_backup_pulling: &'static str,
     pub toast_backup_saved: &'static str,
     pub toast_backup_noop: &'static str,
+    pub settings_accent_palette: &'static str,
+    pub settings_accent_palette_desc: &'static str,
+    pub palette_claude: &'static str,
+    pub palette_vercel: &'static str,
+    pub palette_supabase: &'static str,
+    pub palette_catppuccin: &'static str,
+    pub palette_ocean: &'static str,
+    pub settings_corner_radius: &'static str,
+    pub settings_corner_radius_desc: &'static str,
 }
