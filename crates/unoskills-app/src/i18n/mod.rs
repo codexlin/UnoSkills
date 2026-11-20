@@ -218,6 +218,70 @@ impl Lang {
         }
     }
 
+    pub fn toast_backup_pushed(self, skills: usize, stacks: usize, sha: &str) -> String {
+        match self {
+            Self::ZhCn => {
+                format!("已备份推送 {skills} 个技能与 {stacks} 个组合到远端（{sha}）")
+            }
+            Self::En => format!("Pushed {skills} skill(s) and {stacks} stack(s) ({sha})."),
+            Self::Ja => {
+                format!("{skills} 件のスキルと {stacks} 件のスタックをプッシュしました（{sha}）")
+            }
+        }
+    }
+
+    pub fn backup_scope_summary(self, skills: usize, stacks: usize) -> String {
+        match self {
+            Self::ZhCn => format!("当前待备份：{skills} 个技能 · {stacks} 个本地组合"),
+            Self::En => format!("Ready to sync: {skills} skill(s) · {stacks} local stack(s)"),
+            Self::Ja => format!("同期対象：{skills} スキル・{stacks} ローカルスタック"),
+        }
+    }
+
+    pub fn toast_backup_pulled(
+        self,
+        imported: usize,
+        updated: usize,
+        stacks: usize,
+        copies: usize,
+    ) -> String {
+        match self {
+            Self::ZhCn => {
+                if copies > 0 {
+                    format!(
+                        "同步拉取完成：新增 {imported}、更新 {updated} 个技能，恢复 {stacks} 个组合（已刷新 {copies} 个副本部署）"
+                    )
+                } else {
+                    format!(
+                        "同步拉取完成：新增 {imported}、更新 {updated} 个技能，恢复 {stacks} 个组合"
+                    )
+                }
+            }
+            Self::En => {
+                if copies > 0 {
+                    format!(
+                        "Pulled backup: {imported} imported, {updated} updated skill(s), {stacks} stack(s), refreshed {copies} copy deployment(s)."
+                    )
+                } else {
+                    format!(
+                        "Pulled backup: {imported} imported, {updated} updated skill(s), {stacks} stack(s)."
+                    )
+                }
+            }
+            Self::Ja => {
+                if copies > 0 {
+                    format!(
+                        "バックアップ取得完了：新規 {imported}・更新 {updated} スキル、{stacks} スタック（コピー配備 {copies} 件を同期）"
+                    )
+                } else {
+                    format!(
+                        "バックアップ取得完了：新規 {imported}・更新 {updated} スキル、{stacks} スタック"
+                    )
+                }
+            }
+        }
+    }
+
     pub fn busy_searching(self, query: &str) -> String {
         match self {
             Self::ZhCn => format!("正在搜索「{query}」..."),
@@ -562,4 +626,16 @@ pub struct Strings {
     pub btn_refresh_community: &'static str,
     pub busy_refreshing_community: &'static str,
     pub toast_community_failed: &'static str,
+    pub settings_git_backup: &'static str,
+    pub settings_git_backup_repo: &'static str,
+    pub settings_git_backup_repo_desc: &'static str,
+    pub ph_git_backup_repo: &'static str,
+    pub settings_git_backup_branch: &'static str,
+    pub settings_git_backup_branch_desc: &'static str,
+    pub btn_backup_push: &'static str,
+    pub btn_backup_pull: &'static str,
+    pub busy_backup_pushing: &'static str,
+    pub busy_backup_pulling: &'static str,
+    pub toast_backup_saved: &'static str,
+    pub toast_backup_noop: &'static str,
 }

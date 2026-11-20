@@ -27,6 +27,8 @@ pub struct SettingsView {
     pub(super) mono_font_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(super) http_proxy_input: Entity<InputState>,
     pub(super) github_token_input: Entity<InputState>,
+    pub(super) backup_repo_input: Entity<InputState>,
+    pub(super) backup_branch_input: Entity<InputState>,
     pub(super) custom_agent_name_input: Entity<InputState>,
     pub(super) custom_agent_dir_input: Entity<InputState>,
     installed_fonts: Vec<String>,
@@ -40,7 +42,15 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) -> Self {
         let installed_fonts = installed_font_families(cx);
-        let (lang, ui_font_pref, mono_font_pref, saved_proxy, saved_token) = {
+        let (
+            lang,
+            ui_font_pref,
+            mono_font_pref,
+            saved_proxy,
+            saved_token,
+            saved_backup_repo,
+            saved_backup_branch,
+        ) = {
             let ws = workspace.read(cx);
             (
                 ws.lang(),
@@ -48,6 +58,8 @@ impl SettingsView {
                 ws.font_settings().mono_font.clone(),
                 ws.manager().http_proxy().unwrap_or_default(),
                 ws.manager().github_token().unwrap_or_default(),
+                ws.manager().backup_repo_url().unwrap_or_default(),
+                ws.manager().backup_branch(),
             )
         };
         let s = lang.t();
@@ -101,6 +113,18 @@ impl SettingsView {
             if !saved_token.is_empty() {
                 input.set_value(saved_token, window, cx);
             }
+            input
+        });
+        let backup_repo_input = cx.new(|cx| {
+            let mut input = InputState::new(window, cx).placeholder(s.ph_git_backup_repo);
+            if !saved_backup_repo.is_empty() {
+                input.set_value(saved_backup_repo, window, cx);
+            }
+            input
+        });
+        let backup_branch_input = cx.new(|cx| {
+            let mut input = InputState::new(window, cx).placeholder("main");
+            input.set_value(saved_backup_branch, window, cx);
             input
         });
         let custom_agent_name_input =
@@ -199,6 +223,9 @@ impl SettingsView {
                     this.github_token_input.update(cx, |input, cx| {
                         input.set_placeholder(s.ph_github_token, window, cx);
                     });
+                    this.backup_repo_input.update(cx, |input, cx| {
+                        input.set_placeholder(s.ph_git_backup_repo, window, cx);
+                    });
                     this.custom_agent_name_input.update(cx, |input, cx| {
                         input.set_placeholder(s.ph_custom_agent_name, window, cx);
                     });
@@ -219,6 +246,8 @@ impl SettingsView {
             mono_font_select,
             http_proxy_input,
             github_token_input,
+            backup_repo_input,
+            backup_branch_input,
             custom_agent_name_input,
             custom_agent_dir_input,
             installed_fonts,
@@ -263,6 +292,7 @@ impl Render for SettingsView {
                     .child(self.render_general_section(cx))
                     .child(self.render_fonts_section(cx))
                     .child(self.render_network_section(cx))
+                    .child(self.render_git_backup_section(cx))
                     .child(self.render_updates_section(cx))
                     .child(self.render_agents_section(cx)),
             )
