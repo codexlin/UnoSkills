@@ -380,52 +380,162 @@ impl SettingsView {
         let ws = self.workspace.read(cx);
         let s = ws.t();
         let checking_updates = ws.checking_updates();
+        let downloading_update = ws.downloading_update();
+        let available_update = ws.available_update().cloned();
+        let downloaded_update = ws.downloaded_update().cloned();
 
         GroupBox::new().outline().title(s.settings_updates).child(
-            h_flex()
-                .items_center()
-                .justify_between()
-                .gap_4()
+            v_flex()
+                .gap_3()
                 .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .gap_1()
+                    h_flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_4()
                         .child(
-                            h_flex()
-                                .items_center()
-                                .gap_2()
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_1()
+                                .child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_medium()
+                                                .child(s.settings_current_version),
+                                        )
+                                        .child(StatusBadge::secondary(concat!(
+                                            "v",
+                                            env!("CARGO_PKG_VERSION")
+                                        ))),
+                                )
                                 .child(
                                     div()
-                                        .text_sm()
-                                        .font_medium()
-                                        .child(s.settings_current_version),
-                                )
-                                .child(StatusBadge::secondary(concat!(
-                                    "v",
-                                    env!("CARGO_PKG_VERSION")
-                                ))),
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(s.settings_updates_desc),
+                                ),
                         )
                         .child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(s.settings_updates_desc),
+                            div().flex_shrink_0().child(
+                                Button::new("check-updates-btn")
+                                    .outline()
+                                    .small()
+                                    .icon(IconName::RefreshCw)
+                                    .loading(checking_updates)
+                                    .label(s.btn_check_updates)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.workspace.update(cx, |ws, cx| {
+                                            ws.check_for_updates_async(false, window, cx)
+                                        });
+                                    })),
+                            ),
                         ),
                 )
-                .child(
-                    div().flex_shrink_0().child(
-                        Button::new("check-updates-btn")
-                            .outline()
-                            .small()
-                            .icon(IconName::RefreshCw)
-                            .loading(checking_updates)
-                            .label(s.btn_check_updates)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.workspace
-                                    .update(cx, |ws, cx| ws.check_for_updates_async(window, cx));
-                            })),
-                    ),
+                .when_some(
+                    available_update.and_then(|u| {
+                        u.latest
+                            .map(|r| (r, u.recommended_asset, u.checksums_asset.is_some()))
+                    }),
+                    |pane, (release, asset, _has_sums)| {
+                        let release_url = release.html_url.clone();
+                        let asset_label = asset
+                            .as_ref()
+                            .map(|a| a.name.clone())
+                            .unwrap_or_else(|| release.tag_name.clone());
+                        let install_btn_label = crate::state::platform_install_button_label(s);
+                        let verified_download = downloaded_update
+                            .as_ref()
+                            .filter(|d| d.version == release.tag_name)
+                            .cloned();
+
+                        pane.child(Separator::horizontal()).child(
+                            h_flex()
+                                .w_full()
+                                .flex_wrap()
+                                .items_center()
+                                .justify_between()
+                                .gap_3()
+                                .p_3()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(theme.border)
+                                .bg(theme.secondary.opacity(0.4))
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .gap_1()
+                                        .child(
+                                            h_flex()
+                                                .items_center()
+                                                .gap_2()
+                                                .child(StatusBadge::success(format!(
+                                                    "{} {}",
+                                                    s.badge_update_available, release.tag_name
+                                                )))
+                                                .when(verified_download.is_some(), |row| {
+                                                    row.child(
+                                                        StatusBadge::info(s.badge_sha256_verified)
+                                                            .outline(),
+                                                    )
+                                                }),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(theme.muted_foreground)
+                                                .truncate()
+                                                .child(asset_label),
+                                        ),
+                                )
+                                .child(
+                                    h_flex()
+                                        .flex_shrink_0()
+                                        .flex_wrap()
+                                        .gap_2()
+                                        .when(!release_url.is_empty(), |row| {
+                                            row.child(
+                                                Button::new("open-release-page-btn")
+                                                    .outline()
+                                                    .small()
+                                                    .icon(IconName::ExternalLink)
+                                                    .label(s.btn_open_release)
+                                                    .on_click(move |_, _, cx| {
+                                                        cx.open_url(&release_url);
+                                                    }),
+                                            )
+                                        })
+                                        .child(if verified_download.is_some() {
+                                            Button::new("apply-downloaded-update-btn")
+                                                .primary()
+                                                .small()
+                                                .icon(IconName::Check)
+                                                .label(install_btn_label)
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    this.workspace.update(cx, |ws, cx| {
+                                                        ws.apply_downloaded_update(window, cx);
+                                                    });
+                                                }))
+                                        } else {
+                                            Button::new("download-verify-update-btn")
+                                                .primary()
+                                                .small()
+                                                .icon(IconName::ArrowDown)
+                                                .loading(downloading_update)
+                                                .label(s.btn_download_update)
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    this.workspace.update(cx, |ws, cx| {
+                                                        ws.prompt_download_update(window, cx);
+                                                    });
+                                                }))
+                                        }),
+                                ),
+                        )
+                    },
                 ),
         )
     }

@@ -57,7 +57,7 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 - [x] **Optional GitHub Gist Share**: publish a local Stack as a secret Gist via PAT (Device Flow supported with a configured OAuth client id), never requiring login for any core local feature
 - [x] **Stack Search & Tag Filtering**: filter featured and community stacks by tags, author, or target agent
 - [x] **Private Git Backup / Multi-Machine Sync (in Settings)**: bind a personal private Git repo to push/pull plain-text `skills/` + `stacks/*.toml` (never syncing binary SQLite; index rebuilds locally on pull)
-- [ ] **In-App Guided Updater v1**: startup rate-limited check, explicit download & install consent, SHA256SUMS verification, per-platform install paths (Inno upgrade / DMG guidance / browser for deb)
+- [x] **In-App Guided Updater v1**: startup rate-limited check, explicit download & install consent, SHA256SUMS verification, per-platform install paths (Inno upgrade / DMG guidance / browser for deb)
 
 ### Later (after `v0.4`)
 - [ ] **Crates.io Publishing**: publish `unoskills-core` and `unoskills-cli` (`cargo install unoskills-cli`)
