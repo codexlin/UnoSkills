@@ -37,7 +37,7 @@ export function NavigationControl(props: {
     onMouseEnter={() => hovered.set(true)} onMouseLeave={() => hovered.set(false)}
     onPressDown={() => pressed.set(true)} onPressUp={() => pressed.set(false)}
     hoverStyle={interactionStyle()} activeStyle={interactionStyle()} selectedStyle={selectedStyle()}
-    focusVisibleStyle={{ ...focusOutline(props.theme), outlineColor: sidebar()?.ring ?? props.theme.ring }}
+    focusVisibleStyle={{ ...focusOutline(props.theme, 1), outlineColor: sidebar()?.ring ?? props.theme.ring }}
     tooltip={props.collapsed ? <Hint theme={props.theme} text={props.label} placement="right" /> : undefined}
     style={{ width: "100%", minWidth: 0, height: props.collapsed ? 32 : props.height ?? 32,
       flexDirection: "row", alignItems: "center", justifyContent: props.collapsed ? "center" : "flex-start",
