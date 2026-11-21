@@ -21,18 +21,22 @@ export function NavigationControl(props: {
   const hovered = signal(false);
   const pressed = signal(false);
   const sidebar = () => props.sidebar ? props.theme.sidebar : undefined;
-  const highlighted = () => props.selected || hovered() || pressed();
-  const highlightStyle = () => ({ backgroundColor: sidebar()?.accent ?? props.theme.accent });
-  const highlightInk = () => sidebar()?.onAccent ?? props.theme.onAccent;
-  const ink = () => highlighted() ? highlightInk() : sidebar()?.foreground ?? props.theme.foreground;
+  const interacting = () => hovered() || pressed();
+  const highlighted = () => props.selected || interacting();
+  const selectedStyle = () => ({ backgroundColor: props.theme.primary });
+  const interactionStyle = () => props.selected ? selectedStyle()
+    : { backgroundColor: sidebar()?.accent ?? props.theme.accent };
+  const ink = () => props.selected ? props.theme.onPrimary
+    : interacting() ? sidebar()?.onAccent ?? props.theme.onAccent
+    : sidebar()?.foreground ?? props.theme.foreground;
   const iconInk = () => highlighted() || props.sidebar ? ink() : props.theme.muted;
-  const badgeInk = () => highlighted() ? highlightInk() : props.theme.warning;
+  const badgeInk = () => highlighted() ? ink() : props.theme.warning;
 
   return <Button accessibilityLabel={props.badge ? `${props.label} ${props.badge}` : props.label}
     selected={props.selected} onPress={props.onPress}
     onMouseEnter={() => hovered.set(true)} onMouseLeave={() => hovered.set(false)}
     onPressDown={() => pressed.set(true)} onPressUp={() => pressed.set(false)}
-    hoverStyle={highlightStyle()} activeStyle={highlightStyle()} selectedStyle={highlightStyle()}
+    hoverStyle={interactionStyle()} activeStyle={interactionStyle()} selectedStyle={selectedStyle()}
     focusVisibleStyle={{ ...focusOutline(props.theme), outlineColor: sidebar()?.ring ?? props.theme.ring }}
     tooltip={props.collapsed ? <Hint theme={props.theme} text={props.label} placement="right" /> : undefined}
     style={{ width: "100%", minWidth: 0, height: props.collapsed ? 32 : props.height ?? 32,
