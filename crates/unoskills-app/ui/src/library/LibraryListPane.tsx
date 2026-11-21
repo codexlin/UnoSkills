@@ -207,7 +207,7 @@ export function LibraryListPane(props: {
           >
             <EmptyState
               theme={props.theme}
-              icon="▤"
+              glyph="book-open"
               title={
                 props.skills.length === 0 ? s().empty_library_title : s().empty_search_title
               }

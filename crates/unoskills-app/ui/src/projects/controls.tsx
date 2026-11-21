@@ -1,6 +1,6 @@
 import { Text, View, type InputRef, type JSX } from "nsh";
 import { AlertDialog, Checkbox } from "nsh/base";
-import { Action as ButtonAction, AlertBanner, Hint, LoadingLine, PageHeader, SelectControl, TextInput, focusOutline, interactionStyles, textSize } from "../components";
+import { Action as ButtonAction, AlertBanner, Hint, Icon, LoadingLine, PageHeader, SelectControl, TextInput, focusOutline, interactionStyles, textSize } from "../components";
 import type { IconName } from "../icons";
 import type { ScreenProps, Theme } from "../shared";
 import { strings } from "./strings";
@@ -88,7 +88,7 @@ export function Check(props: { theme: Theme; label: string; checked: boolean; up
       borderColor: props.checked ? props.theme.primary : props.theme.muted, borderRadius: 4,
       backgroundColor: props.checked ? props.theme.primary : props.theme.background,
     }}
-    indicator={<Text style={{ color: props.theme.onPrimary, fontSize: 12 }}>{props.checked ? "✓" : ""}</Text>}>
+    indicator={props.checked ? <Icon name="check" color={props.theme.onPrimary} size={12} /> : null}>
     <Label theme={props.theme} label={props.label} lines={props.compact ? 1 : undefined} />
   </Checkbox>;
 }

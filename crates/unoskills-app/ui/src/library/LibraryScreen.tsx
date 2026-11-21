@@ -417,7 +417,7 @@ export function Library(props: ScreenProps) {
               <ActionButton
                 theme={props.theme}
                 kind="outline"
-                icon="◫"
+                glyph="folder-open"
                 label={s().project_overview}
                 onPress={() => {
                   const project = scope.project();
@@ -436,7 +436,7 @@ export function Library(props: ScreenProps) {
             <ActionButton
               theme={props.theme}
               kind="outline"
-              icon="+"
+              glyph="plus"
               label={s().btn_install}
               onPress={() => props.navigate({ page: "discover", tab: "install" })}
             />
@@ -490,7 +490,7 @@ export function Library(props: ScreenProps) {
               onSelect={() => void scope.change(project().id, "")} />}
           </Each>
           <MenuDivider theme={props.theme} />
-          <MenuAction theme={props.theme} label={s().btn_add_project} leading="+"
+          <MenuAction theme={props.theme} label={s().btn_add_project} glyph="plus"
             onSelect={() => void handleAttachProject()} />
         </ActionMenu>
 
@@ -504,7 +504,7 @@ export function Library(props: ScreenProps) {
         <ActionButton
           theme={props.theme}
           kind="ghost"
-          icon="↻"
+          glyph="refresh-cw"
           loading={loadingState()}
           accessibilityLabel={s().tooltip_refresh}
           tooltip={s().tooltip_refresh}

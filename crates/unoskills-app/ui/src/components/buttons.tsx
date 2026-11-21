@@ -1,4 +1,3 @@
-import { Text } from "nsh";
 import { Button, type ButtonProps } from "nsh/base";
 import type { IconName } from "../icons";
 import type { Theme } from "../shared";
@@ -42,7 +41,6 @@ export function Action(props: {
   selected?: boolean;
   disabled?: boolean;
   pending?: boolean;
-  leading?: string;
   glyph?: IconName;
   iconOnly?: boolean;
   tooltip?: string;
@@ -71,10 +69,7 @@ export function Action(props: {
       borderColor: primary() ? props.theme.primary : ghost() || dangerFill() ? "transparent" : props.theme.border,
     }}>
     {props.pending ? <ProgressBar theme={props.theme} label={props.label} size="indicator" onPrimary={primary()} />
-      : props.glyph ? <Icon name={props.glyph} color={ink()} size={metrics().icon} />
-      : props.leading ? <Text accessibilityElementsHidden style={{
-        color: ink(), fontFamily: props.theme.fontFamily, fontSize: metrics().icon,
-      }}>{props.leading}</Text> : null}
+      : props.glyph ? <Icon name={props.glyph} color={ink()} size={metrics().icon} /> : null}
     {!props.iconOnly ? <Label theme={props.theme} color={ink()} weight="500" truncate
       size={props.size === "badge" ? textSize(props.theme, 12) : undefined}>{props.label}</Label> : null}
   </ActionControl>;

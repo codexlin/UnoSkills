@@ -1,5 +1,6 @@
 import { type InputRef, type JSX, Text, View } from "nsh";
-import { Action, ActionControl, Hint, Label, LoadingLine, TextInput, type ActionVariant } from "../components";
+import { Action, ActionControl, Hint, Icon, Label, LoadingLine, TextInput, type ActionVariant } from "../components";
+import type { IconName } from "../icons";
 import type { Theme } from "../shared";
 import { TOKEN_BUDGET_WARN_THRESHOLD, formatTokensShort } from "./format";
 
@@ -12,7 +13,7 @@ export function hintTooltip(theme: () => Theme, text: () => string): JSX.Element
 export function ActionButton(props: {
   theme: Theme;
   label?: string;
-  icon?: string;
+  glyph?: IconName;
   onPress: () => void;
   kind?: ButtonKind;
   compact?: boolean;
@@ -22,8 +23,8 @@ export function ActionButton(props: {
   accessibilityLabel?: string;
   tooltip?: string;
 }) {
-  return <Action theme={props.theme} label={props.label ?? ""} leading={props.icon}
-    accessibilityLabel={props.accessibilityLabel ?? props.label ?? props.icon ?? ""}
+  return <Action theme={props.theme} label={props.label ?? ""} glyph={props.glyph}
+    accessibilityLabel={props.accessibilityLabel ?? props.label ?? ""}
     variant={props.kind ?? "outline"} size={props.compact ? "compact" : "regular"} iconOnly={!props.label}
     disabled={props.disabled} pending={props.loading} selected={props.selected} tooltip={props.tooltip}
     onPress={props.onPress} />;
@@ -85,7 +86,7 @@ export function SearchField(props: {
             flexShrink: 0,
           }}
         >
-          <Text style={{ fontSize: 12, color: props.theme.muted }}>×</Text>
+          <Icon name="x" size={12} color={props.theme.muted} />
         </ActionControl>
       </If>
     </View>
@@ -145,7 +146,7 @@ export function PageHeader(props: {
 
 export function EmptyState(props: {
   theme: Theme;
-  icon?: string;
+  glyph?: IconName;
   title: string;
   description: string;
   actions?: JSX.Element;
@@ -160,7 +161,7 @@ export function EmptyState(props: {
         gap: 8,
       }}
     >
-      <If when={Boolean(props.icon)}>
+      <If when={props.glyph}>{(glyph) =>
         <View
           accessibilityElementsHidden
           style={{
@@ -175,17 +176,9 @@ export function EmptyState(props: {
             marginBottom: 4,
           }}
         >
-          <Text
-            style={{
-              fontSize: 20,
-              color: props.theme.muted,
-              fontFamily: props.theme.fontFamily,
-            }}
-          >
-            {props.icon ?? ""}
-          </Text>
+          <Icon name={glyph()} size={20} color={props.theme.muted} />
         </View>
-      </If>
+      }</If>
       <Text
         style={{
           fontSize: 15,

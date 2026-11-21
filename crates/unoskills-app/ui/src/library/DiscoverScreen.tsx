@@ -118,7 +118,7 @@ export function Discover(props: ScreenProps) {
           <ActionButton
             theme={props.theme}
             kind="outline"
-            icon="+"
+            glyph="plus"
             label={s().btn_install_from_link}
             onPress={() => {
               installDialogInitialSource.set(undefined);
@@ -135,10 +135,10 @@ export function Discover(props: ScreenProps) {
         selectedId={subTab()}
         paddingHorizontal={20}
         tabs={[
-          { id: "marketplace", icon: "◇", label: s().discover_market_tab },
+          { id: "marketplace", glyph: "globe", label: s().discover_market_tab },
           {
             id: "adopt",
-            icon: "◫",
+            glyph: "archive-restore",
             label: s().discover_adopt_tab,
             count: adoption.totalCandidates(),
             accessibilityLabel: labelWithCount(props.locale, s().discover_adopt_tab, adoption.totalCandidates()),

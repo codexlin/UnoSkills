@@ -11,7 +11,6 @@ interface TabOption<Id extends string> {
   accessibilityLabel?: string;
   count?: number;
   disabled?: boolean;
-  icon?: string;
   glyph?: IconName;
 }
 
@@ -48,8 +47,6 @@ export function TabList<Id extends string>(props: TabListProps<Id>) {
             activeStyle={{ opacity: 0.7 }} disabledStyle={{ opacity: 0.5 }}
             focusVisibleStyle={focusOutline(props.theme)}>
             <If when={tab().glyph}>{(glyph) => <Icon name={glyph()} size={14} color={color()} />}</If>
-            {tab().icon ? <Text accessibilityElementsHidden
-              style={{ color: color(), fontSize: 13, fontFamily: props.theme.fontFamily }}>{tab().icon}</Text> : null}
             <Text style={{ color: color(), fontSize: props.theme.fontSize, fontFamily: props.theme.fontFamily,
               fontWeight: "500" }}>{tab().label}</Text>
             {(tab().count ?? 0) > 0 ? <View accessibilityElementsHidden

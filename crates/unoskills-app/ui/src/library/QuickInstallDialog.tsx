@@ -158,7 +158,7 @@ export function QuickInstallDialog(props: {
         <ActionButton
           theme={props.theme}
           kind="outline"
-          icon="◫"
+          glyph="folder-open"
           label={s().btn_browse_folder}
           disabled={installing()}
           onPress={() => {

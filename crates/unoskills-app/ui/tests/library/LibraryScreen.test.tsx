@@ -256,11 +256,12 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     expect(app.value("label:Edit SKILL.md")).toContain("# Alpha Fresh");
   });
 
-  test("delayed async save for A completing after switching to B does not overwrite B", async () => {
+  test("saving A preserves CRLF and frontmatter when its response arrives after switching to B", async () => {
     const skills = makeSkills();
     const alphaSave = deferred<{ ok: true; value: SaveMarkdownResponse }>();
-    let alphaSaveStarted = false;
-    let alphaMarkdown = "---\nname: Alpha\n---\n# Alpha Initial";
+    const alphaSaveStarted = deferred<void>();
+    const originalMarkdown = "---\r\nname: Alpha\r\n---\r\n# Alpha Initial";
+    let alphaMarkdown = originalMarkdown;
 
     const app = await open("./LibraryTestHarness.tsx", {
       platform: "macos",
@@ -287,8 +288,8 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
               );
             }
             if (command === "library.save_markdown") {
-              alphaSaveStarted = true;
               alphaMarkdown = String(input?.content ?? alphaMarkdown);
+              alphaSaveStarted.resolve();
               return alphaSave.promise;
             }
             return { ok: false, code: "UNKNOWN", message: command };
@@ -301,12 +302,13 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     await app.press("Preview");
     await app.waitFor("text:Alpha Initial");
     await app.press("Edit SKILL.md");
-    await app.type("label:Edit SKILL.md", "\nExtra line");
+    await app.type("label:Edit SKILL.md", "\n");
 
     app.onDialog(() => "Discard changes");
-    const savePress = app.press("Save");
+    const savePress = app.keyboard.press("mod+s");
     try {
-      await app.waitUntil(() => alphaSaveStarted);
+      await alphaSaveStarted.promise;
+      expect(alphaMarkdown).toBe("\r\n" + originalMarkdown);
       await app.press("Beta Skill");
       await app.waitFor("text:Beta Original");
     } finally {
@@ -327,8 +329,8 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
           },
         },
       });
+      await savePress;
     }
-    await savePress;
     await app.wait(50);
 
     const screenText = app.texts().join("\n");

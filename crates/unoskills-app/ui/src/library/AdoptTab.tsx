@@ -1,6 +1,6 @@
 import { type InputRef, List, type ListRef, Text, View } from "nsh";
 import { Checkbox } from "nsh/base";
-import { ActionControl, AlertBanner, Label, focusOutline, interactionStyles } from "../components";
+import { ActionControl, AlertBanner, Icon, Label, focusOutline, interactionStyles } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, TokenBadge, hintTooltip } from "./controls";
 import { type Locale, adoptSelectedCount, getStrings, labelWithCount } from "./strings";
@@ -61,7 +61,7 @@ export function AdoptTab(props: {
         <ActionButton
           theme={props.theme}
           kind="outline"
-          icon="↻"
+          glyph="refresh-cw"
           label={s().btn_rescan}
           loading={props.scanning}
           disabled={props.adopting}
@@ -147,22 +147,9 @@ export function AdoptTab(props: {
                           alignItems: "center",
                           justifyContent: "center",
                         }}
-                        indicator={
-                          <Text
-                            style={{
-                              fontSize: 11,
-                              fontWeight: "700",
-                              color: props.theme.onPrimary,
-                            }}
-                          >
-                            {row().kind === "candidate" &&
-                            props.selectedPaths[
-                              (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                            ]
-                              ? "✓"
-                              : ""}
-                          </Text>
-                        }
+                        indicator={row().kind === "candidate" && props.selectedPaths[
+                          (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
+                        ] ? <Icon name="check" color={props.theme.onPrimary} size={12} /> : null}
                       />
 
                       <Text
@@ -244,12 +231,9 @@ export function AdoptTab(props: {
                       }}
 
                     >
-                      <Text style={{ fontSize: 12, color: props.theme.muted }}>
-                        {row().kind === "group" &&
+                      <Icon name={row().kind === "group" &&
                         (row() as Extract<AdoptRow, { kind: "group" }>).group.expanded
-                          ? "▾"
-                          : "▸"}
-                      </Text>
+                        ? "chevron-down" : "chevron-right"} size={14} color={props.theme.muted} />
                       <Text
                         style={{
                           numberOfLines: 1,
@@ -301,7 +285,7 @@ export function AdoptTab(props: {
       >
         <EmptyState
           theme={props.theme}
-          icon="✓"
+          glyph="check"
           title={
             props.totalCandidates === 0 ? s().empty_adopt_done_title : s().empty_adopt_filter_title
           }

@@ -9,7 +9,7 @@ import {
   signal,
   windowSize,
 } from "nsh";
-import { ActionControl, ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, SelectControl } from "../components";
+import { ActionControl, ActionMenu, AlertBanner, Icon, Label, LoadingLine, MenuAction, SelectControl } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, hintTooltip } from "./controls";
 import { formatInstallCount, marketInstallStatus } from "./format";
@@ -80,15 +80,15 @@ export function MarketplaceTab(props: {
     return s().market_add_to_library;
   };
 
-  const actionIconFor = (item: MarketplaceSkillItem): string => {
+  const actionGlyphFor = (item: MarketplaceSkillItem) => {
     const status = marketInstallStatus(item, props.installedSourceRefs, props.installedSkillNames);
     if (status === "installed") {
-      return "✓";
+      return "check";
     }
     if (status === "same_name") {
-      return "!";
+      return "triangle-alert";
     }
-    return "+";
+    return "plus";
   };
 
   const actionTooltipFor = (item: MarketplaceSkillItem): string => {
@@ -138,7 +138,7 @@ export function MarketplaceTab(props: {
         <ActionButton
           theme={props.theme}
           kind="ghost"
-          icon="⌕"
+          glyph="search"
           accessibilityLabel={s().btn_search}
           tooltip={s().market_search_hint}
           onPress={() => props.onSearchSubmit(props.searchQuery)}
@@ -165,7 +165,7 @@ export function MarketplaceTab(props: {
               theme={props.theme}
               kind="ghost"
               compact
-              icon="×"
+              glyph="x"
               accessibilityLabel={s().market_clear_source_filter}
               tooltip={s().market_clear_source_filter}
               onPress={() => props.onSelectSourceFilter(null)}
@@ -176,7 +176,7 @@ export function MarketplaceTab(props: {
         <ActionButton
           theme={props.theme}
           kind="ghost"
-          icon="↻"
+          glyph="refresh-cw"
           loading={props.loading}
           accessibilityLabel={props.loading ? s().market_loading : s().btn_trending}
           tooltip={props.loading ? s().market_loading : s().btn_trending}
@@ -251,7 +251,7 @@ export function MarketplaceTab(props: {
                               theme={props.theme}
                               kind="outline"
                               compact
-                              icon="↻"
+                              glyph="refresh-cw"
                               label={s().btn_load_more}
                               onPress={props.onLoadMore}
                             />
@@ -331,16 +331,7 @@ export function MarketplaceTab(props: {
                               flexShrink: 0,
                             }}
                           >
-                            <Text
-                              accessibilityElementsHidden
-                              style={{
-                                fontSize: 10,
-                                fontWeight: "700",
-                                color: props.theme.primary,
-                              }}
-                            >
-                              ✓
-                            </Text>
+                            <Icon name="check" color={props.theme.primary} size={10} />
                           </View>
                         </If>
 
@@ -477,7 +468,7 @@ export function MarketplaceTab(props: {
                             theme={props.theme}
                             kind="ghost"
                             compact
-                            icon="↗"
+                            glyph="external-link"
                             accessibilityLabel={`${s().market_view_details} · ${entry().item.name} · ${entry().item.source}`}
                             tooltip={s().market_view_details}
                             onPress={() => {
@@ -537,7 +528,7 @@ export function MarketplaceTab(props: {
                           theme={props.theme}
                           kind="outline"
                           compact
-                          icon={actionIconFor(entry().item)}
+                          glyph={actionGlyphFor(entry().item)}
                           loading={Boolean(props.installingRefs[entry().item.install_ref.trim()])}
                           disabled={
                             marketInstallStatus(
@@ -559,7 +550,7 @@ export function MarketplaceTab(props: {
             >
               <EmptyState
                 theme={props.theme}
-                icon="◇"
+                glyph="globe"
                 title={s().empty_market_title}
                 description={s().empty_market_desc}
               />

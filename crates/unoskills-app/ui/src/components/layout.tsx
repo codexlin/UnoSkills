@@ -5,7 +5,8 @@ import type { Theme } from "../shared";
 export function Icon(props: { name: IconName; color: string; size?: number; spinning?: boolean }) {
   return <Image accessibilityElementsHidden src={iconSource(props.name)}
     class={props.spinning ? "animate-spin motion-reduce:animate-none" : undefined}
-    style={{ width: props.size ?? 16, height: props.size ?? 16, flexShrink: 0, tintColor: props.color }} />;
+    style={{ width: props.size ?? 16, height: props.size ?? 16, flexShrink: 0,
+      pointerEvents: "none", tintColor: props.color }} />;
 }
 
 export function textSize(theme: Theme, points: number) {

@@ -1,9 +1,13 @@
-import { batch, signal } from "nsh";
+import { batch, computed, signal } from "nsh";
 import { AlertDialog } from "nsh/base";
 import type { ScreenProps } from "../shared";
 import { errorMessage, getSkillMarkdown, saveSkillMarkdown } from "./host";
 import { getStrings, toastSavedSkill } from "./strings";
 import type { Skill, SkillLintReport } from "./types";
+
+function normalizeLineEndings(content: string): string {
+  return content.replace(/\r\n?/g, "\n");
+}
 
 export function createMarkdownEditor(
   screen: Pick<ScreenProps, "locale" | "notify" | "refresh">,
@@ -15,6 +19,7 @@ export function createMarkdownEditor(
   const loadedMarkdownSkillId = signal<string | null>(null);
   const editingSkillId = signal<string | null>(null);
   const loadedMarkdown = signal("");
+  const loadedText = computed(() => normalizeLineEndings(loadedMarkdown()));
   const draftMarkdown = signal("");
   const previewMarkdown = signal("");
   const markdownLoading = signal(false);
@@ -35,7 +40,7 @@ export function createMarkdownEditor(
   const isDirty = () =>
     editingSkillId() !== null &&
     loadedMarkdownSkillId() === editingSkillId() &&
-    draftMarkdown() !== loadedMarkdown();
+    draftMarkdown() !== loadedText();
 
   const clearMarkdownState = () => {
     batch(() => {
@@ -95,7 +100,7 @@ export function createMarkdownEditor(
         markdownError.set(null);
         if (!keepingSameDraft) {
           loadedMarkdown.set(data.raw_markdown);
-          draftMarkdown.set(data.raw_markdown);
+          draftMarkdown.set(loadedText());
         }
       });
     } catch (error) {
@@ -128,7 +133,7 @@ export function createMarkdownEditor(
       return;
     }
     batch(() => {
-      draftMarkdown.set(loadedMarkdown());
+      draftMarkdown.set(loadedText());
       editingSkillId.set(skillId);
     });
   };
@@ -142,7 +147,11 @@ export function createMarkdownEditor(
     ) {
       return;
     }
-    const contentToSave = draftMarkdown();
+    const original = loadedMarkdown();
+    // The native Editor uses LF. Write back the file's original convention.
+    const lineEnding = original.match(/\r\n|\r|\n/)?.[0] ?? "\n";
+    const draft = draftMarkdown();
+    const contentToSave = draft === loadedText() ? original : draft.replaceAll("\n", lineEnding);
     savingSkillId.set(targetSkillId);
     try {
       const result = await saveSkillMarkdown(targetSkillId, contentToSave);
@@ -152,7 +161,7 @@ export function createMarkdownEditor(
           markdownReqSeq += 1;
           loadedMarkdownSkillId.set(targetSkillId);
           loadedMarkdown.set(result.raw_markdown);
-          draftMarkdown.set(result.raw_markdown);
+          draftMarkdown.set(loadedText());
           previewMarkdown.set(result.preview_markdown);
           selectedLint.set(result.lint);
           markdownError.set(null);
@@ -183,7 +192,7 @@ export function createMarkdownEditor(
       return;
     }
     batch(() => {
-      draftMarkdown.set(loadedMarkdown());
+      draftMarkdown.set(loadedText());
       editingSkillId.set(null);
     });
   };

@@ -1,5 +1,6 @@
-import { Text, View, signal, type JSX } from "nsh";
+import { View, signal, type JSX } from "nsh";
 import { Dialog, Menu, MenuItem, MenuSeparator, Select, type SelectItem } from "nsh/base";
+import type { IconName } from "../icons";
 import { Icon, Label } from "./layout";
 import { disabledControlStyle, focusOutline, interactionStyles } from "./interaction";
 import { Hint } from "./feedback";
@@ -33,7 +34,7 @@ function PopupTrigger(props: {
       <View style={{ flexShrink: 1, minWidth: 0 }}>
         <Label theme={props.theme} truncate muted={props.muted}>{props.value}</Label>
       </View>
-      <Text accessibilityElementsHidden style={{ color: props.theme.muted }}>▾</Text>
+      <Icon name="chevron-down" color={props.theme.muted} size={14} />
     </>}
   </View>;
 }
@@ -53,9 +54,10 @@ export function ActionMenu(props: {
 
 export function MenuAction(props: {
   theme: Theme; label: string; onSelect: () => void | Promise<void>;
-  checked?: boolean; disabled?: boolean; danger?: boolean; leading?: string;
+  checked?: boolean; disabled?: boolean; danger?: boolean; glyph?: IconName;
 }) {
   const states = () => interactionStyles(props.theme, { selectedFill: props.checked ? props.theme.accent : undefined });
+  const glyph = () => props.glyph ?? (props.checked ? "check" : undefined);
   return <MenuItem accessibilityLabel={props.label} role={props.checked === undefined ? undefined : "menuitemradio"}
     checked={props.checked} onSelect={props.onSelect} disabled={props.disabled}
     style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0,
@@ -63,10 +65,9 @@ export function MenuAction(props: {
     hoverStyle={states().hoverStyle} activeStyle={states().activeStyle}
     focusStyle={{ ...focusOutline(props.theme), backgroundColor: states().hoverStyle.backgroundColor }}
     checkedStyle={{ backgroundColor: props.theme.accent }} disabledStyle={disabledControlStyle}>
-    {props.checked !== undefined || props.leading ? <Text accessibilityElementsHidden
-      style={{ width: 14, fontFamily: props.theme.fontFamily, color: props.theme.primary }}>
-      {props.leading ?? (props.checked ? "✓" : "")}
-    </Text> : null}
+    {props.checked !== undefined || props.glyph ? <View style={{ width: 14, flexShrink: 0 }}>
+      <If when={glyph()}>{(name) => <Icon name={name()} color={props.theme.primary} size={14} />}</If>
+    </View> : null}
     <Label theme={props.theme} truncate color={props.danger ? props.theme.danger : undefined}>{props.label}</Label>
   </MenuItem>;
 }

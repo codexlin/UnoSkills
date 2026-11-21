@@ -1,5 +1,5 @@
 import { Clipboard, Scroll, Text, View, openUrl } from "nsh";
-import { Input, Switch, TextView } from "nsh/base";
+import { Editor, Switch, TextView } from "nsh/base";
 import { ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, MenuDivider, PageTabs } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, hintTooltip } from "./controls";
@@ -64,9 +64,9 @@ export function SkillInspector(props: {
   };
 
   const inspectorTabs = () => [
-    { id: "deployments", icon: "◈", label: s().library_deployment },
-    { id: "preview", icon: "≡", label: s().library_preview },
-  ];
+    { id: "deployments", glyph: "network", label: s().library_deployment },
+    { id: "preview", glyph: "file-text", label: s().library_preview },
+  ] as const;
 
   return (
     <If
@@ -74,7 +74,7 @@ export function SkillInspector(props: {
       else={
         <EmptyState
           theme={props.theme}
-          icon="≡"
+          glyph="file-text"
           title={s().empty_select_skill_title}
           description={s().empty_select_skill_desc}
         />
@@ -178,7 +178,7 @@ export function SkillInspector(props: {
               selectedId={props.inspectorTab}
               paddingHorizontal={16}
               backgroundColor={props.theme.surface}
-              onSelect={(id) => props.onTabChange(id === "preview" ? "preview" : "deployments")}
+              onSelect={props.onTabChange}
             />
           </If>
 
@@ -237,7 +237,7 @@ export function SkillInspector(props: {
                               theme={props.theme}
                               kind="ghost"
                               compact
-                              icon="◫"
+                              glyph="folder-open"
                               accessibilityLabel={s().tooltip_reveal_folder}
                               tooltip={s().tooltip_reveal_folder}
                               onPress={() => {
@@ -549,29 +549,29 @@ export function SkillInspector(props: {
           >
             {/* Quick Edit Mode (raw frontmatter preserved, tied to loaded skill ID) */}
             <View style={{ flex: 1, minHeight: 0, padding: 16 }}>
-              <Input
-                multiline
-                submitBehavior="newline"
-                autoCorrect={false}
+              <Editor
+                language="markdown"
+                autoFocus
+                softWrap
+                scrollBeyondLastLine={false}
                 value={props.draftMarkdown}
                 onChange={({ value }) => props.onDraftChange(value)}
                 placeholder={s().ph_skill_md}
                 accessibilityLabel={s().btn_edit_skill}
-                disabled={props.savingMarkdown}
+                readOnly={props.savingMarkdown}
+                fontFamily={props.theme.monoFamily ?? props.theme.fontFamily}
+                fontSize={props.theme.fontSize}
+                lineHeight={Math.ceil(props.theme.fontSize * 1.5)}
+                styles={{ content: { paddingRight: 12 }, line: { color: props.theme.foreground },
+                  gutter: { backgroundColor: props.theme.surface, borderRightWidth: 1, borderColor: props.theme.border } }}
                 focusStyle={{ borderColor: props.theme.primary }}
                 style={{
                   flex: 1,
                   minHeight: 0,
-                  fontSize: 13,
-                  lineHeight: 20,
-                  padding: 12,
                   borderRadius: props.theme.radius ?? 8,
                   borderWidth: 1,
                   borderColor: props.theme.border,
                   backgroundColor: props.theme.background,
-                  color: props.theme.foreground,
-                  placeholderColor: props.theme.muted,
-                  fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
                 }}
               />
             </View>
