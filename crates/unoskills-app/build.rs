@@ -11,7 +11,11 @@ fn main() {
         development: !release,
         minify: release,
         split: false,
-        ui_sets: vec![nsh_base::registry().into()],
+        ui_sets: nsh_base::registry()
+            .sets()
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         ..Default::default()
     })
     .unwrap_or_else(|error| panic!("{}", error.plain));
