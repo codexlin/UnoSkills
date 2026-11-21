@@ -54,12 +54,12 @@ test("Home keeps active metric cards, recent rows, chart, and separate ranked bo
   const trending = `role:tab[${t.board_trending}]`;
   const allTime = `role:tab[${t.board_all_time}]`;
   await app.hover(allTime);
-  expect(app.viewStyle(allTime)?.backgroundColor ?? "#00000000").toBe("#00000000");
+  expect(app.viewStyle(allTime)?.backgroundColor).toBe("#262d3aff");
   expect(app.viewStyle(allTime)?.effectiveOpacity).toBe(1);
   await app.press(allTime);
   await app.waitFor("text:All time fixture");
   expect(app.shows("text:Trending fixture")).toBe(false);
-  // Pointer still over the selected tab: its native indicator supplies the fill.
+  // The selected tab uses the native underline while the pointer stays over it.
   expect(app.viewStyle(allTime)?.backgroundColor ?? "#00000000").toBe("#00000000");
   await app.press(allTime);
   expect(app.shows("text:All time fixture")).toBe(true);

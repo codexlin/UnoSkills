@@ -669,7 +669,9 @@ export function Discover(props: ScreenProps) {
           {
             id: "adopt",
             icon: "◫",
-            label: labelWithCount(props.locale, s().discover_adopt_tab, adoptCandidates().length),
+            label: s().discover_adopt_tab,
+            count: adoptCandidates().length,
+            accessibilityLabel: labelWithCount(props.locale, s().discover_adopt_tab, adoptCandidates().length),
           },
         ]}
         onSelect={(id) => {
