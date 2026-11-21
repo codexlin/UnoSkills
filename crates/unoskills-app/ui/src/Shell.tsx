@@ -206,7 +206,6 @@ export function App() {
   const messageColor = () => notice()?.tone === "error" ? theme().danger
     : notice()?.tone === "success" ? theme().success : theme().foreground;
   const rail = () => theme().chrome?.rail ?? theme().surface;
-  const railBorder = () => theme().sidebar?.border ?? theme().border;
   // The first titleBar measurement can precede the GTK controls' custom style.
   const titleBarInset = (edge: number) => edge > 0 ? Math.max(controlsInset, edge) : edge;
   const collapseLabel = () => collapsed() ? t().expand_sidebar : t().collapse_sidebar;
@@ -221,7 +220,7 @@ export function App() {
       <View desktop={{ windowDrag: true }} style={{ height: 36, flexShrink: 0,
         paddingLeft: titleBarInset(titleBar().left) + 12, paddingRight: titleBarInset(titleBar().right) + 8,
         flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8,
-        backgroundColor: rail(), borderBottomWidth: 1, borderColor: railBorder(),
+        backgroundColor: rail(), borderBottomWidth: 1, borderColor: theme().border,
         backgroundImage: `linear-gradient(180deg, color-mix(in srgb, ${rail()} 55%, ${theme().background}), ${rail()})` }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
           {logo ? <Image accessibilityElementsHidden src={logo} style={{ width: 16, height: 16,
@@ -238,7 +237,7 @@ export function App() {
         <View style={{ width: collapsed() ? 48 : 184, flexShrink: 0, minHeight: 0,
           paddingHorizontal: collapsed() ? 8 : 12, paddingTop: collapsed() ? 20 : 12 + textSize(theme(), 32),
           paddingBottom: 12, justifyContent: "space-between", overflow: "hidden",
-          backgroundColor: rail(), borderRightWidth: 1, borderColor: railBorder() }}>
+          backgroundColor: rail(), borderRightWidth: 1, borderColor: theme().border }}>
           <View style={{ gap: 8 }}>
             {nav.slice(0, 4).map(navItem)}
           </View>

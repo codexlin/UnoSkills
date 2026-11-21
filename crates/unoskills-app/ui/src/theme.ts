@@ -120,7 +120,7 @@ export function makeTheme(prefs: Preferences): Theme {
     destructive: { background: tokens.destructive, foreground: tokens["destructive-foreground"] },
     sidebar: {
       foreground: tokens["sidebar-foreground"], selected: tokens["sidebar-accent"],
-      onSelected: tokens["sidebar-accent-foreground"], border: tokens["sidebar-border"], ring: tokens["sidebar-ring"],
+      onSelected: tokens["sidebar-accent-foreground"], ring: tokens["sidebar-ring"],
     },
     chrome: {
       rail: tokens.sidebar, hover: mix(tokens.accent, hoverWeight, tokens.card), segmented: tokens.muted,
