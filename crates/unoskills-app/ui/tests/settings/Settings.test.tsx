@@ -82,8 +82,16 @@ test("navigation uses the current palette and a long font list remains searchabl
   await app.hover(settings);
   expect(app.viewStyle(settings)?.backgroundColor).toBe("#f5e8e2ff");
 
-  await app.press(`label:${t.settings_ui_font}`);
+  const fontChoice = `role:combobox[${t.settings_ui_font}]`;
+  await app.press(fontChoice);
   const automatic = `role:option[${t.font_auto_by_lang}]`;
+  await app.waitFor(automatic);
+  await app.hover(settings);
+  expect(app.viewStyle(fontChoice)?.backgroundColor).toBe("#f5e8e2ff");
+  await app.keyboard.press("escape");
+  await app.waitUntil(() => !app.shows(automatic));
+  expect(app.viewStyle(fontChoice)?.backgroundColor).toBe("#faf9f5ff");
+  await app.press(fontChoice);
   await app.waitFor(automatic);
   expect(app.viewStyle(automatic)?.backgroundColor).toBe("#f5e8e2ff");
   await app.keyboard.press("down");

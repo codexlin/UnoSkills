@@ -1,8 +1,8 @@
 import { Image, View, announce, cleanup, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
-import { Button, Tooltip } from "nsh/base";
+import { Tooltip } from "nsh/base";
 import { titleBar } from "nsh/desktop";
 import { setLocale } from "nsh/i18n";
-import { Action, Icon, InlineError, Label, focusOutline, interactionStyles, textSize } from "./controls";
+import { Action, ActionControl, Icon, InlineError, Label, textSize } from "./controls";
 import { Home } from "./Home";
 import { strings } from "./i18n";
 import { Library, Discover } from "./library";
@@ -27,9 +27,8 @@ function NavigationItem(props: {
   count: number; onPress: () => void;
 }) {
   const footer = () => props.item.page === "settings";
-  const states = () => interactionStyles(props.theme, { selectedFill: props.selected ? props.theme.accent : undefined });
   const count = () => props.count > 0 ? `+${props.count}` : undefined;
-  return <Button
+  return <ActionControl theme={props.theme}
     accessibilityLabel={count() ? `${props.label} ${count()}` : props.label}
     selected={props.selected}
     onPress={props.onPress}
@@ -42,9 +41,6 @@ function NavigationItem(props: {
       paddingHorizontal: props.collapsed ? 0 : 8, gap: 8, borderRadius: props.theme.radius,
       borderWidth: 1, borderColor: props.selected ? props.theme.primary : "transparent",
       backgroundColor: props.selected ? props.theme.accent : "transparent" }}
-    hoverStyle={states().hoverStyle}
-    activeStyle={states().activeStyle}
-    focusVisibleStyle={focusOutline(props.theme)}
   >
     <Icon name={props.item.icon} color={props.theme.foreground} size={textSize(props.theme, footer() ? 16 : 14)} />
     {!props.collapsed ? <>
@@ -56,7 +52,7 @@ function NavigationItem(props: {
         <Label theme={props.theme} size={textSize(props.theme, 12)} color={props.theme.warning}>{count()}</Label>
       </View> : null}
     </> : null}
-  </Button>;
+  </ActionControl>;
 }
 
 export function App() {

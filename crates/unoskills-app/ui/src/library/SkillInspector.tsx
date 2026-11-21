@@ -1,6 +1,7 @@
 import { Clipboard, Scroll, Text, View, openUrl } from "nsh";
-import { Input, Menu, MenuItem, MenuSeparator, Switch, TextView } from "nsh/base";
-import { Label, focusOutline, interactionStyles, menuItemStyles } from "../controls";
+import { Input, Switch, TextView } from "nsh/base";
+import { Label } from "../controls";
+import { ActionMenu, MenuAction, MenuDivider } from "../popups";
 import type { Theme } from "../shared";
 import {
   ActionButton,
@@ -136,115 +137,24 @@ export function SkillInspector(props: {
                     />
                   </If>
 
-                  <Menu
-                    offset={4}
-                    align="end"
-                    popupStyle={{
-                      minWidth: 200,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor: props.theme.border,
-                      backgroundColor: props.theme.surface,
-                      padding: 4,
-                    }}
-                    trigger={
-                      <View
-                        accessibilityLabel={s().library_skill_actions}
-                        tooltip={hintTooltip(
-                          () => props.theme,
-                          () => s().library_skill_actions,
-                        )}
-                        class="items-center justify-center transition-colors"
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: props.theme.radius ?? 8,
-                          backgroundColor: "transparent",
-                        }}
-                        hoverStyle={interactionStyles(props.theme).hoverStyle}
-                        activeStyle={interactionStyles(props.theme).activeStyle}
-                        focusVisibleStyle={focusOutline(props.theme)}
-                      >
-                        <Text style={{ fontSize: 15, color: props.theme.foreground }}>⋯</Text>
-                      </View>
-                    }
-                  >
-                    <If
-                      when={
-                        skill().source_type !== "adopted" &&
-                        Boolean(skill().source_ref && skill().source_ref!.trim().length > 0)
-                      }
-                    >
-                      <MenuItem
-                        disabled={props.updatingSkillId === skill().id}
-                        onSelect={() => props.onUpdateSkill(skill())}
-                        style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6 }}
-                        hoverStyle={menuItemStyles(props.theme).hoverStyle}
-                        activeStyle={menuItemStyles(props.theme).activeStyle}
-                        focusStyle={menuItemStyles(props.theme).focusStyle}
-                        checkedStyle={menuItemStyles(props.theme).checkedStyle}
-                        disabledStyle={menuItemStyles(props.theme).disabledStyle}
-                      >
-                        <Label theme={props.theme} size={13}>
-                          {s().btn_update_skill}
-                        </Label>
-                      </MenuItem>
+                  <ActionMenu theme={props.theme} label={s().library_skill_actions}>
+                    <If when={skill().source_type !== "adopted" && Boolean(skill().source_ref?.trim())}>
+                      <MenuAction theme={props.theme} label={s().btn_update_skill}
+                        disabled={props.updatingSkillId === skill().id} onSelect={() => props.onUpdateSkill(skill())} />
                     </If>
-
-                    <MenuItem
-                      onSelect={() => {
-                        void revealPath(skill().central_path).catch((error) => {
-                          props.onNotify(errorMessage(error), "error");
-                        });
-                      }}
-                      style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6 }}
-                      hoverStyle={menuItemStyles(props.theme).hoverStyle}
-                      activeStyle={menuItemStyles(props.theme).activeStyle}
-                      focusStyle={menuItemStyles(props.theme).focusStyle}
-                      checkedStyle={menuItemStyles(props.theme).checkedStyle}
-                      disabledStyle={menuItemStyles(props.theme).disabledStyle}
-                    >
-                      <Label theme={props.theme} size={13}>
-                        {s().tooltip_reveal_folder}
-                      </Label>
-                    </MenuItem>
-
-                    <MenuItem
-                      onSelect={() => {
-                        void Clipboard.writeText(skill().central_path)
-                          .then(() => props.onNotify(s().library_copy_path, "info"))
-                          .catch((error) => props.onNotify(errorMessage(error), "error"));
-                      }}
-                      style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6 }}
-                      hoverStyle={menuItemStyles(props.theme).hoverStyle}
-                      activeStyle={menuItemStyles(props.theme).activeStyle}
-                      focusStyle={menuItemStyles(props.theme).focusStyle}
-                      checkedStyle={menuItemStyles(props.theme).checkedStyle}
-                      disabledStyle={menuItemStyles(props.theme).disabledStyle}
-                    >
-                      <Label theme={props.theme} size={13}>
-                        {s().library_copy_path}
-                      </Label>
-                    </MenuItem>
-
-                    <MenuSeparator
-                      style={{ height: 1, marginVertical: 4, backgroundColor: props.theme.border }}
-                    />
-
-                    <MenuItem
-                      onSelect={() => props.onDeleteSkill(skill())}
-                      style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6 }}
-                      hoverStyle={menuItemStyles(props.theme).hoverStyle}
-                      activeStyle={menuItemStyles(props.theme).activeStyle}
-                      focusStyle={menuItemStyles(props.theme).focusStyle}
-                      checkedStyle={menuItemStyles(props.theme).checkedStyle}
-                      disabledStyle={menuItemStyles(props.theme).disabledStyle}
-                    >
-                      <Label theme={props.theme} size={13} color={props.theme.danger}>
-                        {s().btn_delete}
-                      </Label>
-                    </MenuItem>
-                  </Menu>
+                    <MenuAction theme={props.theme} label={s().tooltip_reveal_folder} onSelect={() => {
+                      void revealPath(skill().central_path).catch((error) => {
+                        props.onNotify(errorMessage(error), "error");
+                      });
+                    }} />
+                    <MenuAction theme={props.theme} label={s().library_copy_path} onSelect={() => {
+                      void Clipboard.writeText(skill().central_path)
+                        .then(() => props.onNotify(s().library_copy_path, "info"))
+                        .catch((error) => props.onNotify(errorMessage(error), "error"));
+                    }} />
+                    <MenuDivider theme={props.theme} />
+                    <MenuAction theme={props.theme} label={s().btn_delete} danger onSelect={() => props.onDeleteSkill(skill())} />
+                  </ActionMenu>
                 </View>
               }
             >

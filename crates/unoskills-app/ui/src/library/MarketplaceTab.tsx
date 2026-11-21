@@ -9,8 +9,8 @@ import {
   signal,
   windowSize,
 } from "nsh";
-import { Button, Menu, MenuItem, Select } from "nsh/base";
-import { Label, focusOutline, interactionStyles, menuItemStyles, selectPopupStyles } from "../controls";
+import { ActionControl, Label } from "../controls";
+import { ActionMenu, MenuAction, SelectControl } from "../popups";
 import type { Theme } from "../shared";
 import {
   ActionButton,
@@ -64,7 +64,6 @@ export function MarketplaceTab(props: {
   onLoadMore: () => void;
   onItemAction: (item: MarketplaceSkillItem) => void;
 }) {
-  const popup = () => selectPopupStyles(props.theme, { minWidth: 176, searchable: true });
   const s = () => getStrings(props.locale);
   const containerWidth = signal(0);
 
@@ -158,146 +157,21 @@ export function MarketplaceTab(props: {
           onPress={() => props.onSearchSubmit(props.searchQuery)}
         />
 
-        {/* Board Picker Menu */}
-        <Menu
-          offset={4}
-          popupStyle={{
-            minWidth: 170,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: props.theme.border,
-            backgroundColor: props.theme.surface,
-            padding: 4,
-          }}
-          trigger={
-            <View
-              accessibilityLabel={s().market_sort}
-              tooltip={hintTooltip(
-                () => props.theme,
-                () => s().market_sort,
-              )}
-              class="transition-colors"
-              style={{
-                minHeight: 34,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: props.theme.radius ?? 8,
-                borderWidth: 1,
-                borderColor: props.theme.border,
-                backgroundColor: props.theme.background,
-              }}
-              hoverStyle={interactionStyles(props.theme).hoverStyle}
-              activeStyle={interactionStyles(props.theme).activeStyle}
-              focusVisibleStyle={focusOutline(props.theme)}
-            >
-              <Label theme={props.theme} size={13}>
-                {props.searchActive
-                  ? s().market_search_results
-                  : boardLabel(props.locale, props.board)}
-              </Label>
-              <Text style={{ fontSize: 11, color: props.theme.muted }}>▾</Text>
-            </View>
-          }
-        >
+        <ActionMenu theme={props.theme} label={s().market_sort} minWidth={170}
+          value={props.searchActive ? s().market_search_results : boardLabel(props.locale, props.board)}>
           <Each of={MARKET_BOARDS} key={(board) => board}>
-            {(board) => (
-              <MenuItem
-                role="menuitemradio"
-                checked={!props.searchActive && props.board === board()}
-                onSelect={() => props.onSelectBoard(board())}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  paddingHorizontal: 10,
-                  paddingVertical: 7,
-                  borderRadius: 6,
-                }}
-                hoverStyle={menuItemStyles(props.theme, !props.searchActive && props.board === board()).hoverStyle}
-                activeStyle={menuItemStyles(props.theme, !props.searchActive && props.board === board()).activeStyle}
-                focusStyle={menuItemStyles(props.theme, !props.searchActive && props.board === board()).focusStyle}
-                checkedStyle={menuItemStyles(props.theme, !props.searchActive && props.board === board()).checkedStyle}
-                disabledStyle={menuItemStyles(props.theme, !props.searchActive && props.board === board()).disabledStyle}
-              >
-                <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>
-                  {!props.searchActive && props.board === board() ? "✓" : ""}
-                </Text>
-                <Label theme={props.theme} size={13}>
-                  {boardLabel(props.locale, board())}
-                </Label>
-              </MenuItem>
-            )}
+            {(board) => <MenuAction theme={props.theme} label={boardLabel(props.locale, board())}
+              checked={!props.searchActive && props.board === board()}
+              onSelect={() => props.onSelectBoard(board())} />}
           </Each>
-        </Menu>
+        </ActionMenu>
 
-        {/* Source Filter Select (searchable) */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
-          <Select
-            items={props.sourceSelectItems}
-            value={props.sourceFilter ?? ALL_SOURCES_VALUE}
-            searchable
-            searchPlaceholder={s().market_source_search}
-            searchAccessibilityLabel={s().market_source_search}
-            accessibilityLabel={s().market_source_label}
-            disabled={props.totalItemsCount === 0}
-            offset={4}
-            onChange={({ value }) => {
-              props.onSelectSourceFilter(!value || value === ALL_SOURCES_VALUE ? null : value);
-            }}
-            popupStyle={popup().popupStyle}
-            listStyle={popup().listStyle}
-            searchStyle={popup().searchStyle}
-            itemClass={popup().itemClass}
-            cover={false}
-            itemStyle={{
-              paddingHorizontal: 10,
-              paddingVertical: 7,
-              borderRadius: 6,
-              fontSize: 13,
-              color: props.theme.foreground,
-              fontFamily: props.theme.fontFamily,
-            }}
-            trigger={
-              <View
-                class="transition-colors"
-                style={{
-                  width: 176,
-                  minHeight: 34,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 6,
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: props.theme.radius ?? 8,
-                  borderWidth: 1,
-                  borderColor: props.theme.border,
-                  backgroundColor: props.theme.background,
-                }}
-                hoverStyle={interactionStyles(props.theme).hoverStyle}
-                activeStyle={interactionStyles(props.theme).activeStyle}
-                focusVisibleStyle={focusOutline(props.theme)}
-              >
-                <Text
-                  style={{
-                    numberOfLines: 1,
-                    textOverflow: "ellipsis",
-                    flex: 1,
-                    minWidth: 0,
-                    fontSize: 13,
-                    color: props.theme.foreground,
-                    fontFamily: props.theme.fontFamily,
-                  }}
-                >
-                  {props.sourceFilter ?? s().market_all_sources}
-                </Text>
-                <Text style={{ fontSize: 11, color: props.theme.muted }}>▾</Text>
-              </View>
-            }
-          />
+          <SelectControl theme={props.theme} label={s().market_source_label} items={props.sourceSelectItems}
+            value={props.sourceFilter ?? ALL_SOURCES_VALUE} displayValue={props.sourceFilter ?? s().market_all_sources}
+            disabled={props.totalItemsCount === 0} toolbar width={176} popupMinWidth={176}
+            searchable searchLabel={s().market_source_search}
+            onChange={(value) => props.onSelectSourceFilter(!value || value === ALL_SOURCES_VALUE ? null : value)} />
 
           <If when={props.sourceFilter !== null}>
             <ActionButton
@@ -566,22 +440,19 @@ export function MarketplaceTab(props: {
                         }}
                       >
                         <If when={entry().item.source.length > 0}>
-                          <Button
+                          <ActionControl theme={props.theme}
                             onPress={() => props.onSelectSourceFilter(entry().item.source)}
                             accessibilityLabel={`${s().market_filter_scope} · ${entry().item.name} · ${entry().item.source}`}
                             tooltip={hintTooltip(
                               () => props.theme,
                               () => `${s().market_filter_scope} · ${entry().item.source}`,
                             )}
-                            class="flex-row items-center gap-1 transition-colors"
+                            class="flex-row items-center gap-1"
                             style={{
                               flex: 1,
                               minWidth: 0,
                               borderRadius: 4,
                             }}
-                            hoverStyle={interactionStyles(props.theme).hoverStyle}
-                            activeStyle={interactionStyles(props.theme).activeStyle}
-                            focusVisibleStyle={focusOutline(props.theme)}
                           >
                             <Text
                               accessibilityElementsHidden
@@ -611,7 +482,7 @@ export function MarketplaceTab(props: {
                             >
                               {entry().item.source}
                             </Text>
-                          </Button>
+                          </ActionControl>
                         </If>
 
                         <If when={Boolean(entry().item.detail_url)}>

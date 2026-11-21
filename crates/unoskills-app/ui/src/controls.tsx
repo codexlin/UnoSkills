@@ -1,5 +1,6 @@
 import { Image, Text, View, type JSX } from "nsh";
-import { Button, Dialog, Input, Select, Tab, Tooltip, type TabProps } from "nsh/base";
+import { Button, Dialog, Input, Tab, Tooltip,
+  type ButtonProps, type TabProps } from "nsh/base";
 import { iconSource, type IconName } from "./icons";
 import type { Theme } from "./shared";
 
@@ -23,54 +24,45 @@ export function PageHeader(props: { theme: Theme; title: string; children?: JSX.
   </View>;
 }
 
-export function focusOutline(theme: Theme) {
-  return { outlineWidth: 1, outlineOffset: -1, outlineColor: theme.primary };
+export function focusOutline(theme: Theme, offset = -1) {
+  return { outlineWidth: 1, outlineOffset: offset, outlineColor: theme.primary };
 }
 
 export function interactionStyles(theme: Theme, options: { selectedFill?: string; primary?: boolean } = {}) {
   // Bind each state prop explicitly so NSH can track theme and selection changes.
-  const hover = theme.chrome?.hover ?? theme.accent;
+  const hover = options.selectedFill
+    ?? (options.primary ? theme.chrome?.primaryHover ?? theme.primary : theme.chrome?.hover ?? theme.accent);
+  // The native Tabs indicator remains visible through the selected tab.
+  if (hover === "transparent") {
+    return { hoverStyle: { backgroundColor: hover }, activeStyle: { backgroundColor: hover, ...focusOutline(theme) } };
+  }
+  const pressed = options.primary && !options.selectedFill ? theme.chrome?.primaryActive : undefined;
   return {
-    hoverStyle: {
-      backgroundColor: options.selectedFill
-        ?? (options.primary ? theme.chrome?.primaryHover ?? theme.primary : hover),
-    },
+    hoverStyle: { backgroundColor: hover },
     activeStyle: {
-      backgroundColor: options.selectedFill
-        ?? (options.primary ? theme.chrome?.primaryActive ?? theme.primary
-          : `color-mix(in srgb, ${hover} 60%, ${theme.background})`),
+      backgroundColor: pressed ?? `color-mix(in srgb, ${hover} 90%, ${options.primary ? theme.onPrimary : theme.foreground})`,
     },
   };
 }
 
-export function menuItemStyles(theme: Theme, selected = false) {
-  return {
-    ...interactionStyles(theme, { selectedFill: selected ? theme.accent : undefined }),
-    focusStyle: {
-      ...focusOutline(theme),
-      backgroundColor: selected ? theme.accent : theme.chrome?.hover ?? theme.accent,
-    },
-    checkedStyle: { backgroundColor: theme.accent },
-    disabledStyle: { opacity: 0.55 },
-  };
-}
+export const disabledControlStyle = { opacity: 0.5 };
 
-export function selectPopupStyles(theme: Theme, options: { searchable?: boolean; width?: number; minWidth?: number; height?: number } = {}) {
-  const maxHeight = options.height ?? 244;
-  return {
-    popupStyle: {
-      width: options.width, minWidth: options.minWidth, maxHeight, padding: 4,
-      borderWidth: 1, borderColor: theme.border, borderRadius: theme.radius, backgroundColor: theme.surface,
-    },
-    listStyle: { maxHeight: maxHeight - (options.searchable ? 48 : 10), minHeight: 0, flexShrink: 1 },
-    itemClass: "focus:bg-muted selected:bg-accent selected:focus:bg-accent focus:outline-1 focus:-outline-offset-1 focus:outline-ring disabled:opacity-50",
-    searchStyle: options.searchable ? {
-      marginBottom: 6, paddingHorizontal: 8, minHeight: 32, flexShrink: 0,
-      color: theme.foreground, placeholderColor: theme.muted, backgroundColor: theme.background,
-      fontFamily: theme.fontFamily, fontSize: theme.fontSize,
-      borderWidth: 1, borderColor: theme.chrome?.inputBorder ?? theme.border, borderRadius: theme.radius,
-    } : undefined,
-  };
+type ActionControlProps = Pick<ButtonProps, "role" | "accessibilityLabel" | "onPress" | "disabled"
+  | "selected" | "class" | "style" | "tooltip" | "children"> & {
+  theme: Theme;
+  primary?: boolean;
+  dangerFill?: boolean;
+};
+
+export function ActionControl(props: ActionControlProps) {
+  const selection = () => props.dangerFill ? props.theme.danger
+    : props.selected && !props.primary ? props.theme.accent : undefined;
+  const states = () => interactionStyles(props.theme, { primary: props.primary, selectedFill: selection() });
+  return <Button role={props.role} accessibilityLabel={props.accessibilityLabel} onPress={props.onPress}
+    disabled={props.disabled} selected={props.selected} class={props.class} style={props.style} tooltip={props.tooltip}
+    hoverStyle={states().hoverStyle} activeStyle={states().activeStyle} focusVisibleStyle={focusOutline(props.theme, 1)}
+    selectedStyle={selection() ? { backgroundColor: selection(), borderColor: props.theme.primary } : undefined}
+    disabledStyle={disabledControlStyle}>{props.children}</Button>;
 }
 
 export function TabItem(props: Pick<TabProps, "accessibilityLabel" | "class" | "style" | "children"> & {
@@ -142,12 +134,8 @@ export function Action(props: {
   const ghost = () => props.variant === "ghost";
   const height = () => props.height ?? (props.compact ? 30 : 36);
   const ink = () => primary() ? props.theme.onPrimary : props.danger ? props.theme.danger : props.theme.foreground;
-  const states = () => interactionStyles(props.theme, {
-    primary: primary(),
-    selectedFill: !primary() && props.selected ? props.theme.accent : undefined,
-  });
   return (
-    <Button
+    <ActionControl theme={props.theme} primary={primary()}
       role={props.role}
       accessibilityLabel={props.label}
       onPress={() => props.onPress()}
@@ -171,16 +159,12 @@ export function Action(props: {
         borderColor: primary() ? props.theme.primary : ghost() ? "transparent" : props.theme.border,
         borderWidth: 1,
       }}
-      hoverStyle={states().hoverStyle}
-      activeStyle={states().activeStyle}
-      focusVisibleStyle={focusOutline(props.theme)}
-      disabledStyle={{ opacity: 0.5 }}
     >
       {props.glyph ? <Icon name={props.glyph} color={ink()} size={height() <= 20 ? 12 : height() <= 24 ? 14 : 16} /> : null}
       {!props.iconOnly ? <Label theme={props.theme} color={ink()} weight="500" size={height() <= 20 ? textSize(props.theme, 12) : undefined}>
         {props.icon ?? props.label}
       </Label> : null}
-    </Button>
+    </ActionControl>
   );
 }
 
@@ -234,54 +218,6 @@ export function FormText(props: {
           minHeight: 32, paddingHorizontal: 10, paddingVertical: 4,
         }}
         focusStyle={{ borderColor: props.theme.primary }}
-      />
-    </View>
-  );
-}
-
-export function Choice(props: {
-  theme: Theme;
-  title: string;
-  detail?: string;
-  value: string;
-  items: { value: string; title: string }[];
-  inline?: boolean;
-  searchable?: boolean;
-  searchLabel?: string;
-  onChange: (value: string) => void;
-}) {
-  const popup = () => selectPopupStyles(props.theme, { searchable: props.searchable });
-  return (
-    <View style={{ gap: 4, minWidth: 0 }}>
-      {!props.inline ? <Label theme={props.theme}>{props.title}</Label> : null}
-      {!props.inline && props.detail ? <Label theme={props.theme} muted>{props.detail}</Label> : null}
-      <Select
-        items={props.items}
-        value={props.value}
-        accessibilityLabel={props.title}
-        searchable={props.searchable}
-        searchAccessibilityLabel={props.searchLabel}
-        searchPlaceholder={props.searchLabel}
-        onChange={({ value }) => { if (value !== null) props.onChange(value); }}
-        offset={4}
-        popupStyle={popup().popupStyle}
-        listStyle={popup().listStyle}
-        searchStyle={popup().searchStyle}
-        itemClass={popup().itemClass}
-        cover={false}
-        itemStyle={{ borderRadius: props.theme.radius, paddingHorizontal: 8, paddingVertical: 6 }}
-        renderItem={(item) => <Label theme={props.theme}>{item.title}</Label>}
-        trigger={
-          <View
-            hoverStyle={interactionStyles(props.theme).hoverStyle}
-            activeStyle={interactionStyles(props.theme).activeStyle}
-            focusVisibleStyle={focusOutline(props.theme)} style={{ minHeight: props.inline ? 28 : 36, paddingHorizontal: 10, borderRadius: props.theme.radius,
-            borderColor: props.theme.border, borderWidth: 1, backgroundColor: props.theme.background,
-            flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <Label theme={props.theme} truncate>{props.items.find((item) => item.value === props.value)?.title ?? props.value}</Label>
-            <Text accessibilityElementsHidden style={{ color: props.theme.muted }}>{"▾"}</Text>
-          </View>
-        }
       />
     </View>
   );

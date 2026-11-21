@@ -1,6 +1,6 @@
 import { type InputRef, List, type ListRef, Text, View } from "nsh";
-import { Button, Checkbox } from "nsh/base";
-import { Label, focusOutline, interactionStyles } from "../controls";
+import { Checkbox } from "nsh/base";
+import { ActionControl, Label, focusOutline, interactionStyles } from "../controls";
 import type { Theme } from "../shared";
 import {
   ActionButton,
@@ -247,7 +247,7 @@ export function AdoptTab(props: {
                       backgroundColor: props.theme.surface,
                     }}
                   >
-                    <Button
+                    <ActionControl theme={props.theme}
                       onPress={() => {
                         const current = row();
                         if (current.kind === "group") {
@@ -259,9 +259,7 @@ export function AdoptTab(props: {
                         flexShrink: 1,
                         minWidth: 0,
                       }}
-                      hoverStyle={interactionStyles(props.theme).hoverStyle}
-                      activeStyle={interactionStyles(props.theme).activeStyle}
-                      focusVisibleStyle={focusOutline(props.theme)}
+
                     >
                       <Text style={{ fontSize: 12, color: props.theme.muted }}>
                         {row().kind === "group" &&
@@ -287,7 +285,7 @@ export function AdoptTab(props: {
                             })`
                           : ""}
                       </Text>
-                    </Button>
+                    </ActionControl>
 
                     <View style={{ flex: 1 }} />
 

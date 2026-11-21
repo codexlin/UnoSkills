@@ -1,6 +1,7 @@
 import { List, Scroll, View, computed, effect, signal, type JSX } from "nsh";
-import { Button, Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
-import { Action, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, focusOutline, interactionStyles, textSize } from "./controls";
+import { Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
+import { Action, ActionControl, FormText, Icon, InlineError, Label, Modal, PageHeader, focusOutline, interactionStyles, textSize } from "./controls";
+import { Choice } from "./popups";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps, type Theme } from "./shared";
 import { paletteFor, palettes, type Preferences } from "./theme";
@@ -38,18 +39,15 @@ export function Settings(props: SettingsProps) {
         <View class="shrink-0 gap-1 p-3" style={{ width: 184, borderRightWidth: 1, borderColor: props.theme.border }}>
           <Each of={tabs()} key={(tab) => tab.id}>
             {(tab) => (
-              <Button accessibilityLabel={tab().label} selected={section() === tab().id}
+              <ActionControl theme={props.theme} accessibilityLabel={tab().label} selected={section() === tab().id}
                 class="w-full min-h-8 flex-row items-center gap-2 px-2"
                 style={{ borderRadius: props.theme.radius, borderWidth: 1,
                   borderColor: section() === tab().id ? props.theme.primary : "transparent",
                   backgroundColor: section() === tab().id ? props.theme.accent : undefined }}
-                hoverStyle={interactionStyles(props.theme, { selectedFill: section() === tab().id ? props.theme.accent : undefined }).hoverStyle}
-                activeStyle={interactionStyles(props.theme, { selectedFill: section() === tab().id ? props.theme.accent : undefined }).activeStyle}
-                focusVisibleStyle={focusOutline(props.theme)}
                 onPress={() => props.navigate({ page: "settings", tab: tab().id })}>
                 <Icon name={tab().icon} size={16} color={section() === tab().id ? props.theme.primary : props.theme.muted} />
                 <Label theme={props.theme} truncate weight={section() === tab().id ? "600" : "400"}>{tab().label}</Label>
-              </Button>
+              </ActionControl>
             )}
           </Each>
         </View>
@@ -398,15 +396,12 @@ function Agents(props: SettingsProps) {
         {detected().length ? renderRows(detected()) : null}
         {undetected().length ? (
           <Collapsible open={showUndetected()} content={renderRows(undetected())}>
-            <Button accessibilityLabel={t().badge_not_detected} selected={showUndetected()}
+            <ActionControl theme={props.theme} accessibilityLabel={t().badge_not_detected} selected={showUndetected()}
               class="min-h-8 flex-row items-center gap-2 px-3"
-              hoverStyle={interactionStyles(props.theme).hoverStyle}
-              activeStyle={interactionStyles(props.theme).activeStyle}
-              focusVisibleStyle={focusOutline(props.theme)}
               onPress={() => showUndetected.update((shown) => !shown)}>
               <View class={showUndetected() ? "rotate-90" : undefined}><Icon name="chevron-right" color={props.theme.muted} size={14} /></View>
               <Label theme={props.theme} weight="600">{`${t().badge_not_detected} (${undetected().length})`}</Label>
-            </Button>
+            </ActionControl>
           </Collapsible>
         ) : null}
         </View>

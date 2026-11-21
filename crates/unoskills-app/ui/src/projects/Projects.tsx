@@ -1,7 +1,8 @@
 import { computed, List, Scroll, signal, View } from "nsh";
 import type { ScreenProps } from "../shared";
+import { ActionMenu, MenuAction } from "../popups";
 import {
-  Action, Check, Choice, Feedback, Footer, Header, Heading, Label, MenuAction, OverflowMenu,
+  Action, Check, Choice, Feedback, Footer, Header, Heading, Label,
   actions, confirm, load, operation, row, toggle, viewport,
 } from "./controls";
 import { request, type Agent, type Project } from "./host";
@@ -148,14 +149,14 @@ function ProjectDetail(props: {
         run={() => screen.navigate({ page: "library", ...target(), scopePath: module()?.path ?? screen.route.scopePath ?? "" })} />
       <Action theme={screen.theme} label={t().rescan} glyph="refresh-cw"
         disabled={op.busy()} pending={projectsScan().pending} run={rescanProject} />
-      <OverflowMenu theme={screen.theme} label={t().projectActions}>
-        <MenuAction theme={screen.theme} label={t().attach} disabled={props.attaching || op.busy()} run={props.attach} />
+      <ActionMenu theme={screen.theme} label={t().projectActions}>
+        <MenuAction theme={screen.theme} label={t().attach} disabled={props.attaching || op.busy()} onSelect={props.attach} />
         <If when={props.canSwitch}>
           <MenuAction theme={screen.theme} label={t().switchProject} disabled={op.busy()}
-            run={() => screen.navigate({ page: "projects", tab: "choose" })} />
+            onSelect={() => screen.navigate({ page: "projects", tab: "choose" })} />
         </If>
-        <MenuAction theme={screen.theme} label={t().detach} danger disabled={props.attaching || op.busy()} run={detach} />
-      </OverflowMenu>
+        <MenuAction theme={screen.theme} label={t().detach} danger disabled={props.attaching || op.busy()} onSelect={detach} />
+      </ActionMenu>
     </Header>
     <View style={{ ...viewport, flexDirection: "row" }}>
       <Scroll style={viewport} contentStyle={{ padding: 16, gap: 12 }}>

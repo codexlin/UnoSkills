@@ -12,18 +12,15 @@ import {
 } from "nsh";
 import {
   AlertDialog,
-  Menu,
-  MenuItem,
-  MenuSeparator,
   ResizablePanel,
   ResizablePanelGroup,
-  Select,
 } from "nsh/base";
-import { Label, focusOutline, interactionStyles, menuItemStyles, selectPopupStyles } from "../controls";
+import { Label } from "../controls";
+import { ActionMenu, MenuAction, MenuDivider, SelectControl } from "../popups";
 import type { ScreenProps } from "../shared";
 import { LibraryListPane } from "./LibraryListPane";
 import { SkillInspector } from "./SkillInspector";
-import { ActionButton, AlertBanner, PageHeader, SearchField, hintTooltip } from "./controls";
+import { ActionButton, AlertBanner, PageHeader, SearchField } from "./controls";
 import { isProjectSkillAvailable, isSkillDeployedTo, joinPath } from "./format";
 import {
   attachProject,
@@ -69,7 +66,6 @@ import type {
 const ALL_AGENTS_VALUE = "__all_agents__";
 
 export function Library(props: ScreenProps) {
-  const popup = () => selectPopupStyles(props.theme, { minWidth: 200 });
   const skills = signal<Skill[]>([]);
   const agents = signal<AgentInfo[]>([]);
   const projects = signal<ProjectWorkspace[]>([]);
@@ -890,239 +886,30 @@ export function Library(props: ScreenProps) {
           onChange={(value) => searchQuery.set(value)}
         />
 
-        {/* Scope dropdown Menu */}
-        <Menu
-          offset={4}
-          popupStyle={{
-            minWidth: 220,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: props.theme.border,
-            backgroundColor: props.theme.surface,
-            padding: 4,
-          }}
-          trigger={
-            <View
-              accessibilityLabel={s().library_scope}
-              tooltip={hintTooltip(
-                () => props.theme,
-                () => s().library_scope,
-              )}
-              class="transition-colors"
-              style={{
-                minHeight: 34,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                maxWidth: 260,
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: props.theme.radius ?? 8,
-                borderWidth: 1,
-                borderColor: props.theme.border,
-                backgroundColor: props.theme.background,
-              }}
-              hoverStyle={interactionStyles(props.theme).hoverStyle}
-              activeStyle={interactionStyles(props.theme).activeStyle}
-              focusVisibleStyle={focusOutline(props.theme)}
-            >
-              <Text
-                style={{
-                  numberOfLines: 1,
-                  textOverflow: "ellipsis",
-                  fontSize: 13,
-                  color: props.theme.foreground,
-                  fontFamily: props.theme.fontFamily,
-                  flexShrink: 1,
-                }}
-              >
-                {scopeLabel()}
-              </Text>
-              <Text style={{ fontSize: 11, color: props.theme.muted }}>▾</Text>
-            </View>
-          }
-        >
-          <MenuItem
-            role="menuitemradio"
-            checked={selectedProjectId() === null}
-            onSelect={() => {
-              void changeScope(null, "");
-            }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              paddingHorizontal: 10,
-              paddingVertical: 7,
-              borderRadius: 6,
-            }}
-            hoverStyle={menuItemStyles(props.theme, selectedProjectId() === null).hoverStyle}
-            activeStyle={menuItemStyles(props.theme, selectedProjectId() === null).activeStyle}
-            focusStyle={menuItemStyles(props.theme, selectedProjectId() === null).focusStyle}
-            checkedStyle={menuItemStyles(props.theme, selectedProjectId() === null).checkedStyle}
-            disabledStyle={menuItemStyles(props.theme, selectedProjectId() === null).disabledStyle}
-          >
-            <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>
-              {selectedProjectId() === null ? "✓" : ""}
-            </Text>
-            <Label theme={props.theme} size={13}>
-              {s().scope_global}
-            </Label>
-          </MenuItem>
-
+        <ActionMenu theme={props.theme} label={s().library_scope} value={scopeLabel()}
+          minWidth={220} maxTriggerWidth={260}>
+          <MenuAction theme={props.theme} label={s().scope_global} checked={selectedProjectId() === null}
+            onSelect={() => void changeScope(null, "")} />
           <If when={Boolean(activeProject() && selectedScopePath())}>
-            <MenuItem
-              role="menuitemradio"
-              checked
-              onSelect={() => {
-                const project = activeProject();
-                if (project) {
-                  void changeScope(project.id, selectedScopePath());
-                }
-              }}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                paddingHorizontal: 10,
-                paddingVertical: 7,
-                borderRadius: 6,
-              }}
-              hoverStyle={menuItemStyles(props.theme, true).hoverStyle}
-              activeStyle={menuItemStyles(props.theme, true).activeStyle}
-              focusStyle={menuItemStyles(props.theme, true).focusStyle}
-              checkedStyle={menuItemStyles(props.theme, true).checkedStyle}
-              disabledStyle={menuItemStyles(props.theme, true).disabledStyle}
-            >
-              <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>✓</Text>
-              <Label theme={props.theme} size={13} truncate>
-                {scopeLabel()}
-              </Label>
-            </MenuItem>
+            <MenuAction theme={props.theme} label={scopeLabel()} checked onSelect={() => {
+              const project = activeProject();
+              if (project) void changeScope(project.id, selectedScopePath());
+            }} />
           </If>
-
           <Each of={projects()} key={(project) => project.id}>
-            {(project) => (
-              <MenuItem
-                role="menuitemradio"
-                checked={selectedProjectId() === project().id && selectedScopePath() === ""}
-                onSelect={() => {
-                  void changeScope(project().id, "");
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  paddingHorizontal: 10,
-                  paddingVertical: 7,
-                  borderRadius: 6,
-                }}
-                hoverStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").hoverStyle}
-                activeStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").activeStyle}
-                focusStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").focusStyle}
-                checkedStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").checkedStyle}
-                disabledStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").disabledStyle}
-              >
-                <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>
-                  {selectedProjectId() === project().id && selectedScopePath() === "" ? "✓" : ""}
-                </Text>
-                <Label theme={props.theme} size={13} truncate>
-                  {project().name}
-                </Label>
-              </MenuItem>
-            )}
+            {(project) => <MenuAction theme={props.theme} label={project().name}
+              checked={selectedProjectId() === project().id && selectedScopePath() === ""}
+              onSelect={() => void changeScope(project().id, "")} />}
           </Each>
+          <MenuDivider theme={props.theme} />
+          <MenuAction theme={props.theme} label={s().btn_add_project} leading="+"
+            onSelect={() => void handleAttachProject()} />
+        </ActionMenu>
 
-          <MenuSeparator
-            style={{ height: 1, marginVertical: 4, backgroundColor: props.theme.border }}
-          />
-
-          <MenuItem
-            onSelect={() => {
-              void handleAttachProject();
-            }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              paddingHorizontal: 10,
-              paddingVertical: 7,
-              borderRadius: 6,
-            }}
-            hoverStyle={menuItemStyles(props.theme).hoverStyle}
-            activeStyle={menuItemStyles(props.theme).activeStyle}
-            focusStyle={menuItemStyles(props.theme).focusStyle}
-            checkedStyle={menuItemStyles(props.theme).checkedStyle}
-            disabledStyle={menuItemStyles(props.theme).disabledStyle}
-          >
-            <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>+</Text>
-            <Label theme={props.theme} size={13}>
-              {s().btn_add_project}
-            </Label>
-          </MenuItem>
-        </Menu>
-
-        {/* Agent filter Select */}
-        <Select
-          items={agentSelectItems()}
-          value={agentFilter() ?? ALL_AGENTS_VALUE}
-          onChange={({ value }) => {
-            agentFilter.set(!value || value === ALL_AGENTS_VALUE ? null : value);
-          }}
-          accessibilityLabel={s().library_agent_filter}
-          offset={4}
-          popupStyle={popup().popupStyle}
-          listStyle={popup().listStyle}
-          itemClass={popup().itemClass}
-          cover={false}
-          itemStyle={{
-            paddingHorizontal: 10,
-            paddingVertical: 7,
-            borderRadius: 6,
-            fontSize: 13,
-            color: props.theme.foreground,
-            fontFamily: props.theme.fontFamily,
-          }}
-          trigger={
-            <View
-              tooltip={hintTooltip(
-                () => props.theme,
-                () => s().library_agent_filter,
-              )}
-              class="transition-colors"
-              style={{
-                minHeight: 34,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                maxWidth: 224,
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: props.theme.radius ?? 8,
-                borderWidth: 1,
-                borderColor: props.theme.border,
-                backgroundColor: props.theme.background,
-              }}
-              hoverStyle={interactionStyles(props.theme).hoverStyle}
-              activeStyle={interactionStyles(props.theme).activeStyle}
-              focusVisibleStyle={focusOutline(props.theme)}
-            >
-              <Text
-                style={{
-                  numberOfLines: 1,
-                  textOverflow: "ellipsis",
-                  fontSize: 13,
-                  color: props.theme.foreground,
-                  fontFamily: props.theme.fontFamily,
-                  flexShrink: 1,
-                }}
-              >
-                {selectedAgentLabel()}
-              </Text>
-              <Text style={{ fontSize: 11, color: props.theme.muted }}>▾</Text>
-            </View>
-          }
-        />
+        <SelectControl theme={props.theme} label={s().library_agent_filter} hint={s().library_agent_filter}
+          items={agentSelectItems()} value={agentFilter() ?? ALL_AGENTS_VALUE} displayValue={selectedAgentLabel()}
+          toolbar maxWidth={224} popupMinWidth={200}
+          onChange={(value) => agentFilter.set(!value || value === ALL_AGENTS_VALUE ? null : value)} />
 
         <View style={{ flex: 1 }} />
 

@@ -1,6 +1,6 @@
 import { type InputRef, type JSX, Text, View } from "nsh";
-import { Button, Input, Progress, Tabs, Tooltip } from "nsh/base";
-import { InlineError, Label, TabItem, focusOutline, interactionStyles } from "../controls";
+import { Input, Progress, Tabs, Tooltip } from "nsh/base";
+import { ActionControl, InlineError, Label, TabItem } from "../controls";
 import type { Theme } from "../shared";
 import { TOKEN_BUDGET_WARN_THRESHOLD, formatTokensShort } from "./format";
 
@@ -81,12 +81,8 @@ export function ActionButton(props: {
     }
   };
 
-  const states = () => interactionStyles(props.theme, {
-    primary: kind() === "primary",
-    selectedFill: kind() === "danger" ? props.theme.danger : props.selected ? props.theme.accent : undefined,
-  });
   return (
-    <Button
+    <ActionControl theme={props.theme} primary={kind() === "primary"} dangerFill={kind() === "danger"}
       onPress={props.onPress}
       disabled={isDisabled()}
       selected={props.selected}
@@ -99,7 +95,6 @@ export function ActionButton(props: {
             )
           : undefined
       }
-      class="transition-colors"
       style={{
         flexDirection: "row",
         alignItems: "center",
@@ -115,14 +110,6 @@ export function ActionButton(props: {
         paddingVertical: props.compact ? 4 : 6,
         flexShrink: 0,
       }}
-      hoverStyle={states().hoverStyle}
-      activeStyle={states().activeStyle}
-      focusVisibleStyle={focusOutline(props.theme)}
-      selectedStyle={{
-        backgroundColor: props.theme.accent,
-        borderColor: props.theme.primary,
-      }}
-      disabledStyle={{ opacity: 0.48 }}
     >
       <If when={Boolean(props.icon)}>
         <Text
@@ -150,7 +137,7 @@ export function ActionButton(props: {
           {props.loading ? `${props.label ?? ""}…` : (props.label ?? "")}
         </Text>
       </If>
-    </Button>
+    </ActionControl>
   );
 }
 
@@ -207,7 +194,7 @@ export function SearchField(props: {
         }}
       />
       <If when={props.value.length > 0}>
-        <Button
+        <ActionControl theme={props.theme}
           accessibilityLabel={props.clearLabel}
           onPress={() => {
             if (props.onClear) {
@@ -224,12 +211,9 @@ export function SearchField(props: {
             justifyContent: "center",
             flexShrink: 0,
           }}
-          hoverStyle={interactionStyles(props.theme).hoverStyle}
-          activeStyle={interactionStyles(props.theme).activeStyle}
-          focusVisibleStyle={focusOutline(props.theme)}
         >
           <Text style={{ fontSize: 12, color: props.theme.muted }}>×</Text>
-        </Button>
+        </ActionControl>
       </If>
     </View>
   );

@@ -1,10 +1,11 @@
 import { Clipboard, cleanup, computed, effect, keymap, List, Scroll, signal, Text, View, type InputRef, type JSX } from "nsh";
-import { Button, MenuSeparator, ResizablePanel, ResizablePanelGroup, Tabs } from "nsh/base";
+import { Button, ResizablePanel, ResizablePanelGroup, Tabs } from "nsh/base";
 import { Icon, TabItem, focusOutline, interactionStyles } from "../controls";
+import { ActionMenu, MenuAction, MenuDivider } from "../popups";
 import type { IconName } from "../icons";
 import type { ScreenProps, Theme } from "../shared";
 import {
-  Action, Choice, Feedback, Field, Footer, Header, Heading, Label, MenuAction, OverflowMenu,
+  Action, Choice, Feedback, Field, Footer, Header, Heading, Label,
   confirm, load, operation, padding, row, viewport,
 } from "./controls";
 import { StackDeploy } from "./deploy";
@@ -368,23 +369,23 @@ function StackDetail(props: {
           <If when={props.stack.description}><Label theme={screen.theme} label={props.stack.description} /></If>
         </View>
         <View style={{ alignSelf: "flex-start", flexShrink: 0 }}>
-          <OverflowMenu theme={screen.theme} label={t().stackActions}>
-            <MenuAction theme={screen.theme} label={t().copyToml} disabled={op.busy()} run={copyToml} />
-            <MenuAction theme={screen.theme} label={t().export} disabled={op.busy()} run={exportToml} />
-            <MenuAction theme={screen.theme} label={t().share} disabled={op.busy()} run={share} />
+          <ActionMenu theme={screen.theme} label={t().stackActions}>
+            <MenuAction theme={screen.theme} label={t().copyToml} disabled={op.busy()} onSelect={copyToml} />
+            <MenuAction theme={screen.theme} label={t().export} disabled={op.busy()} onSelect={exportToml} />
+            <MenuAction theme={screen.theme} label={t().share} disabled={op.busy()} onSelect={share} />
             <If when={isLocal()} else={
               <If when={hasLocal()}>
-                <MenuAction theme={screen.theme} label={t().Local} disabled={op.busy()} run={() => {
+                <MenuAction theme={screen.theme} label={t().Local} disabled={op.busy()} onSelect={() => {
                   const stack = props.local.find(({ id }) => id === props.stack.id);
                   if (stack) props.open(stack);
                 }} />
               </If>
             }>
-              <MenuSeparator style={{ height: 1, backgroundColor: screen.theme.border, marginVertical: 4 }} />
-              <MenuAction theme={screen.theme} label={t().edit} disabled={op.busy()} run={() => props.open(props.stack, "edit")} />
-              <MenuAction theme={screen.theme} label={t().delete} danger disabled={op.busy()} run={remove} />
+              <MenuDivider theme={screen.theme} />
+              <MenuAction theme={screen.theme} label={t().edit} disabled={op.busy()} onSelect={() => props.open(props.stack, "edit")} />
+              <MenuAction theme={screen.theme} label={t().delete} danger disabled={op.busy()} onSelect={remove} />
             </If>
-          </OverflowMenu>
+          </ActionMenu>
         </View>
       </View>
       <If when={props.stack.recommended_agents.length > 0}>

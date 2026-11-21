@@ -769,7 +769,13 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     await app.press("label:Clear source filter");
     await app.waitFor("text:Second Skill");
 
-    await app.press("label:Leaderboard");
+    const leaderboard = "label:Leaderboard";
+    await app.press(leaderboard);
+    await app.waitFor("text:Hot");
+    expect(app.viewStyle(leaderboard)?.backgroundColor).toBe("#eef2ffff");
+    await app.keyboard.press("escape");
+    await app.waitUntil(() => !app.shows("text:Hot"));
+    await app.press(leaderboard);
     await app.press("text:Hot");
     await app.waitFor("text:Fourth Skill");
     expect(app.shows("text:First Skill")).toBe(false);
