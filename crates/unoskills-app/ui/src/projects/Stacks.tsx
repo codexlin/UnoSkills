@@ -1,4 +1,4 @@
-import { Clipboard, keymap, List, Scroll, signal, View, type InputRef } from "nsh";
+import { effect, Clipboard, keymap, List, Scroll, signal, View, type InputRef } from "nsh";
 import type { ScreenProps } from "../shared";
 import {
   Action, Choice, Feedback, Field, Heading, Label, RowButton, SidebarPane, WorkspacePane,
@@ -59,7 +59,10 @@ export function Stacks(props: ScreenProps) {
   const mode = () => props.route.tab;
   const isBrowse = () => !["create", "edit", "import", "deploy"].includes(mode() ?? "");
   let search: InputRef | undefined;
-  keymap.bind("mod+k", () => search?.focus());
+  effect(() => {
+    if (!props.active) return;
+    return keymap.bind("mod+k", () => search?.focus());
+  });
 
   function open(stack: Stack, tab?: string) {
     props.navigate({

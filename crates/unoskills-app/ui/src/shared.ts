@@ -39,6 +39,7 @@ export interface ScreenProps {
   theme: Theme;
   route: Route;
   navigate(route: Route): void;
+  active: boolean;
   revision: number;
   refresh(): void;
   notify(message: string, tone?: Tone): void;

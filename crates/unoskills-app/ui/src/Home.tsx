@@ -1,7 +1,8 @@
-import { Scroll, View, computed, effect, openUrl, signal, windowSize } from "nsh";
+import { Scroll, View, cleanup, computed, effect, openUrl, signal, windowSize } from "nsh";
 import { Action, InlineError, Label, Section } from "./controls";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps } from "./shared";
+import { request } from "./projects/host";
 
 type Board = "trending" | "all-time";
 type RecentSkill = { id: string; name: string; date: string | null };
@@ -13,13 +14,14 @@ type Summary = {
 };
 type Ranking = { id: string; name: string; installs: number; source: string; url: string | null };
 
-export function Home(props: ScreenProps) {
+export function Home(props: ScreenProps & { onAdoptableCount: (count: number) => void }) {
   const t = () => strings[props.locale];
   const [summary, summaryError] = [signal<Summary | null>(null), signal("")];
   const board = signal<Board>("trending");
   const cache = signal<Partial<Record<Board, Ranking[]>>>({});
   const marketError = signal("");
   const marketLoading = signal(false);
+  const attaching = signal(false);
   const medium = () => windowSize().width >= 1120;
   const activeRows = computed(() => cache()[board()]);
 
@@ -28,13 +30,14 @@ export function Home(props: ScreenProps) {
     let current = true;
     summaryError.set("");
     call<null, Summary>("home.summary", null).then(
-      (data) => { if (current) summary.set(data); },
+      (data) => { if (current) { summary.set(data); props.onAdoptableCount(data.adoptable_count); } },
       (error) => { if (current) summaryError.set(errorMessage(error)); },
     );
     return () => { current = false; };
   });
 
   let marketRequest = 0;
+  cleanup(() => { marketRequest += 1; });
   async function loadBoard(selected: Board, force = false) {
     const request = ++marketRequest;
     marketLoading.set(false);
@@ -43,7 +46,7 @@ export function Home(props: ScreenProps) {
     marketLoading.set(true);
     try {
       const rows = await call<{ board: Board }, Ranking[]>("home.market", { board: selected });
-      cache.update((entries) => ({ ...entries, [selected]: rows }));
+      if (request === marketRequest) cache.update((entries) => ({ ...entries, [selected]: rows }));
     } catch (error) {
       if (request === marketRequest) marketError.set(errorMessage(error));
     } finally {
@@ -58,6 +61,22 @@ export function Home(props: ScreenProps) {
       props.navigate({ page: "discover", tab: "install", source: row.source });
     } catch (error) {
       props.notify(errorMessage(error), "error");
+    }
+  }
+
+  async function attachProject() {
+    if (attaching()) return;
+    attaching.set(true);
+    try {
+      const path = await call<{ title: string }, string | null>("dialog.folder", { title: t().btn_add_project });
+      if (!path) return;
+      const project = await request("project.attach", { path });
+      props.navigate({ page: "projects", projectId: project.id, scopePath: "" });
+      props.refresh();
+    } catch (error) {
+      props.notify(errorMessage(error), "error");
+    } finally {
+      attaching.set(false);
     }
   }
 
@@ -97,7 +116,7 @@ export function Home(props: ScreenProps) {
                   <Label theme={props.theme} muted mono truncate>{project().path}</Label>
                 </View>
               }</Each>
-              <Action theme={props.theme} label={t().nav_projects} onPress={() => props.navigate({ page: "projects" })} />
+              <Action theme={props.theme} label={t().btn_add_project} disabled={attaching()} onPress={() => void attachProject()} />
             </Section>
             <Section theme={props.theme} title={t().home_recent}>
               {summary() && !summary()!.recent.length ? <Label theme={props.theme} muted>{t().empty_library_desc}</Label> : null}

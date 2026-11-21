@@ -13,7 +13,6 @@ import { createUpdates, UpdateModal } from "./Updates";
 const nav = [
   { page: "home", label: "nav_home", icon: "⌂" },
   { page: "library", label: "nav_library", icon: "▤" },
-  { page: "projects", label: "nav_projects", icon: "▣" },
   { page: "stacks", label: "nav_stacks", icon: "▱" },
   { page: "discover", label: "nav_discover", icon: "◇" },
   { page: "settings", label: "nav_settings", icon: "⚙" },
@@ -22,8 +21,11 @@ const logo = typeof host.params.brand_mark === "string" ? host.params.brand_mark
 type Notice = { message: string; tone: Tone };
 
 export function App() {
-  const route = signal<Route>({ page: "home" });
-  const page = computed(() => route().page);
+  const page = signal<Page>("home");
+  const visited = signal<Page[]>(["home"]);
+  const routePages: Page[] = [...nav.map(({ page }) => page), "projects"];
+  const routes = new Map(routePages.map((target) => [target, signal<Route>({ page: target })]));
+  const selectedNav = () => page() === "projects" ? "library" : page();
   const revision = signal(0);
   const preferences = signal<Preferences>(defaults);
   const notice = signal<Notice | null>(null);
@@ -33,7 +35,7 @@ export function App() {
   const t = () => strings[locale()];
   const theme = computed(() => makeTheme(preferences()));
   const collapsed = () => windowSize().width < 1080 || preferences().sidebar_collapsed === "true";
-  const lastRoutes = new Map<Page, Route>();
+  const adoptable = signal(0);
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   function notify(message: string, tone: Tone = "info") {
@@ -44,10 +46,9 @@ export function App() {
   }
 
   function navigate(next: Route) {
-    const remembered = { ...next };
-    delete remembered.focusSearch;
-    lastRoutes.set(next.page, remembered);
-    route.set(next);
+    routes.get(next.page)!.set(next);
+    page.set(next.page);
+    if (!visited().includes(next.page)) visited.update((pages) => [...pages, next.page]);
   }
 
   function refresh() {
@@ -98,15 +99,33 @@ export function App() {
     }
   }, { when: "always" });
 
-  const screenProps: ScreenProps = {
+  const propsFor = (target: Page): ScreenProps => ({
     get theme() { return theme(); },
     get locale() { return locale(); },
-    get route() { return route(); },
+    get route() { return routes.get(target)!(); },
+    get active() { return page() === target; },
     get revision() { return revision(); },
     notify,
     navigate,
     refresh,
-  };
+  });
+
+  function renderPage(target: Page) {
+    const screen = propsFor(target);
+    const active = () => page() === target;
+    return (
+      <View accessibilityElementsHidden={!active()}
+        style={{ display: active() ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
+        {target === "library" ? <Library {...screen} />
+          : target === "discover" ? <Discover {...screen} />
+          : target === "projects" ? <Projects {...screen} />
+          : target === "stacks" ? <Stacks {...screen} />
+          : target === "settings" ? (
+            <Settings {...screen} preferences={preferences()} setPreference={setPreference} setNetwork={setNetwork} updates={updates} />
+          ) : <Home {...screen} onAdoptableCount={(count) => adoptable.set(count)} />}
+      </View>
+    );
+  }
   const messageColor = () => notice()?.tone === "error" ? theme().danger
     : notice()?.tone === "success" ? theme().success : theme().foreground;
 
@@ -137,11 +156,12 @@ export function App() {
       <View style={{ flex: 1, minHeight: 0, minWidth: 0, flexDirection: "row" }}>
         <View style={{ width: collapsed() ? 52 : 160, flexShrink: 0, padding: 8, gap: 6,
           backgroundColor: theme().surface, borderRightWidth: 1, borderColor: theme().border }}>
-          {nav.map(({ page, label, icon }) => (
-            <View style={page === "settings" ? { flexGrow: 1, justifyContent: "flex-end" } : {}}>
-              <Action theme={theme()} selected={route().page === page} label={t()[label]} compact
+          {nav.map(({ page: target, label, icon }) => (
+            <View style={target === "settings" ? { flexGrow: 1, justifyContent: "flex-end" } : {}}>
+              <Action theme={theme()} selected={selectedNav() === target}
+                label={target === "discover" && adoptable() > 0 ? `${t()[label]} +${adoptable()}` : t()[label]} compact
                 icon={collapsed() ? icon : undefined}
-                onPress={() => navigate(lastRoutes.get(page) ?? { page })} />
+                onPress={() => navigate({ ...routes.get(target)!(), focusSearch: undefined })} />
             </View>
           ))}
         </View>
@@ -153,13 +173,7 @@ export function App() {
             </View>
           ) : !initialized() ? (
             <View style={{ padding: 20 }}><Label theme={theme()} muted>{t().loading}</Label></View>
-          ) : page() === "library" ? <Library {...screenProps} />
-            : page() === "discover" ? <Discover {...screenProps} />
-            : page() === "projects" ? <Projects {...screenProps} />
-            : page() === "stacks" ? <Stacks {...screenProps} />
-            : page() === "settings" ? (
-              <Settings {...screenProps} preferences={preferences()} setPreference={setPreference} setNetwork={setNetwork} updates={updates} />
-            ) : <Home {...screenProps} />}
+          ) : <Each of={visited()}>{(target) => renderPage(target())}</Each>}
         </View>
       </View>
       {notice() ? (

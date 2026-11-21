@@ -39,7 +39,7 @@ fn bundle() -> anyhow::Result<Bundle> {
 
 fn run() -> anyhow::Result<ExitCode> {
     let bundle = bundle()?;
-    desktop::set_ui_sets(vec![nsh_base::registry(), nsh::dialogs::registry()]);
+    desktop::set_ui_sets(nsh::ui_sets());
     let options = desktop::AppOptions {
         app_id: APP_ID.to_owned(),
         title: "UnoSkills".to_owned(),

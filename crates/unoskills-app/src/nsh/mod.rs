@@ -1,4 +1,4 @@
-pub mod dialogs;
+mod dialogs;
 mod library;
 mod projects;
 mod settings;
@@ -22,6 +22,10 @@ struct Request {
 
 pub fn channel() -> Result<HostChannel> {
     channel_for(UnoSkillsManager::open_default)
+}
+
+pub(super) fn ui_sets() -> Vec<nsh_core::element::Registry> {
+    vec![nsh_base::registry(), dialogs::registry()]
 }
 
 pub(super) fn channel_for(

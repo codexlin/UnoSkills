@@ -23,7 +23,7 @@ export function Action(props: {
   theme: Theme; label: string; run: () => void | Promise<void>;
   disabled?: boolean; selected?: boolean; primary?: boolean; danger?: boolean;
 }) {
-  return <Button disabled={props.disabled} selected={props.selected} onPress={props.run}
+  return <Button accessibilityLabel={props.label} disabled={props.disabled} selected={props.selected} onPress={props.run}
     hoverStyle={{ backgroundColor: props.primary ? props.theme.primary : props.theme.accent }}
     activeStyle={{ opacity: 0.8 }}
     focusStyle={{ borderColor: props.theme.primary }}

@@ -81,7 +81,7 @@ JSON input. The response contains the typed result or an error message and code.
 NSH's Rust file-dialog services supply the picker and reveal actions through `src/nsh/dialogs.rs`.
 
 After a successful mutation, a screen calls `refresh()` to advance the shared revision. Subscribers use the revision
-to update their own snapshots. Retain draft text while refreshing data and discard obsolete async replies when the
+to update their own snapshots. The shell keeps visited screens mounted and exposes whether each screen is active. Bind shortcuts only while the screen is active. Retain draft text while refreshing data and discard obsolete async replies when the
 target changes. Give scrollable regions a constrained viewport and use NSH's virtualized `List` for growing datasets.
 
 ### Desktop development

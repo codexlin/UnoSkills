@@ -72,7 +72,7 @@ Select the skills you want and choose **Save as Stack**. If skills are missing f
 
 ## Desktop screenshots
 
-These screenshots show the current Linux build with a sample workspace.
+These screenshots show UnoSkills with a sample workspace.
 
 <details>
 <summary>Library and Stacks</summary>

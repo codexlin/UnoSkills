@@ -49,9 +49,10 @@ impl Files {
     }
 }
 
-#[native_module("unoskills/desktop")]
-fn native(registry: &mut Registry) {
+pub(super) fn registry() -> Registry {
+    let mut registry = Registry::ui_set("unoskills/desktop");
     registry.module::<Files>();
+    registry
 }
 
 async fn open(
@@ -67,8 +68,7 @@ async fn open(
     }
     pick_paths(dialog)
         .await?
-        .into_iter()
-        .next()
+        .and_then(|paths| paths.into_iter().next())
         .map(path_string)
         .transpose()
 }
