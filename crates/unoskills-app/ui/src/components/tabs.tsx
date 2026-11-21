@@ -42,7 +42,7 @@ export function TabList<Id extends string>(props: TabListProps<Id>) {
             style={{
               minHeight: props.compact ? 24 : 30, paddingHorizontal: tabInset, marginBottom: 4,
               flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-              borderRadius: props.theme.radius, borderWidth: 1, borderColor: "transparent",
+              borderRadius: props.theme.control.radius, borderWidth: 1, borderColor: "transparent",
             }}
             hoverStyle={selected() || tab().disabled ? undefined
               : { backgroundColor: props.theme.chrome?.hover ?? props.theme.accent }}

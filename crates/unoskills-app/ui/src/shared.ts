@@ -25,6 +25,8 @@ export interface Theme {
   primary: string;
   onPrimary: string;
   accent: string;
+  onAccent: string;
+  secondary: { background: string; foreground: string };
   modalBackdrop: string;
   danger: string;
   destructive?: { background: string; foreground: string };
@@ -35,6 +37,10 @@ export interface Theme {
   monoFamily?: string;
   fontSize: number;
   radius: number;
+  ring: string;
+  control: { radius: number; inputFill: string; outlineFill: string; shadow: string };
+  panel: { radius: number; shadow: string };
+  popup: { background: string; foreground: string; shadow: string };
   chrome?: {
     rail: string;
     hover: string;

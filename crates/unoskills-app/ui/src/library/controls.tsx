@@ -204,15 +204,18 @@ export function EmptyState(props: {
   );
 }
 
-export function TokenBadge(props: { theme: Theme; tokens: number }) {
+export function TokenBadge(props: { theme: Theme; tokens: number; selected?: boolean }) {
   const overBudget = () => props.tokens > TOKEN_BUDGET_WARN_THRESHOLD;
+  const ink = () => props.selected
+    ? overBudget() ? `color-mix(in oklab, ${props.theme.warning} 32%, ${props.theme.onAccent})` : props.theme.onAccent
+    : overBudget() ? props.theme.warning : props.theme.muted;
   return (
     <Label
       theme={props.theme}
       mono
       size={12}
       truncate
-      color={overBudget() ? props.theme.warning : props.theme.muted}
+      color={ink()}
     >
       {formatTokensShort(props.tokens)}
     </Label>

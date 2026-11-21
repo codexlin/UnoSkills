@@ -8,7 +8,8 @@ import { dialogAnimation } from "./motion";
 import type { Theme } from "../shared";
 
 function popupSurface(theme: Theme) {
-  return { padding: 4, borderWidth: 1, borderColor: theme.border, borderRadius: theme.radius, backgroundColor: theme.surface };
+  return { padding: 4, borderWidth: 1, borderColor: theme.border, borderRadius: theme.radius,
+    backgroundColor: theme.popup.background, boxShadow: theme.popup.shadow };
 }
 
 function PopupTrigger(props: {
@@ -24,18 +25,19 @@ function PopupTrigger(props: {
       width: iconOnly() ? 32 : props.width, maxWidth: props.maxWidth, minWidth: 0,
       minHeight: props.compact ? 28 : props.toolbar ? 34 : 32, gap: 8,
       paddingHorizontal: iconOnly() ? 0 : props.compact ? 8 : 10,
-      borderRadius: props.theme.radius, borderWidth: 1,
+      borderRadius: props.theme.control.radius, borderWidth: 1,
+      boxShadow: iconOnly() || props.open ? undefined : props.theme.control.shadow,
       borderColor: props.open ? props.theme.primary : iconOnly() ? "transparent" : props.theme.border,
-      backgroundColor: props.open ? props.theme.accent : iconOnly() ? "transparent" : props.theme.background,
+      backgroundColor: props.open ? props.theme.accent : iconOnly() ? "transparent" : props.theme.control.outlineFill,
     }}
     hoverStyle={props.disabled ? undefined : states().hoverStyle}
     activeStyle={props.disabled ? undefined : states().activeStyle}
     focusVisibleStyle={focusOutline(props.theme, 1)} disabledStyle={disabledControlStyle}>
     {iconOnly() ? <Icon name="ellipsis" color={props.theme.foreground} size={16} /> : <>
       <View style={{ flexShrink: 1, minWidth: 0 }}>
-        <Label theme={props.theme} truncate muted={props.muted}>{props.value}</Label>
+        <Label theme={props.theme} truncate muted={props.muted} color={props.open ? props.theme.onAccent : undefined}>{props.value}</Label>
       </View>
-      <Icon name="chevron-down" color={props.theme.muted} size={14} />
+      <Icon name="chevron-down" color={props.open ? props.theme.onAccent : props.theme.muted} size={14} />
     </>}
   </View>;
 }
@@ -62,14 +64,15 @@ export function MenuAction(props: {
   return <MenuItem accessibilityLabel={props.label} role={props.checked === undefined ? undefined : "menuitemradio"}
     checked={props.checked} onSelect={props.onSelect} disabled={props.disabled}
     style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0,
-      paddingHorizontal: 10, paddingVertical: 6, borderRadius: props.theme.radius }}
+      paddingHorizontal: 10, paddingVertical: 6, borderRadius: props.theme.control.radius }}
     hoverStyle={states().hoverStyle} activeStyle={states().activeStyle}
     focusStyle={{ ...focusOutline(props.theme), backgroundColor: states().hoverStyle.backgroundColor }}
     checkedStyle={{ backgroundColor: props.theme.accent }} disabledStyle={disabledControlStyle}>
     {props.checked !== undefined || props.glyph ? <View style={{ width: 14, flexShrink: 0 }}>
-      <If when={glyph()}>{(name) => <Icon name={name()} color={props.theme.primary} size={14} />}</If>
+      <If when={glyph()}>{(name) => <Icon name={name()} color={props.checked ? props.theme.onAccent : props.theme.primary} size={14} />}</If>
     </View> : null}
-    <Label theme={props.theme} truncate color={props.danger ? props.theme.danger : undefined}>{props.label}</Label>
+    <Label theme={props.theme} truncate color={props.danger ? props.theme.danger
+      : props.checked ? props.theme.onAccent : props.theme.popup.foreground}>{props.label}</Label>
   </MenuItem>;
 }
 
@@ -94,17 +97,17 @@ export function SelectControl(props: {
     popupStyle={{ ...popupSurface(props.theme), width: props.popupWidth, minWidth: props.popupMinWidth, maxHeight: height() }}
     listStyle={{ maxHeight: height() - (props.searchable ? 48 : 10), minHeight: 0, flexShrink: 1 }}
     itemClass="focus:bg-muted selected:bg-accent selected:focus:bg-accent focus:outline-1 focus:-outline-offset-1 focus:outline-ring disabled:opacity-50"
-    itemStyle={{ borderRadius: props.theme.radius, paddingHorizontal: 8, paddingVertical: 6 }}
+    itemStyle={{ borderRadius: props.theme.control.radius, paddingHorizontal: 8, paddingVertical: 6 }}
     searchStyle={{
       marginBottom: 6, paddingHorizontal: 8, minHeight: 32, flexShrink: 0,
-      color: props.theme.foreground, placeholderColor: props.theme.muted, backgroundColor: props.theme.background,
+      color: props.theme.popup.foreground, placeholderColor: props.theme.muted, backgroundColor: props.theme.control.inputFill,
       fontFamily: props.theme.fontFamily, fontSize: props.theme.fontSize,
-      borderWidth: 1, borderColor: props.theme.chrome?.inputBorder ?? props.theme.border, borderRadius: props.theme.radius,
+      borderWidth: 1, borderColor: props.theme.chrome?.inputBorder ?? props.theme.border, borderRadius: props.theme.control.radius,
     }}
     renderItem={(item) => {
       const detail = () => props.items[item.index]?.detail;
       return <View style={{ minWidth: 0, gap: 2 }}>
-        <Label theme={props.theme} truncate>{item.title}</Label>
+        <Label theme={props.theme} truncate color={item.value === props.value ? props.theme.onAccent : props.theme.popup.foreground}>{item.title}</Label>
         {detail() ? <Label theme={props.theme} muted truncate size={props.theme.fontSize - 2}>{detail()}</Label> : null}
       </View>;
     }}
@@ -149,9 +152,8 @@ export function Modal(props: {
       onOpenChange={({ open }) => { if (!open) props.onClose(); }}
       backdropStyle={{ backgroundColor: props.theme.modalBackdrop }}
       style={{ alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <View style={{ width: props.width ?? 440, maxWidth: "100%", gap: 16, padding: 20,
-        backgroundColor: props.theme.background, borderColor: props.theme.border, borderWidth: 1,
-        borderRadius: props.theme.radius }}>
+      <View style={{ width: props.width ?? 440, maxWidth: "100%", gap: 16,
+        ...popupSurface(props.theme), padding: 20, borderRadius: props.theme.panel.radius }}>
         <Label theme={props.theme} heading size={20}>{props.label}</Label>
         {props.children}
       </View>

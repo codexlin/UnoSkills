@@ -1,7 +1,7 @@
 import type { Theme } from "../shared";
 
 export function focusOutline(theme: Theme, offset = -1) {
-  return { outlineWidth: 1, outlineOffset: offset, outlineColor: theme.primary };
+  return { outlineWidth: 1, outlineOffset: offset, outlineColor: theme.ring };
 }
 
 export function interactionStyles(theme: Theme, options: { selectedFill?: string; primary?: boolean } = {}) {

@@ -242,7 +242,7 @@ function StackCard(props: { theme: Theme; stack: Stack; locale: ScreenProps["loc
   return <View style={{ paddingHorizontal: 12, paddingVertical: 4 }}>
     <Button accessibilityLabel={props.stack.name} selected={props.selected} onPress={props.run}
       style={{ height: 60, minWidth: 0, overflow: "hidden", justifyContent: "center", gap: 4,
-        paddingHorizontal: 12, borderWidth: 1, borderColor: props.theme.border, borderRadius: props.theme.radius,
+        paddingHorizontal: 12, borderWidth: 1, borderColor: props.theme.border, borderRadius: props.theme.control.radius,
         backgroundColor: props.theme.background }}
       hoverStyle={interactionStyles(props.theme, { selectedFill: props.selected ? props.theme.accent : undefined }).hoverStyle}
       activeStyle={interactionStyles(props.theme, { selectedFill: props.selected ? props.theme.accent : undefined }).activeStyle}
@@ -250,14 +250,15 @@ function StackCard(props: { theme: Theme; stack: Stack; locale: ScreenProps["loc
       selectedStyle={{ backgroundColor: props.theme.accent, borderColor: props.theme.primary }}>
       <View style={row}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Label theme={props.theme} label={props.stack.name} weight="600" lines={1} />
+          <Label theme={props.theme} color={props.selected ? props.theme.onAccent : undefined}
+            label={props.stack.name} weight="600" lines={1} />
         </View>
         <StackBadge theme={props.theme}
           variant={props.stack.verified ? "verified" : props.stack.source === "Community" ? "community" : "local"}
           label={props.stack.verified ? t().verified : props.stack.source === "Community" ? t().Community : t().localBadge} />
       </View>
       <Label theme={props.theme} label={[stackSize(props.locale, props.stack.skills.length), props.stack.description].filter(Boolean).join(" · ")}
-        muted size={12} lines={1} />
+        color={props.selected ? props.theme.onAccent : undefined} muted size={12} lines={1} />
     </Button>
   </View>;
 }
@@ -402,7 +403,7 @@ function StackDetail(props: {
                   onPress={() => screen.navigate({ page: "library", skillId: skill().id })}
                   focusVisibleStyle={{ borderColor: screen.theme.primary }}
                   style={{ flexShrink: 0, minHeight: 24, maxWidth: "46%", justifyContent: "center", borderWidth: 1,
-                    borderColor: "transparent", borderRadius: screen.theme.radius }}>
+                    borderColor: "transparent", borderRadius: screen.theme.control.radius }}>
                   <Label theme={screen.theme} label={status().source_conflict ? t().sourceConflict : t().inLibrary}
                     color={status().source_conflict ? screen.theme.warning : screen.theme.success} size={12} lines={1} />
                 </Button>}

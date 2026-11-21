@@ -1,14 +1,14 @@
 import { Image, Keyboard, View, announce, cleanup, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
 import { titleBar } from "nsh/desktop";
 import { setLocale } from "nsh/i18n";
-import { Action, ActionControl, Hint, Icon, InlineError, Label, textSize } from "./components";
+import { Action, ActionControl, Hint, Icon, InlineError, Label, interactionStyles, textSize } from "./components";
 import { Home } from "./Home";
 import { strings } from "./i18n";
 import { Library, Discover } from "./library";
 import { Projects, Stacks } from "./projects";
 import { Settings } from "./Settings";
 import { call, errorMessage, type Page, type Route, type ScreenProps, type Theme, type Tone } from "./shared";
-import { applyNativeTheme, defaults, makeTheme, type Preferences } from "./theme";
+import { applyNativeTheme, defaults, loadThemeFonts, makeTheme, type Preferences } from "./theme";
 import { createUpdates, UpdateModal } from "./Updates";
 
 const nav = [
@@ -31,7 +31,7 @@ function NavigationItem(props: {
   const ink = () => (props.selected ? sidebar()?.onSelected : sidebar()?.foreground) ?? props.theme.foreground;
   const badgeInk = () => props.selected && sidebar() ? ink() : props.theme.warning;
   const navTheme = computed(() => ({
-    ...props.theme, primary: sidebar()?.ring ?? props.theme.primary,
+    ...props.theme, ring: sidebar()?.ring ?? props.theme.ring,
     accent: sidebar()?.selected ?? props.theme.accent, foreground: sidebar()?.foreground ?? props.theme.foreground,
   }));
   return <ActionControl theme={navTheme()}
@@ -41,7 +41,7 @@ function NavigationItem(props: {
     tooltip={props.collapsed ? <Hint theme={props.theme} text={props.label} placement="right" /> : undefined}
     style={{ width: "100%", minWidth: 0, height: props.collapsed ? 32 : textSize(props.theme, 28),
       flexDirection: "row", alignItems: "center", justifyContent: props.collapsed ? "center" : "flex-start",
-      paddingHorizontal: props.collapsed ? 0 : 8, gap: 8, borderRadius: props.theme.radius,
+      paddingHorizontal: props.collapsed ? 0 : 8, gap: 8, borderRadius: props.theme.control.radius,
       borderWidth: 1, borderColor: props.selected ? navTheme().primary : "transparent",
       backgroundColor: props.selected ? navTheme().accent : "transparent" }}
   >
@@ -121,11 +121,12 @@ export function App() {
   }
 
   const updates = createUpdates(locale, notify);
+  const themeFonts = loadThemeFonts().catch((reason) => console.warn(errorMessage(reason)));
 
   async function initialize() {
     initializationError.set("");
     try {
-      const saved = await call<null, Preferences>("settings.get", null);
+      const [saved] = await Promise.all([call<null, Preferences>("settings.get", null), themeFonts]);
       if (!Object.hasOwn(strings, saved.language)) saved.language = defaults.language;
       if (!["light", "dark", "system"].includes(saved.theme)) saved.theme = defaults.theme;
       preferences.set(saved);
@@ -141,13 +142,14 @@ export function App() {
   const controlsInset = Number(host.params.native_window_controls_inset) || 0;
   effect(() => setColorScheme(themeMode()));
   effect(() => setLocale(locale()));
-  effect(() => applyNativeTheme(theme()));
+  effect(() => applyNativeTheme(theme(), preferences().accent_palette));
   effect(() => {
     if (!controlsInset) return;
-    const { foreground, chrome, accent } = theme();
+    const current = theme();
+    const { hoverStyle, activeStyle } = interactionStyles(current);
     host.post("unoskills.command", {
       command: "window.titlebar_colors",
-      input: { foreground, hover: chrome?.hover ?? accent, active: accent },
+      input: { foreground: current.foreground, hover: hoverStyle.backgroundColor, active: activeStyle.backgroundColor },
     });
   });
 

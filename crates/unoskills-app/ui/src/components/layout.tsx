@@ -2,6 +2,16 @@ import { Image, Text, View, type JSX } from "nsh";
 import { iconSource, type IconName } from "../icons";
 import type { Theme } from "../shared";
 
+export function panelSurface(theme: Theme) {
+  return {
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: theme.panel.radius,
+    boxShadow: theme.panel.shadow,
+  };
+}
+
 export function Icon(props: { name: IconName; color: string; size?: number }) {
   return <Image accessibilityElementsHidden src={iconSource(props.name)}
     style={{ width: props.size ?? 16, height: props.size ?? 16, flexShrink: 0,

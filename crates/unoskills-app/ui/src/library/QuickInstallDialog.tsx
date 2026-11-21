@@ -92,10 +92,11 @@ export function QuickInstallDialog(props: {
         margin: "auto",
         width: 480,
         maxWidth: "92%",
-        borderRadius: props.theme.radius ?? 8,
+        borderRadius: props.theme.panel.radius,
         borderWidth: 1,
         borderColor: props.theme.border,
-        backgroundColor: props.theme.background,
+        backgroundColor: props.theme.popup.background,
+        boxShadow: props.theme.popup.shadow,
         padding: 20,
         gap: 14,
       }}

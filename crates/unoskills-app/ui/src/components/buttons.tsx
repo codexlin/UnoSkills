@@ -31,7 +31,7 @@ const sizes = {
   badge: { height: 20, padding: 4, icon: 12 },
   small: { height: 24, padding: 6, icon: 14 },
   compact: { height: 28, padding: 8, icon: 14 },
-  regular: { height: 32, padding: 10, icon: 16 },
+  regular: { height: 32, padding: 12, icon: 16 },
 };
 
 export type ActionVariant = "primary" | "outline" | "ghost" | "danger" | "danger-outline";
@@ -56,7 +56,7 @@ export function Action(props: {
   const dangerFill = () => props.variant === "danger";
   const ghost = () => props.variant === "ghost";
   const ink = () => primary() ? props.theme.onPrimary : dangerFill() ? props.theme.destructive?.foreground ?? props.theme.background
-    : props.variant === "danger-outline" ? props.theme.danger : props.theme.foreground;
+    : props.variant === "danger-outline" ? props.theme.danger : props.selected ? props.theme.onAccent : props.theme.foreground;
   return <ActionControl theme={props.theme} primary={primary()} dangerFill={dangerFill()}
     role={props.role} accessibilityLabel={props.accessibilityLabel ?? props.label} onPress={props.onPress}
     disabled={props.disabled || props.pending} selected={props.selected}
@@ -66,9 +66,10 @@ export function Action(props: {
       flexShrink: 0, maxWidth: "100%", gap: metrics().height <= 24 ? 4 : 6,
       minWidth: props.iconOnly ? metrics().height : undefined, minHeight: metrics().height,
       paddingHorizontal: props.iconOnly ? 0 : metrics().padding,
-      borderRadius: props.theme.radius, borderWidth: 1,
+      borderRadius: props.theme.control.radius, borderWidth: 1,
+      boxShadow: !primary() && !dangerFill() && !ghost() ? props.theme.control.shadow : undefined,
       backgroundColor: primary() ? props.theme.primary : dangerFill() ? props.theme.destructive?.background ?? props.theme.danger
-        : props.selected ? props.theme.accent : ghost() ? "transparent" : props.theme.surface,
+        : props.selected ? props.theme.accent : ghost() ? "transparent" : props.theme.control.outlineFill,
       borderColor: primary() ? props.theme.primary : ghost() || dangerFill() ? "transparent" : props.theme.border,
     }}>
     {props.pending ? <View accessibilityElementsHidden>

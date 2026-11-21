@@ -103,7 +103,6 @@ export function MarketplaceTab(props: {
     return s().market_add_to_library;
   };
 
-  const cardRadius = () => Math.max(props.theme.radius ?? 8, 8);
 
   return (
     <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
@@ -277,7 +276,8 @@ export function MarketplaceTab(props: {
                         paddingVertical: 8,
                         gap: 4,
                         justifyContent: "space-between",
-                        borderRadius: cardRadius(),
+                        borderRadius: props.theme.panel.radius,
+                        boxShadow: props.theme.panel.shadow,
                         borderWidth: 1,
                         borderColor:
                           !props.searchActive && entry().rankIndex === 0
@@ -333,7 +333,7 @@ export function MarketplaceTab(props: {
                               flexShrink: 0,
                             }}
                           >
-                            <Icon name="check" color={props.theme.primary} size={10} />
+                            <Icon name="check" color={props.theme.onAccent} size={10} />
                           </View>
                         </If>
 
@@ -371,7 +371,7 @@ export function MarketplaceTab(props: {
                                     style={{
                                       fontSize: 11,
                                       fontWeight: "600",
-                                      color: props.theme.foreground,
+                                      color: props.theme.onAccent,
                                       fontFamily: props.theme.fontFamily,
                                     }}
                                   >
@@ -588,7 +588,7 @@ export function MarketplaceTab(props: {
                           paddingHorizontal: 12,
                           paddingVertical: 10,
                           justifyContent: "space-between",
-                          borderRadius: cardRadius(),
+                          borderRadius: props.theme.panel.radius,
                           borderWidth: 1,
                           borderColor: props.theme.border,
                           backgroundColor: props.theme.surface,

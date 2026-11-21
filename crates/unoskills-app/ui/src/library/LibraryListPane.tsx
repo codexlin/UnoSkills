@@ -97,10 +97,12 @@ export function LibraryListPane(props: {
                 contentStyle={{ paddingVertical: 4 }}
                 style={{ flex: 1, minHeight: 0 }}
               >
-                {(skill) => (
-                  <View style={{ paddingHorizontal: 8, paddingVertical: 2 }}>
+                {(skill) => {
+                  const selected = () => props.selectedSkillId === skill().id;
+                  const states = () => interactionStyles(props.theme, { selectedFill: selected() ? props.theme.accent : undefined });
+                  return <View style={{ paddingHorizontal: 8, paddingVertical: 2 }}>
                     <Button
-                      selected={props.selectedSkillId === skill().id}
+                      selected={selected()}
                       accessibilityLabel={skill().name}
                       onPress={() => props.onSelectSkill(skill().id)}
                       class={controlMotionClass}
@@ -110,23 +112,19 @@ export function LibraryListPane(props: {
                         alignItems: "center",
                         gap: 8,
                         paddingHorizontal: 8,
-                        borderRadius: props.theme.radius ?? 8,
+                        borderRadius: props.theme.control.radius,
                         borderWidth: 1,
                         borderColor:
-                          props.selectedSkillId === skill().id
+                          selected()
                             ? props.theme.primary
                             : "transparent",
                         backgroundColor:
-                          props.selectedSkillId === skill().id
+                          selected()
                             ? props.theme.accent
                             : props.theme.background,
                       }}
-                      hoverStyle={interactionStyles(props.theme, {
-                        selectedFill: props.selectedSkillId === skill().id ? props.theme.accent : undefined,
-                      }).hoverStyle}
-                      activeStyle={interactionStyles(props.theme, {
-                        selectedFill: props.selectedSkillId === skill().id ? props.theme.accent : undefined,
-                      }).activeStyle}
+                      hoverStyle={states().hoverStyle}
+                      activeStyle={states().activeStyle}
                       focusVisibleStyle={focusOutline(props.theme)}
                       selectedStyle={{
                         backgroundColor: props.theme.accent,
@@ -140,7 +138,7 @@ export function LibraryListPane(props: {
                             textOverflow: "ellipsis",
                             fontSize: 14,
                             fontWeight: "600",
-                            color: props.theme.foreground,
+                            color: selected() ? props.theme.onAccent : props.theme.foreground,
                             fontFamily: props.theme.fontFamily,
                           }}
                         >
@@ -151,7 +149,7 @@ export function LibraryListPane(props: {
                             numberOfLines: 1,
                             textOverflow: "ellipsis",
                             fontSize: 12,
-                            color: props.theme.muted,
+                            color: selected() ? props.theme.onAccent : props.theme.muted,
                             fontFamily: props.theme.fontFamily,
                           }}
                         >
@@ -169,7 +167,7 @@ export function LibraryListPane(props: {
                           width: 76,
                           textAlign: "right",
                           fontSize: 14,
-                          color: props.theme.foreground,
+                          color: selected() ? props.theme.onAccent : props.theme.foreground,
                           fontFamily: props.theme.fontFamily,
                           flexShrink: 0,
                         }}
@@ -191,11 +189,11 @@ export function LibraryListPane(props: {
                           flexShrink: 0,
                         }}
                       >
-                        <TokenBadge theme={props.theme} tokens={skill().estimated_tokens} />
+                        <TokenBadge theme={props.theme} tokens={skill().estimated_tokens} selected={selected()} />
                       </View>
                     </Button>
-                  </View>
-                )}
+                  </View>;
+                }}
               </List>
             }
           >

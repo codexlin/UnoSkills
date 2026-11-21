@@ -10,7 +10,7 @@ const PREFERENCES: [(&str, &str); 8] = [
     ("theme", "system"),
     ("accent_palette", "unoskills"),
     ("font_size", "14"),
-    ("corner_radius", "8"),
+    ("corner_radius", "auto"),
     ("ui_font", "auto"),
     ("mono_font", "auto"),
     ("sidebar_collapsed", "false"),
@@ -135,7 +135,7 @@ fn check_preference(key: &str, value: &str) -> Result<()> {
             "claude" | "vercel" | "supabase" | "catppuccin" | "ocean" | "unoskills"
         ),
         "font_size" => matches!(value, "13" | "14" | "15" | "16"),
-        "corner_radius" => matches!(value, "0" | "4" | "6" | "8" | "12"),
+        "corner_radius" => matches!(value, "auto" | "0" | "4" | "6" | "8" | "12"),
         "sidebar_collapsed" => matches!(value, "true" | "false"),
         "ui_font" | "mono_font" => !value.trim().is_empty(),
         _ => false,

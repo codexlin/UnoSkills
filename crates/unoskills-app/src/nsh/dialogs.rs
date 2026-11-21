@@ -52,6 +52,7 @@ impl Files {
 pub(super) fn registry() -> Registry {
     let mut registry = Registry::ui_set("unoskills/desktop");
     registry.module::<Files>();
+    registry.module::<super::fonts::Fonts>();
     registry
 }
 

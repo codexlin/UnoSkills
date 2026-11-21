@@ -1,5 +1,5 @@
 import { openUrl, signal, View, type Accessor } from "nsh";
-import { Action, InlineError, Label, Modal, ProgressBar, textSize } from "./components";
+import { Action, InlineError, Label, Modal, ProgressBar, panelSurface, textSize } from "./components";
 import type { IconName } from "./icons";
 import { strings } from "./i18n";
 import { call, errorMessage, type Locale, type Tone, type Theme } from "./shared";
@@ -143,8 +143,7 @@ export function UpdatePanel(props: Props & { version: string }) {
   return (
     <View style={{ gap: 8 }}>
       <Label theme={props.theme} muted heading>{t().settings_updates}</Label>
-      <View style={{ gap: 12, borderWidth: 1, borderColor: props.theme.border, padding: 16,
-        borderRadius: props.theme.radius === 0 ? 0 : Math.min(16, props.theme.radius + 2), backgroundColor: props.theme.surface }}>
+      <View style={{ ...panelSurface(props.theme), gap: 12, padding: 16 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <View style={{ flexGrow: 1, flexBasis: 220, minWidth: 0, gap: 4 }}>
             <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>

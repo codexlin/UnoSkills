@@ -1,6 +1,6 @@
 import { Scroll, View, cleanup, computed, effect, openUrl, reduceMotion, signal, windowSize } from "nsh";
 import { Bar, Grid, Plot, PlotAxis } from "nsh/base/plot";
-import { Action, ActionControl, Icon, InlineError, Label, PageHeader, SkeletonBlock, TabList, textSize } from "./components";
+import { Action, ActionControl, Icon, InlineError, Label, PageHeader, SkeletonBlock, TabList, panelSurface, textSize } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps } from "./shared";
 import { attachProjectFromPicker } from "./projects";
@@ -90,7 +90,6 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
     { label: t().discover_adopt_tab, count: summary()?.adoptable_count, icon: "archive-restore", route: { page: "discover", tab: "adopt" } },
   ] as const);
   const theme = () => props.theme;
-  const radius = () => theme().radius === 0 ? 0 : Math.min(16, theme().radius + 2);
   const boardItems = ["trending", "all-time"] as const;
 
   function countLabel(label: string, count: number | undefined) {
@@ -134,7 +133,7 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                   <Action theme={theme()} variant="outline" size="small" glyph="layers" label={t().tab_my_stacks}
                     onPress={() => props.navigate({ page: "stacks", source: "Local" })} />
                 </View>
-                <View style={{ padding: 4, borderWidth: 1, borderColor: theme().border, borderRadius: radius() }}>
+                <View style={{ ...panelSurface(theme()), padding: 4 }}>
                   <View style={row}>{metric(0)}{metric(1)}</View>
                   <View style={{ ...row, borderTopWidth: 1, borderColor: theme().border }}>{metric(2)}{metric(3)}</View>
                 </View>
@@ -182,8 +181,7 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                   label={refreshingRanking() ? t().home_market_loading : t().home_refresh_market}
                   disabled={showRankingSkeleton()} pending={refreshingRanking()} onPress={() => void loadBoard(board(), true)} />
               </View>
-              <View style={{ borderWidth: 1, borderColor: theme().border, borderRadius: radius(),
-                backgroundColor: theme().surface, padding: 12 }}>
+              <View style={{ ...panelSurface(theme()), padding: 12 }}>
                 <View style={{ ...row, flexWrap: "wrap", justifyContent: "space-between", gap: 8, paddingBottom: 12 }}>
                   <TabList theme={theme()} accessibilityLabel={t().home_market_rank} compact selectedId={board()}
                     tabs={boardItems.map((id) => ({ id, label: id === "trending" ? t().board_trending : t().board_all_time }))}

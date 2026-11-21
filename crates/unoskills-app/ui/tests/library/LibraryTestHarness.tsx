@@ -12,6 +12,8 @@ const TEST_THEME: Theme = {
   primary: "#2563eb",
   onPrimary: "#ffffff",
   accent: "#eef2ff",
+  onAccent: "#111827",
+  secondary: { background: "#eef2ff", foreground: "#111827" },
   modalBackdrop: "#00000072",
   danger: "#dc2626",
   warning: "#d97706",
@@ -20,6 +22,10 @@ const TEST_THEME: Theme = {
   monoFamily: "monospace",
   fontSize: 14,
   radius: 8,
+  ring: "#2563eb",
+  control: { radius: 6, inputFill: "#ffffff", outlineFill: "#ffffff", shadow: "none" },
+  panel: { radius: 12, shadow: "none" },
+  popup: { background: "#f7f7f8", foreground: "#111827", shadow: "none" },
 };
 
 function HarnessApp() {

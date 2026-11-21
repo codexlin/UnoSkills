@@ -1,6 +1,6 @@
 import { expect, open, test } from "nsh/test";
 import { strings } from "../../src/i18n";
-import { defaults } from "../../src/theme";
+import { defaults, makeTheme } from "../../src/theme";
 
 test("settings exposes deploy mode, appearance and text size as direct choices", async () => {
   const writes: unknown[] = [];
@@ -85,30 +85,59 @@ test("navigation uses the current palette and a long font list remains searchabl
   await app.waitUntil(() => app.viewStyle(shell)?.backgroundColor === "#fdfbf7ff");
   await app.press(`label:${t.settings_accent_palette}`);
   await app.press("text:Claude");
+  await app.waitUntil(() => app.viewStyle(shell)?.backgroundColor === "#faf9f5ff");
+  const idleLibrary = app.viewStyle(library)?.backgroundColor;
   await app.hover(library);
-  await app.waitUntil(() => app.viewStyle(library)?.backgroundColor === "#e9e6dcff");
+  const hoveredLibrary = app.viewStyle(library)?.backgroundColor;
+  expect(Boolean(hoveredLibrary) && hoveredLibrary !== idleLibrary).toBe(true);
   await app.hover(settings);
-  expect(app.viewStyle(settings)?.backgroundColor).toBe("#f5e8e2ff");
+  expect(app.viewStyle(settings)?.backgroundColor).toBe("#e9e6dcff");
 
   const fontChoice = `role:combobox[${t.settings_ui_font}]`;
   await app.press(fontChoice);
   const automatic = `role:option[${t.font_auto_by_lang}]`;
   await app.waitFor(automatic);
   await app.hover(settings);
-  expect(app.viewStyle(fontChoice)?.backgroundColor).toBe("#f5e8e2ff");
+  expect(app.viewStyle(fontChoice)?.backgroundColor).toBe("#e9e6dcff");
   await app.keyboard.press("escape");
   await app.waitUntil(() => !app.shows(automatic));
   expect(app.viewStyle(fontChoice)?.backgroundColor).toBe("#faf9f5ff");
   await app.press(fontChoice);
   await app.waitFor(automatic);
-  expect(app.viewStyle(automatic)?.backgroundColor).toBe("#f5e8e2ff");
+  expect(app.viewStyle(automatic)?.backgroundColor).toBe("#e9e6dcff");
   await app.keyboard.press("down");
-  expect(app.viewStyle("role:option[Fixture Font 0]")?.backgroundColor).toBe("#e9e6dcff");
-  expect(app.viewStyle(automatic)?.backgroundColor).toBe("#f5e8e2ff");
+  expect(app.viewStyle("role:option[Fixture Font 0]")?.backgroundColor).toBe("#ede9deff");
+  expect(app.viewStyle(automatic)?.backgroundColor).toBe("#e9e6dcff");
   await app.type(`label:${t.search_fonts}`, "Narrow Mono");
   await app.press(`text:${font}`);
   expect(writes).toEqual([
     { key: "theme", value: "dark" }, { key: "theme", value: "light" },
     { key: "accent_palette", value: "claude" }, { key: "ui_font", value: font },
   ]);
+});
+
+test("each theme supplies its own fonts, layered radii and shadows with explicit settings taking precedence", () => {
+  const examples = [
+    ["unoskills", "Oxanium", "Fira Code", 28, 88],
+    ["claude", "PingFang SC", "monospace", 60, 120],
+    ["vercel", "Geist", "Geist Mono", 60, 120],
+    ["supabase", "Outfit", "monospace", 60, 120],
+    ["catppuccin", "Montserrat", "Fira Code", 36, 96],
+    ["ocean", "DM Sans", "IBM Plex Mono", 60, 120],
+  ] as const;
+  for (const [accent_palette, sans, monospace, control, panel] of examples) {
+    const light = makeTheme({ ...defaults, accent_palette, theme: "light" });
+    const dark = makeTheme({ ...defaults, accent_palette, theme: "dark" });
+    expect(light.fontFamily?.split(",")[0]).toBe(sans);
+    expect(light.monoFamily?.split(",")[0]).toBe(monospace);
+    expect(Math.round(light.control.radius * 10)).toBe(control);
+    expect(Math.round(light.panel.radius * 10)).toBe(panel);
+    expect(light.control.inputFill).toBe("transparent");
+    expect(dark.control.inputFill.startsWith("color-mix(")).toBe(true);
+    expect(Boolean(light.control.shadow && dark.popup.shadow)).toBe(true);
+    expect(dark.background === light.background).toBe(false);
+  }
+  const custom = makeTheme({ ...defaults, theme: "light", corner_radius: "0", ui_font: "Custom UI", mono_font: "Custom Mono" });
+  expect([custom.control.radius, custom.panel.radius]).toEqual([0, 0]);
+  expect([custom.fontFamily, custom.monoFamily]).toEqual(["Custom UI", "Custom Mono"]);
 });

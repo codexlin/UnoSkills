@@ -1,4 +1,5 @@
 mod dialogs;
+mod fonts;
 mod library;
 mod projects;
 mod settings;
@@ -23,23 +24,34 @@ struct Request {
 }
 
 pub fn channel() -> Result<HostChannel> {
-    channel_for(UnoSkillsManager::open_default)
+    channel_with_fonts(UnoSkillsManager::open_default, true)
 }
 
 pub(super) fn ui_sets() -> Vec<nsh_core::element::Registry> {
     vec![nsh_base::registry(), dialogs::registry()]
 }
 
+#[cfg(test)]
 pub(super) fn channel_for(
     open_manager: impl Fn() -> Result<UnoSkillsManager> + Send + Sync + 'static,
+) -> Result<HostChannel> {
+    channel_with_fonts(open_manager, false)
+}
+
+fn channel_with_fonts(
+    open_manager: impl Fn() -> Result<UnoSkillsManager> + Send + Sync + 'static,
+    bundled_fonts: bool,
 ) -> Result<HostChannel> {
     let open_manager = Arc::new(open_manager);
     let host = HostChannel::new();
     let mark = STANDARD.encode(include_bytes!("../../assets/icons/uno-mark.svg"));
-    let params = serde_json::Map::from_iter([(
-        "brand_mark".to_owned(),
-        json!(format!("data:image/svg+xml;base64,{mark}")),
-    )]);
+    let params = serde_json::Map::from_iter([
+        (
+            "brand_mark".to_owned(),
+            json!(format!("data:image/svg+xml;base64,{mark}")),
+        ),
+        ("bundled_fonts".to_owned(), json!(bundled_fonts)),
+    ]);
     #[cfg(target_os = "linux")]
     let params = {
         let mut params = params;

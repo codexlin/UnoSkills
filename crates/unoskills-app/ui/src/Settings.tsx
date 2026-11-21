@@ -1,9 +1,9 @@
-import { List, Scroll, View, computed, effect, signal, type JSX } from "nsh";
+import { List, Scroll, Text, View, computed, effect, host, nativeModule, signal, type JSX } from "nsh";
 import { Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
-import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, controlMotionClass, focusOutline, interactionStyles, textSize } from "./components";
+import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, controlMotionClass, focusOutline, interactionStyles, panelSurface, textSize } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps, type Theme } from "./shared";
-import { paletteFor, palettes, type Preferences } from "./theme";
+import { bundledThemeFonts, paletteFor, palettes, type Preferences } from "./theme";
 import { UpdatePanel, type Updates } from "./Updates";
 
 type SettingsProps = ScreenProps & {
@@ -37,17 +37,19 @@ export function Settings(props: SettingsProps) {
       <View class="flex-1 min-h-0 flex-row">
         <View class="shrink-0 gap-1 p-3" style={{ width: 184, borderRightWidth: 1, borderColor: props.theme.border }}>
           <Each of={tabs()} key={(tab) => tab.id}>
-            {(tab) => (
-              <ActionControl theme={props.theme} accessibilityLabel={tab().label} selected={section() === tab().id}
+            {(tab) => {
+              const selected = () => section() === tab().id;
+              return <ActionControl theme={props.theme} accessibilityLabel={tab().label} selected={selected()}
                 class="w-full min-h-8 flex-row items-center gap-2 px-2"
-                style={{ borderRadius: props.theme.radius, borderWidth: 1,
-                  borderColor: section() === tab().id ? props.theme.primary : "transparent",
-                  backgroundColor: section() === tab().id ? props.theme.accent : undefined }}
+                style={{ borderRadius: props.theme.control.radius, borderWidth: 1,
+                  borderColor: selected() ? props.theme.primary : "transparent",
+                  backgroundColor: selected() ? props.theme.accent : undefined }}
                 onPress={() => props.navigate({ page: "settings", tab: tab().id })}>
-                <Icon name={tab().icon} size={16} color={section() === tab().id ? props.theme.primary : props.theme.muted} />
-                <Label theme={props.theme} truncate weight={section() === tab().id ? "600" : "400"}>{tab().label}</Label>
-              </ActionControl>
-            )}
+                <Icon name={tab().icon} size={16} color={selected() ? props.theme.onAccent : props.theme.muted} />
+                <Label theme={props.theme} color={selected() ? props.theme.onAccent : undefined}
+                  truncate weight={selected() ? "600" : "400"}>{tab().label}</Label>
+              </ActionControl>;
+            }}
           </Each>
         </View>
         {section() === "agents" ? <Agents {...props} /> : (
@@ -55,10 +57,7 @@ export function Settings(props: SettingsProps) {
             <View class="w-full gap-4 p-5" style={{ maxWidth: 720 }}>
               {section() === "appearance" ? <Appearance {...props} />
                 : section() === "network" ? <Network {...props} />
-                : section() === "updates" ? (
-                  <UpdatePanel theme={props.theme} locale={props.locale} version={props.preferences.version}
-                    updates={props.updates} />
-                ) : <General {...props} />}
+                : section() === "updates" ? <About {...props} /> : <General {...props} />}
             </View>
           </Scroll>
         )}
@@ -67,13 +66,36 @@ export function Settings(props: SettingsProps) {
   );
 }
 
+function About(props: SettingsProps) {
+  const label = () => strings[props.locale].font_licenses;
+  const licenses = signal("");
+  const open = signal(false);
+
+  function showLicenses() {
+    const { Fonts } = nativeModule<{ Fonts: { licenses(): string } }>("unoskills/desktop");
+    licenses.set(Fonts.licenses());
+    open.set(true);
+  }
+
+  return <>
+    <UpdatePanel theme={props.theme} locale={props.locale} version={props.preferences.version} updates={props.updates} />
+    {host.params.bundled_fonts === true ? <Action theme={props.theme} label={label()} onPress={showLicenses} /> : null}
+    <Modal theme={props.theme} label={label()} open={open()} width={640} onClose={() => open.set(false)}>
+      <Scroll style={{ height: 320 }}>
+        <Text style={{ color: props.theme.popup.foreground, fontFamily: props.theme.fontFamily,
+          fontSize: props.theme.fontSize, userSelect: "text" }}>{licenses()}</Text>
+      </Scroll>
+    </Modal>
+  </>;
+}
+
 type SettingOption = { value: string; title: string; glyph?: "monitor" | "sun" | "moon" };
 type SettingField = { theme: Theme; title: string; detail: string; value: string; items: SettingOption[]; onChange(value: string): void };
 
 function SettingsGroup(props: { theme: Theme; title: string; children?: JSX.Element }) {
   return <View class="min-w-0 gap-2">
     <Label theme={props.theme} muted size={textSize(props.theme, 16)}>{props.title}</Label>
-    <View class="min-w-0 gap-4 p-4" style={{ backgroundColor: props.theme.surface, borderRadius: props.theme.radius, borderWidth: 1, borderColor: props.theme.border }}>
+    <View class="min-w-0 gap-4 p-4" style={panelSurface(props.theme)}>
       {props.children}
     </View>
   </View>;
@@ -106,17 +128,22 @@ function SegmentedSetting(props: SettingField) {
     <ToggleGroup class="flex-row flex-wrap items-center gap-0.5 p-0.5"
       style={{ borderWidth: 1, borderColor: props.theme.border, borderRadius: props.theme.radius, backgroundColor: props.theme.background }}>
       <Each of={props.items} key={(option) => option.value}>
-        {(option) => <Toggle pressed={props.value === option().value} accessibilityLabel={option().title}
+        {(option) => {
+          const selected = () => props.value === option().value;
+          const ink = () => selected() ? props.theme.secondary.foreground : props.theme.foreground;
+          const states = () => interactionStyles(props.theme, { selectedFill: selected() ? props.theme.secondary.background : undefined });
+          return <Toggle pressed={selected()} accessibilityLabel={option().title}
           onChange={({ pressed }) => { if (pressed) props.onChange(option().value); }}
-          class="min-h-7 flex-row items-center justify-center gap-1 px-2"
-          style={{ borderRadius: props.theme.radius }}
-          pressedStyle={{ backgroundColor: props.theme.accent }}
-          hoverStyle={interactionStyles(props.theme, { selectedFill: props.value === option().value ? props.theme.accent : undefined }).hoverStyle}
-          activeStyle={interactionStyles(props.theme, { selectedFill: props.value === option().value ? props.theme.accent : undefined }).activeStyle}
+          class={`min-h-7 flex-row items-center justify-center gap-1 px-2 ${controlMotionClass}`}
+          style={{ borderRadius: props.theme.control.radius }}
+          pressedStyle={{ backgroundColor: props.theme.secondary.background }}
+          hoverStyle={states().hoverStyle}
+          activeStyle={states().activeStyle}
           focusVisibleStyle={focusOutline(props.theme)}>
-          {option().glyph ? <Icon name={option().glyph!} size={14} color={props.theme.foreground} /> : null}
-          <Label theme={props.theme} weight={props.value === option().value ? "600" : "400"} size={textSize(props.theme, 13)}>{option().title}</Label>
-        </Toggle>}
+          {option().glyph ? <Icon name={option().glyph!} size={14} color={ink()} /> : null}
+          <Label theme={props.theme} color={ink()} weight={selected() ? "600" : "400"} size={textSize(props.theme, 13)}>{option().title}</Label>
+        </Toggle>;
+        }}
       </Each>
     </ToggleGroup>
   </SettingRow>;
@@ -159,7 +186,7 @@ function Appearance(props: SettingsProps) {
   }));
   const fontItems = (label: string, current: string) => [
     { title: label, value: "auto" },
-    ...Array.from(new Set([...fonts(), ...(current === "auto" ? [] : [current])]))
+    ...Array.from(new Set([...fonts(), ...bundledThemeFonts, ...(current === "auto" ? [] : [current])]))
       .map((value) => ({ title: value, value })),
   ];
   const options = (values: number[]) => values.map((value) => ({ value: String(value), title: `${value}px` }));
@@ -177,7 +204,7 @@ function Appearance(props: SettingsProps) {
           onChange={(value) => void props.setPreference("accent_palette", value)} />
         <Divider theme={props.theme} />
         <SegmentedSetting theme={props.theme} title={t().settings_corner_radius} detail={t().settings_corner_radius_desc}
-          value={props.preferences.corner_radius} items={options([0, 4, 6, 8, 12])}
+          value={props.preferences.corner_radius} items={[{ value: "auto", title: t().radius_preset }, ...options([0, 4, 6, 8, 12])]}
           onChange={(value) => void props.setPreference("corner_radius", value)} />
       </SettingsGroup>
       <SettingsGroup theme={props.theme} title={t().settings_fonts}>

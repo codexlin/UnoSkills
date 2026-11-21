@@ -121,8 +121,8 @@ export function StackDeploy(props: { screen: ScreenProps; stack: Stack; back: ()
     backdropStyle={{ backgroundColor: screen.theme.modalBackdrop }}
     style={{ alignItems: "center", justifyContent: "flex-start", paddingTop: 76, paddingHorizontal: 16, paddingBottom: 16 }}>
     <View style={{ width: 464, maxWidth: "100%", maxHeight: "100%", gap: 8, padding: 16,
-      backgroundColor: screen.theme.background, borderWidth: 1, borderColor: screen.theme.border,
-      borderRadius: screen.theme.radius }}>
+      backgroundColor: screen.theme.popup.background, borderWidth: 1, borderColor: screen.theme.border,
+      borderRadius: screen.theme.panel.radius, boxShadow: screen.theme.popup.shadow }}>
       <View style={row}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Heading theme={screen.theme} label={t().deploy} size={16} lines={1} />
