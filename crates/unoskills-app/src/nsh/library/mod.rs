@@ -1,5 +1,7 @@
 mod discover_ops;
 mod library_ops;
+mod revisions;
+pub(super) use revisions::RevisionPreviews;
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;

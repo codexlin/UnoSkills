@@ -368,11 +368,31 @@ pub struct AdoptCandidate {
     pub estimated_tokens: u32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeploymentImpactKind {
+    Linked,
+    Current,
+    RefreshCopy,
+    Missing,
+    Conflict,
+    RefreshFailed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeploymentImpact {
+    pub path: PathBuf,
+    pub agents: Vec<String>,
+    pub kind: DeploymentImpactKind,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillUpdateResult {
     pub skill: Skill,
     pub updated: bool,
     pub refreshed_copies: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deployment_issues: Vec<DeploymentImpact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

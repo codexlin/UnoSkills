@@ -67,6 +67,7 @@ fn channel_with_fonts(
         .thread_name(|worker| format!("unoskills-host-{worker}"))
         .build()?;
     let updates = Arc::new(update::Updates::default());
+    let skill_revisions = Arc::new(library::RevisionPreviews::default());
     host.handle("unoskills.command", move |call| {
         #[cfg(target_os = "linux")]
         if call.data()["command"] == "window.titlebar_colors" {
@@ -77,11 +78,12 @@ fn channel_with_fonts(
             return;
         }
         let updates = Arc::clone(&updates);
+        let skill_revisions = Arc::clone(&skill_revisions);
         let open_manager = Arc::clone(&open_manager);
         pool.spawn(move || {
             let result = serde_json::from_value(call.data().clone())
                 .map_err(anyhow::Error::from)
-                .and_then(|request| dispatch(request, &updates, &*open_manager));
+                .and_then(|request| dispatch(request, &updates, &skill_revisions, &*open_manager));
             let response = match result {
                 Ok(value) => json!({"ok": true, "value": value}),
                 Err(error) => {
@@ -98,6 +100,7 @@ fn channel_with_fonts(
 fn dispatch(
     request: Request,
     updates: &update::Updates,
+    skill_revisions: &library::RevisionPreviews,
     open_manager: impl FnOnce() -> Result<UnoSkillsManager>,
 ) -> Result<Value> {
     let Request { command, input } = request;
@@ -109,6 +112,9 @@ fn dispatch(
         return updates.status();
     }
     let manager = open_manager()?;
+    if let Some(result) = skill_revisions.dispatch(&manager, &command, &input) {
+        return result;
+    }
     match domain {
         "settings" => settings::dispatch(&manager, &command, input),
         "update" => updates.dispatch(&manager, &command),

@@ -731,3 +731,70 @@ fn library_scope_path_preserves_exact_whitespace() {
         "managed"
     );
 }
+
+#[test]
+fn desktop_revisions_apply_only_a_live_preview() {
+    let ws = TempWorkspace::new("revisions");
+    let mgr = ws.manager();
+    let source = ws.path().join("revision-demo");
+    write_skill_fixture(&source, "# Original");
+    let skill = mgr.install_from_ref(&source.to_string_lossy()).unwrap();
+    write_skill_fixture(&source, "# New version");
+    let previews = library::RevisionPreviews::default();
+    let call = |command, input| previews.dispatch(&mgr, command, &input).unwrap();
+    let plan = call(
+        "library.prepare_skill_update",
+        json!({ "skill_id": skill.id }),
+    )
+    .unwrap();
+    assert_eq!(plan["files"][0]["path"], "SKILL.md");
+    assert_eq!(
+        mgr.read_skill_markdown_checked(&skill.id).unwrap().1,
+        "# Original"
+    );
+    call(
+        "library.cancel_skill_revision",
+        json!({ "preview_id": plan["id"] }),
+    )
+    .unwrap();
+    let failure = call(
+        "library.apply_skill_revision",
+        json!({ "preview_id": plan["id"] }),
+    )
+    .unwrap_err();
+    assert!(failure.to_string().contains("STALE_SKILL_REVISION"));
+
+    let plan = call(
+        "library.prepare_skill_update",
+        json!({ "skill_id": skill.id }),
+    )
+    .unwrap();
+    let result = call(
+        "library.apply_skill_revision",
+        json!({ "preview_id": plan["id"] }),
+    )
+    .unwrap();
+    assert_eq!(result["updated"], true);
+    assert_eq!(
+        mgr.read_skill_markdown_checked(&skill.id).unwrap().1,
+        "# New version"
+    );
+    let state = nsh::dispatch(&mgr, "library.state", json!({})).unwrap();
+    assert_eq!(state["rollback_skill_ids"], json!([skill.id]));
+
+    let plan = call(
+        "library.prepare_skill_rollback",
+        json!({ "skill_id": skill.id }),
+    )
+    .unwrap();
+    assert_eq!(plan["rollback"], true);
+    call(
+        "library.apply_skill_revision",
+        json!({ "preview_id": plan["id"] }),
+    )
+    .unwrap();
+    assert_eq!(
+        mgr.read_skill_markdown_checked(&skill.id).unwrap().1,
+        "# Original"
+    );
+}

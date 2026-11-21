@@ -936,3 +936,53 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     void skills;
   });
 });
+
+test("skill update confirms the reviewed files and shows deployment issues", async () => {
+  const skills = makeSkills();
+  const commands: CommandPayload[] = [];
+  let previewNumber = 0;
+  const app = await open("./LibraryTestHarness.tsx", {
+    platform: "linux", width: 1200, height: 800,
+    host: {
+      params: { initialRoute: { page: "library" } },
+      handlers: {
+        "unoskills.command": (raw: unknown) => {
+          const payload = raw as CommandPayload;
+          const { command, input } = payload;
+          if (command === "library.state") return makeLibraryState(skills);
+          if (command === "library.get_markdown") return makeMarkdownReply(String(input?.skill_id), "# Body", "# Body");
+          commands.push(payload);
+          const issue = { path: "/tmp/project/.claude/skills/alpha", agents: ["claude-code"], kind: "conflict" };
+          if (command === "library.prepare_skill_update") return { ok: true, value: {
+            id: `preview-${++previewNumber}`, skill_id: input?.skill_id, skill_name: skills[0].name,
+            rollback: false, files: [{ path: "scripts/check.sh", kind: "modified" }], deployments: [issue],
+          } };
+          if (command === "library.cancel_skill_revision") return { ok: true, value: null };
+          if (command === "library.apply_skill_revision") return { ok: true, value: {
+            skill: skills[0], updated: true, refreshed_copies: 0, deployment_issues: [issue],
+          } };
+          return { ok: false, code: "UNKNOWN", message: command };
+        },
+      },
+    },
+  });
+
+  await app.waitFor("text:Alpha Skill");
+  await app.press("Skill actions");
+  await app.press("Update");
+  await app.waitFor("text:scripts/check.sh");
+  expect(commands.map(({ command }) => command)).toEqual(["library.prepare_skill_update"]);
+  await app.press("Cancel");
+  await app.waitUntil(() => !app.shows("text:Review skill update"));
+  await app.press("Skill actions");
+  await app.press("Update");
+  await app.waitFor("text:Review skill update");
+  await app.press("Apply update");
+  await app.waitFor("text:Deployments to review");
+  expect(commands.map(({ command, input }) => [command, input])).toEqual([
+    ["library.prepare_skill_update", { skill_id: "skill-a" }],
+    ["library.cancel_skill_revision", { preview_id: "preview-1" }],
+    ["library.prepare_skill_update", { skill_id: "skill-a" }],
+    ["library.apply_skill_revision", { preview_id: "preview-2" }],
+  ]);
+});

@@ -279,6 +279,9 @@ fn run(cli: Cli) -> Result<()> {
                     "Updated '{}' (~{} tokens, {} copy deployment(s) refreshed)",
                     res.skill.name, res.skill.estimated_tokens, res.refreshed_copies
                 );
+                for issue in res.deployment_issues {
+                    eprintln!("Review deployment at {}", issue.path.display());
+                }
             } else {
                 println!("'{}' is already up to date.", res.skill.name);
             }
