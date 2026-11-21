@@ -1,7 +1,7 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use chrono::Utc;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
 use crate::backup::{
@@ -45,7 +45,7 @@ pub struct UnoSkillsManager {
     store: Store,
 }
 
-enum StackProjectTarget {
+pub(crate) enum StackProjectTarget {
     Deployed,
     Missing(Option<DeployMode>),
     Register(DeployMode),
@@ -53,17 +53,83 @@ enum StackProjectTarget {
     Unavailable,
 }
 
-fn project_skill_target(project: &ProjectWorkspace, agent: &AgentInfo, skill: &Skill) -> PathBuf {
+pub(crate) fn project_skills_dir(agent: &AgentInfo) -> &str {
     let relative_dir = agent.project_relative_skills_dir.trim();
-    let relative_dir = if relative_dir.is_empty() {
+    if relative_dir.is_empty() {
         ".agents/skills"
     } else {
         relative_dir
-    };
-    project.path.join(relative_dir).join(&skill.slug)
+    }
 }
 
-fn inspect_stack_project_target(
+pub(crate) fn project_scope_directory(project: &ProjectWorkspace, scope: &Path) -> Result<PathBuf> {
+    let path = project.path.join(scope);
+    if scope.as_os_str().is_empty() {
+        ensure!(
+            path.is_dir(),
+            "Project directory no longer exists: {}",
+            path.display()
+        );
+    } else {
+        ensure!(
+            scope
+                .components()
+                .all(|part| matches!(part, Component::Normal(_))),
+            "Invalid subproject directory: {}",
+            scope.display()
+        );
+        ensure!(
+            path.is_dir() && path.canonicalize()? == path,
+            "Subproject directory has moved or points to another location: {}",
+            path.display()
+        );
+    }
+    Ok(path)
+}
+
+pub(crate) fn scoped_project_skills_dir(
+    project: &ProjectWorkspace,
+    scope: &Path,
+    agent: &AgentInfo,
+) -> Result<PathBuf> {
+    let mut dir = project_scope_directory(project, scope)?;
+    let relative_dir = Path::new(project_skills_dir(agent));
+    if scope.as_os_str().is_empty() {
+        return Ok(dir.join(relative_dir));
+    }
+    for part in relative_dir.components() {
+        let Component::Normal(part) = part else {
+            bail!("Invalid Agent skills directory: {}", relative_dir.display());
+        };
+        dir.push(part);
+        match std::fs::symlink_metadata(&dir) {
+            Ok(entry) if entry.is_dir() && dir.canonicalize()? == dir => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(_) => bail!("Invalid subproject skills directory: {}", dir.display()),
+            Err(error) => {
+                return Err(error).with_context(|| format!("Cannot access {}", dir.display()));
+            }
+        }
+    }
+    Ok(dir)
+}
+
+fn safe_scoped_target(dep: &ProjectDeployment) -> Result<bool> {
+    if dep.scope_path.as_os_str().is_empty() {
+        return Ok(true);
+    }
+    let parent = dep
+        .target_path
+        .parent()
+        .context("Missing skills directory")?;
+    match parent.canonicalize() {
+        Ok(actual) => Ok(actual == parent),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(crate) fn inspect_stack_project_target(
     skill: &Skill,
     project: &ProjectWorkspace,
     agent: &AgentInfo,
@@ -73,12 +139,14 @@ fn inspect_stack_project_target(
         skill
             .project_deployments
             .iter()
-            .filter(|dep| dep.project_id == project.id && dep.target_path == target)
+            .filter(|dep| dep.target_path == target)
     };
+    let is_current =
+        |dep: &&ProjectDeployment| dep.project_id == project.id && dep.agent_key == agent.key;
     let mode = match classify_target(&skill.central_path, target) {
         TargetState::Absent if is_valid_skill_dir(&skill.central_path) => {
             let recorded_mode = matching_records()
-                .find(|dep| dep.agent_key == agent.key)
+                .find(is_current)
                 .or_else(|| matching_records().next())
                 .map(|dep| dep.mode);
             return StackProjectTarget::Missing(recorded_mode);
@@ -103,7 +171,7 @@ fn inspect_stack_project_target(
         }
         _ => return StackProjectTarget::Conflict,
     };
-    if matching_records().any(|dep| dep.agent_key == agent.key && dep.mode == mode) {
+    if matching_records().any(|dep| is_current(&dep) && dep.mode == mode) {
         StackProjectTarget::Deployed
     } else {
         StackProjectTarget::Register(mode)
@@ -503,13 +571,8 @@ impl UnoSkillsManager {
         }
 
         // Also undeploy from every attached project workspace.
-        let proj_deps: Vec<(String, String)> = skill
-            .project_deployments
-            .iter()
-            .map(|d| (d.project_id.clone(), d.agent_key.clone()))
-            .collect();
-        for (project_id, agent_key) in proj_deps {
-            let _ = self.undeploy_skill_from_project(&skill.id, &project_id, &agent_key);
+        for dep in &skill.project_deployments {
+            let _ = self.remove_project_deployment(&skill, dep);
         }
 
         if skill.central_path.exists() {
@@ -660,7 +723,9 @@ impl UnoSkillsManager {
             .store
             .list_project_deployments_for_project(&project.id)?;
         for dep in deps {
-            let _ = self.undeploy_skill_from_project(&dep.skill_id, &project.id, &dep.agent_key);
+            if let Some(skill) = self.store.find_skill(&dep.skill_id)? {
+                let _ = self.remove_project_deployment(&skill, &dep);
+            }
         }
 
         self.store.delete_project(&project.id)?;
@@ -696,12 +761,12 @@ impl UnoSkillsManager {
             .find(|a| a.key == agent_key)
             .with_context(|| format!("Unknown agent '{agent_key}'"))?;
 
-        let target_path = project_skill_target(&project, agent, &skill);
+        let scope = Path::new("");
+        let target_path = scoped_project_skills_dir(&project, scope, agent)?.join(&skill.slug);
         let desired_mode = mode_override.unwrap_or_else(|| self.default_deploy_mode());
-        let existing_dep = skill
-            .project_deployments
-            .iter()
-            .find(|d| d.project_id == project.id && d.agent_key == agent_key);
+        let existing_dep = skill.project_deployments.iter().find(|d| {
+            d.project_id == project.id && d.agent_key == agent_key && d.scope_path == scope
+        });
 
         let peer_mode = self.store.peer_project_deployment_mode_for_skill(
             &skill.id,
@@ -722,7 +787,14 @@ impl UnoSkillsManager {
         let actual_mode =
             deploy_skill_dir(&skill.central_path, &target_path, desired_mode, policy)?;
 
-        self.record_project_skill_deployment(&skill, &project, agent, target_path, actual_mode)
+        self.record_project_skill_deployment(
+            &skill,
+            &project,
+            agent,
+            scope,
+            target_path,
+            actual_mode,
+        )
     }
 
     fn record_project_skill_deployment(
@@ -730,6 +802,7 @@ impl UnoSkillsManager {
         skill: &Skill,
         project: &ProjectWorkspace,
         agent: &AgentInfo,
+        scope: &Path,
         target_path: PathBuf,
         actual_mode: DeployMode,
     ) -> Result<ProjectDeployment> {
@@ -742,12 +815,17 @@ impl UnoSkillsManager {
             id: skill
                 .project_deployments
                 .iter()
-                .find(|dep| dep.project_id == project.id && dep.agent_key == agent.key)
+                .find(|dep| {
+                    dep.project_id == project.id
+                        && dep.agent_key == agent.key
+                        && dep.scope_path == scope
+                })
                 .map(|d| d.id.clone())
                 .unwrap_or_else(|| Uuid::new_v4().to_string()),
             skill_id: skill.id.clone(),
             project_id: project.id.clone(),
             agent_key: agent.key.clone(),
+            scope_path: scope.to_path_buf(),
             target_path,
             mode: actual_mode,
             copy_hash,
@@ -761,6 +839,7 @@ impl UnoSkillsManager {
         let mut refreshed = 0;
         for dep in &mut skill.project_deployments {
             if dep.mode == DeployMode::Copy
+                && safe_scoped_target(dep)?
                 && deploy_skill_dir(
                     &skill.central_path,
                     &dep.target_path,
@@ -795,25 +874,25 @@ impl UnoSkillsManager {
             .store
             .find_project(project_id_or_name)?
             .context("Project workspace not found")?;
-        let Some(dep) = skill
-            .project_deployments
-            .iter()
-            .find(|d| d.project_id == project.id && d.agent_key == agent_key)
-        else {
+        let Some(dep) = skill.project_deployments.iter().find(|d| {
+            d.project_id == project.id
+                && d.agent_key == agent_key
+                && d.scope_path.as_os_str().is_empty()
+        }) else {
             return Ok(());
         };
 
-        let peer_count = self.store.count_project_deployments_at_path(
-            &project.id,
-            &dep.target_path,
-            agent_key,
-        )?;
-        if peer_count == 0 {
+        self.remove_project_deployment(&skill, dep)
+    }
+
+    fn remove_project_deployment(&self, skill: &Skill, dep: &ProjectDeployment) -> Result<()> {
+        let peer_count = self
+            .store
+            .count_project_deployments_at_path(&dep.target_path, &dep.id)?;
+        if peer_count == 0 && safe_scoped_target(dep)? {
             remove_managed_target(&skill.central_path, &dep.target_path, dep.mode)?;
         }
-        self.store
-            .delete_project_deployment(&skill.id, &project.id, agent_key)?;
-        Ok(())
+        self.store.delete_project_deployment(&dep.id)
     }
 
     // ── Adopt existing skills from installed agents ──
@@ -1144,12 +1223,6 @@ impl UnoSkillsManager {
             .store
             .find_project(project_id)?
             .context("Project workspace not found")?;
-        if !project.path.is_dir() {
-            bail!(
-                "Project directory no longer exists: {}",
-                project.path.display()
-            );
-        }
         let agent = self
             .list_agents()?
             .into_iter()
@@ -1164,7 +1237,18 @@ impl UnoSkillsManager {
         project_id: &str,
         agent_key: &str,
     ) -> Result<StackProjectDeployStatus> {
+        self.stack_project_deploy_status_at(stack, project_id, agent_key, Path::new(""))
+    }
+
+    pub fn stack_project_deploy_status_at(
+        &self,
+        stack: &StackManifest,
+        project_id: &str,
+        agent_key: &str,
+        scope: &Path,
+    ) -> Result<StackProjectDeployStatus> {
         let (project, agent) = self.stack_deploy_destination(project_id, agent_key)?;
+        let directory = scoped_project_skills_dir(&project, scope, &agent)?;
         let skills = self.list_skills()?;
         let mut status = StackProjectDeployStatus::default();
         for item in &stack.skills {
@@ -1172,7 +1256,7 @@ impl UnoSkillsManager {
                 status.unavailable += 1;
                 continue;
             };
-            let target = project_skill_target(&project, &agent, skill);
+            let target = directory.join(&skill.slug);
             match inspect_stack_project_target(skill, &project, &agent, &target) {
                 StackProjectTarget::Deployed => status.deployed += 1,
                 StackProjectTarget::Missing(_) | StackProjectTarget::Register(_) => {
@@ -1192,7 +1276,19 @@ impl UnoSkillsManager {
         project_id: &str,
         agent_key: &str,
     ) -> Result<StackProjectDeploySummary> {
+        self.deploy_stack_to_project_at(stack, project_id, agent_key, Path::new(""))
+    }
+
+    pub fn deploy_stack_to_project_at(
+        &self,
+        stack: &StackManifest,
+        project_id: &str,
+        agent_key: &str,
+        scope: &Path,
+    ) -> Result<StackProjectDeploySummary> {
         let (project, agent) = self.stack_deploy_destination(project_id, agent_key)?;
+        let directory = scoped_project_skills_dir(&project, scope, &agent)?;
+        let scope: PathBuf = scope.components().collect();
         let skills = self.list_skills()?;
         let mut completed = HashSet::new();
         let mut summary = StackProjectDeploySummary::default();
@@ -1205,7 +1301,7 @@ impl UnoSkillsManager {
                 summary.already_deployed += 1;
                 continue;
             }
-            let target = project_skill_target(&project, &agent, skill);
+            let target = directory.join(&skill.slug);
             let mode = match inspect_stack_project_target(skill, &project, &agent, &target) {
                 StackProjectTarget::Deployed => {
                     summary.already_deployed += 1;
@@ -1228,7 +1324,7 @@ impl UnoSkillsManager {
                 }
             };
             let deployment = mode.and_then(|mode| {
-                self.record_project_skill_deployment(skill, &project, &agent, target, mode)
+                self.record_project_skill_deployment(skill, &project, &agent, &scope, target, mode)
             });
             match deployment {
                 Ok(_) => {

@@ -67,6 +67,8 @@ impl UnoSkillsShell {
                     WorkspaceEvent::InstallStateChanged
                     | WorkspaceEvent::NavigateToSettings(_)
                     | WorkspaceEvent::OpenMyStacks
+                    | WorkspaceEvent::OpenProject(_)
+                    | WorkspaceEvent::SelectProjectStack(_)
                     | WorkspaceEvent::OpenLocalSkills
                     | WorkspaceEvent::OpenMarketBoard(_)
                     | WorkspaceEvent::MarketFirstPageChanged(_)

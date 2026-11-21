@@ -1,10 +1,11 @@
 mod inspector;
 mod list;
+mod project;
 
 use gpui_kit::component::{
     IconName, WindowExt,
     button::{Button, ButtonVariant},
-    h_resizable,
+    h_flex, h_resizable,
     input::{InputEvent, InputState, TextareaState},
     resizable_panel,
     text::TextViewState,
@@ -12,7 +13,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     AppContext, Context, Entity, Focusable, IntoElement, ParentElement, Render, Styled,
-    Subscription, UniformListScrollHandle, Window, div, px,
+    Subscription, UniformListScrollHandle, Window, div, prelude::FluentBuilder, px,
 };
 use unoskills_core::SkillLintReport;
 
@@ -32,6 +33,7 @@ pub struct LibraryView {
     pub(super) selected_skill_id: Option<String>,
     /// `None` = Global scope (`~/.claude/skills`, etc.), `Some(id)` = attached Project scope.
     pub(super) selected_project_id: Option<String>,
+    project_overview: Option<Entity<project::ProjectOverview>>,
     pub(super) markdown_preview_state: Entity<TextViewState>,
     pub(super) markdown_editor: Entity<TextareaState>,
     pub(super) editing_markdown: bool,
@@ -61,7 +63,11 @@ impl LibraryView {
             |this, _ws, event: &WorkspaceEvent, window, cx| match event {
                 WorkspaceEvent::Reloaded => this.on_data_reloaded(window, cx),
                 WorkspaceEvent::SettingsChanged => cx.notify(),
-                WorkspaceEvent::SelectLibrarySkill(id) => this.select_skill(id.clone(), window, cx),
+                WorkspaceEvent::SelectLibrarySkill(id) => {
+                    this.project_overview = None;
+                    this.select_skill(id.clone(), window, cx);
+                }
+                WorkspaceEvent::OpenProject(id) => this.show_project(id, window, cx),
                 WorkspaceEvent::LanguageChanged => this.apply_language(window, cx),
                 _ => {}
             },
@@ -84,6 +90,7 @@ impl LibraryView {
             library_scroll_handle: UniformListScrollHandle::new(),
             selected_skill_id: None,
             selected_project_id: None,
+            project_overview: None,
             markdown_preview_state,
             markdown_editor,
             editing_markdown: false,
@@ -132,6 +139,7 @@ impl LibraryView {
                 .any(|p| &p.id == proj_id);
             if !still_attached {
                 self.selected_project_id = None;
+                self.project_overview = None;
             }
         }
         if self.agent_filter.as_ref().is_some_and(|key| {
@@ -343,6 +351,9 @@ impl LibraryView {
 
 impl Render for LibraryView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(project) = &self.project_overview {
+            return project.clone().into_any_element();
+        }
         let s = self.workspace.read(cx).t();
         let toolbar = self.render_library_toolbar(cx);
         let left_pane = self.render_skill_list(cx);
@@ -354,13 +365,28 @@ impl Render for LibraryView {
             .overflow_hidden()
             .child(
                 PageHeader::new(s.nav_library).right_slot(
-                    Button::new("lib-add-skill")
-                        .outline()
-                        .icon(IconName::Plus)
-                        .label(s.btn_install)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.workspace.update(cx, |ws, cx| ws.open_install(cx));
-                        })),
+                    h_flex()
+                        .gap_2()
+                        .when_some(self.selected_project_id.clone(), |row, id| {
+                            row.child(
+                                Button::new("open-project-overview")
+                                    .outline()
+                                    .icon(IconName::FolderOpen)
+                                    .label(s.project_overview)
+                                    .on_click(cx.listener(move |view, _, window, cx| {
+                                        view.show_project(&id, window, cx)
+                                    })),
+                            )
+                        })
+                        .child(
+                            Button::new("lib-add-skill")
+                                .outline()
+                                .icon(IconName::Plus)
+                                .label(s.btn_install)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.workspace.update(cx, |ws, cx| ws.open_install(cx));
+                                })),
+                        ),
                 ),
             )
             .child(toolbar)
@@ -380,5 +406,6 @@ impl Render for LibraryView {
                         ),
                 ),
             )
+            .into_any_element()
     }
 }

@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.6.0] - 2026-11-21
+
+### Added / 新增
+
+- **Project skill recommendations / 项目技能推荐**. Scan local project and subproject configuration to identify technologies, see which files were detected, and save selected recommendations as a reusable stack. 从本地配置识别项目及子项目的技术栈，查看识别依据，并将选中的推荐技能保存为可复用的组合。
+- **Subproject deployment / 子项目部署**. Choose the project root or a detected subproject in the deployment preview. Each directory tracks its own deployments and preserves existing files on conflict. 在部署预览中选择项目根目录或识别到的子项目。各目录独立记录部署状态，遇到冲突时保留原有文件。
+
+### Changed / 改进
+
+- **Install and preview / 安装并预览**. Install missing recommended skills from the stack and continue to the deployment preview. Files are written to the selected project directory after confirmation. 补齐组合中尚未入库的技能后，直接进入部署预览。确认后再写入所选项目目录。
+
 ## [v0.5.0] - 2026-11-21
 
 ### Added / 新增

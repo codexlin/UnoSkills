@@ -56,13 +56,21 @@ impl StacksView {
             .collect();
         let existing = members.iter().filter(|(_, skill)| skill.is_some()).count();
         let to_install = members.len() - existing;
+        let install_and_preview = is_local
+            && to_install > 0
+            && self
+                .project_stack_target
+                .as_ref()
+                .is_some_and(|selection| selection.stack_id == stack.id);
         let failures = ws.stack_install_failures(&stack.id);
         let saved = ws.local_stacks().iter().any(|local| local.id == stack.id);
         let summary = lang.stack_install_counts(to_install, existing);
-        let install_label = if to_install > 0 {
-            s.btn_install_all_stack_skills
+        let install_label = if install_and_preview {
+            lang.stack_install_and_preview(to_install)
+        } else if to_install > 0 {
+            s.btn_install_all_stack_skills.to_owned()
         } else {
-            s.btn_save_stack
+            s.btn_save_stack.to_owned()
         };
         let install_stack = stack.clone();
         let deploy_stack = stack.clone();
@@ -246,22 +254,25 @@ impl StacksView {
                             .text_color(muted)
                             .child(summary),
                     )
-                    .when(is_local && !stack.skills.is_empty(), |footer| {
-                        footer.child(
-                            Button::new("deploy-stack-project")
-                                .flex_shrink_0()
-                                .icon(IconName::FolderOpen)
-                                .label(s.stack_deploy_project)
-                                .when_else(
-                                    to_install == 0,
-                                    |button| button.primary(),
-                                    |button| button.outline(),
-                                )
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.open_project_deploy(deploy_stack.clone(), window, cx);
-                                })),
-                        )
-                    })
+                    .when(
+                        is_local && !stack.skills.is_empty() && !install_and_preview,
+                        |footer| {
+                            footer.child(
+                                Button::new("deploy-stack-project")
+                                    .flex_shrink_0()
+                                    .icon(IconName::FolderOpen)
+                                    .label(s.stack_deploy_project)
+                                    .when_else(
+                                        to_install == 0,
+                                        |button| button.primary(),
+                                        |button| button.outline(),
+                                    )
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.open_project_deploy(deploy_stack.clone(), window, cx);
+                                    })),
+                            )
+                        },
+                    )
                     .when(to_install > 0 || !saved || installing, |footer| {
                         footer.child(
                             Button::new("install-stack-btn")
@@ -277,8 +288,11 @@ impl StacksView {
                                 .disabled(blocking_member && !installing)
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.workspace.update(cx, |ws, cx| {
-                                        ws.install_stack_async(install_stack.clone(), window, cx)
+                                        ws.install_stack_async(install_stack.clone(), window, cx);
                                     });
+                                    if install_and_preview {
+                                        this.open_project_deploy(install_stack.clone(), window, cx);
+                                    }
                                 })),
                         )
                     }),
