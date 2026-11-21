@@ -1,5 +1,6 @@
 import { List, Text, View } from "nsh";
 import { Button } from "nsh/base";
+import { focusOutline, interactionStyles } from "../controls";
 import type { Theme } from "../shared";
 import { ActionButton, AlertBanner, EmptyState, LoadingLine, TokenBadge } from "./controls";
 import { compactSource } from "./format";
@@ -126,18 +127,17 @@ export function LibraryListPane(props: {
                             ? props.theme.accent
                             : props.theme.background,
                       }}
-                      hoverStyle={{
-                        backgroundColor:
-                          props.selectedSkillId === skill().id
-                            ? props.theme.accent
-                            : props.theme.surface,
-                      }}
-                      activeStyle={{ backgroundColor: props.theme.accent }}
+                      hoverStyle={interactionStyles(props.theme, {
+                        selectedFill: props.selectedSkillId === skill().id ? props.theme.accent : undefined,
+                      }).hoverStyle}
+                      activeStyle={interactionStyles(props.theme, {
+                        selectedFill: props.selectedSkillId === skill().id ? props.theme.accent : undefined,
+                      }).activeStyle}
+                      focusVisibleStyle={focusOutline(props.theme)}
                       selectedStyle={{
                         backgroundColor: props.theme.accent,
                         borderColor: props.theme.primary,
                       }}
-                      focusVisibleStyle={{ borderColor: props.theme.primary }}
                     >
                       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                         <Text

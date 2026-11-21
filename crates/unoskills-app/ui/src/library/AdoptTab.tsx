@@ -1,6 +1,6 @@
 import { type InputRef, List, type ListRef, Text, View } from "nsh";
 import { Button, Checkbox } from "nsh/base";
-import { Label } from "../controls";
+import { Label, focusOutline, interactionStyles } from "../controls";
 import type { Theme } from "../shared";
 import {
   ActionButton,
@@ -138,7 +138,9 @@ export function AdoptTab(props: {
                             props.onToggleCandidateSelected(current.candidate.path, checked);
                           }
                         }}
-                        focusVisibleStyle={{ borderRadius: 4, borderWidth: 1, borderColor: props.theme.primary }}
+                        hoverStyle={interactionStyles(props.theme).hoverStyle}
+                        activeStyle={interactionStyles(props.theme).activeStyle}
+                        focusVisibleStyle={focusOutline(props.theme)}
                         indicatorClass="transition-colors"
                         indicatorStyle={{
                           width: 16,
@@ -257,8 +259,9 @@ export function AdoptTab(props: {
                         flexShrink: 1,
                         minWidth: 0,
                       }}
-                      hoverStyle={{ backgroundColor: props.theme.accent }}
-                      focusVisibleStyle={{ borderWidth: 1, borderColor: props.theme.primary }}
+                      hoverStyle={interactionStyles(props.theme).hoverStyle}
+                      activeStyle={interactionStyles(props.theme).activeStyle}
+                      focusVisibleStyle={focusOutline(props.theme)}
                     >
                       <Text style={{ fontSize: 12, color: props.theme.muted }}>
                         {row().kind === "group" &&

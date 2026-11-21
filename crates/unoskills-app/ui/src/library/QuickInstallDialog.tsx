@@ -39,7 +39,6 @@ export function QuickInstallDialog(props: {
     const target = (overrideSource ?? source()).trim();
     if (!target) {
       inlineError.set(s().toast_enter_source);
-      props.onNotify(s().toast_enter_source, "error");
       return;
     }
 
@@ -52,9 +51,7 @@ export function QuickInstallDialog(props: {
       props.onNotify(toastInstalled(props.locale, skill.name, skill.estimated_tokens), "success");
       props.onInstalled(skill);
     } catch (error) {
-      const message = errorMessage(error);
-      inlineError.set(message);
-      props.onNotify(message, "error");
+      inlineError.set(errorMessage(error));
     } finally {
       installing.set(false);
     }
@@ -72,9 +69,7 @@ export function QuickInstallDialog(props: {
       source.set(chosen);
       await submitInstall(chosen);
     } catch (error) {
-      const message = errorMessage(error);
-      inlineError.set(message);
-      props.onNotify(message, "error");
+      inlineError.set(errorMessage(error));
     }
   };
 

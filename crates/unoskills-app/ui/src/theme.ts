@@ -1,4 +1,4 @@
-import { colorScheme } from "nsh";
+import { colorScheme, setTheme } from "nsh";
 import type { Locale, Theme } from "./shared";
 
 export interface Preferences {
@@ -36,69 +36,69 @@ const colors: Record<Palette, { light: Colors; dark: Colors }> = {
     dark: {
       background: "#14171d", surface: "#1d222c", foreground: "#e8edf5", muted: "#a9b3c4",
       border: "#343d4e", primary: "#a6bcff", onPrimary: "#14223e", accent: "#2b354a",
-      chrome: { rail: "#181c23", railSelection: "#1d222c", hover: "#262d3a",
+      chrome: { rail: "#181c23", hover: "#262d3a",
         segmented: "#151922", primaryHover: "#b6c8ff", primaryActive: "#95adfa", inputBorder: "#465166" },
     },
     light: {
       background: "#fcfcfd", surface: "#ffffff", foreground: "#182232", muted: "#526071",
       border: "#dce2eb", primary: "#315ac5", onPrimary: "#ffffff", accent: "#e9eefc",
-      chrome: { rail: "#f3f5f9", railSelection: "#eef2fa", hover: "#eef2fa",
+      chrome: { rail: "#f3f5f9", hover: "#eef2fa",
         segmented: "#eef1f6", primaryHover: "#294ead", primaryActive: "#234496", inputBorder: "#dce2eb" },
     },
   },
   claude: {
     dark: {
       background: "#262624", surface: "#2e2e2b", foreground: "#faf9f5", muted: "#b7b5a9",
-      border: "#3e3e38", primary: "#d97757", onPrimary: "#ffffff", accent: "#332722",
-      chrome: { rail: "#1f1e1d", railSelection: "#2e2e2b", hover: "#373632",
+      border: "#3e3e38", primary: "#d97757", onPrimary: "#141413", accent: "#332722",
+      chrome: { rail: "#1f1e1d", hover: "#373632",
         segmented: "#181816", primaryHover: "#e38668", primaryActive: "#c96442", inputBorder: "#52514a" },
     },
     light: {
       background: "#faf9f5", surface: "#ffffff", foreground: "#141413", muted: "#65645e",
-      border: "#dad9d4", primary: "#c96442", onPrimary: "#ffffff", accent: "#f5e8e2",
-      chrome: { rail: "#f5f4ee", railSelection: "#e9e6dc", hover: "#e9e6dc",
-        segmented: "#e6e2d6", primaryHover: "#b85737", primaryActive: "#a34b2e", inputBorder: "#dad9d4" },
+      border: "#dad9d4", primary: "#a34b2e", onPrimary: "#ffffff", accent: "#f5e8e2",
+      chrome: { rail: "#f5f4ee", hover: "#e9e6dc",
+        segmented: "#e6e2d6", primaryHover: "#944125", primaryActive: "#81371f", inputBorder: "#dad9d4" },
     },
   },
   vercel: {
     dark: {
       background: "#0a0a0a", surface: "#121212", foreground: "#ffffff", muted: "#a4a4a4",
       border: "#242424", primary: "#ffffff", onPrimary: "#000000", accent: "#1a1a1a",
-      chrome: { rail: "#050505", railSelection: "#121212", hover: "#1f1f1f",
+      chrome: { rail: "#050505", hover: "#1f1f1f",
         segmented: "#181818", primaryHover: "#e5e5e5", primaryActive: "#cccccc", inputBorder: "#333333" },
     },
     light: {
       background: "#fcfcfc", surface: "#ffffff", foreground: "#000000", muted: "#525252",
       border: "#e4e4e4", primary: "#000000", onPrimary: "#ffffff", accent: "#f0f0f0",
-      chrome: { rail: "#f5f5f5", railSelection: "#ebebeb", hover: "#ebebeb",
+      chrome: { rail: "#f5f5f5", hover: "#ebebeb",
         segmented: "#e5e5e5", primaryHover: "#262626", primaryActive: "#404040", inputBorder: "#e4e4e4" },
     },
   },
   supabase: {
     dark: {
       background: "#171717", surface: "#1f1f1f", foreground: "#e2e8f0", muted: "#a2a2a2",
-      border: "#292929", primary: "#24b47e", onPrimary: "#ffffff", accent: "#162620",
-      chrome: { rail: "#121212", railSelection: "#1f1f1f", hover: "#282828",
+      border: "#292929", primary: "#24b47e", onPrimary: "#081911", accent: "#162620",
+      chrome: { rail: "#121212", hover: "#282828",
         segmented: "#0e0e0e", primaryHover: "#3ecf8e", primaryActive: "#169c68", inputBorder: "#333333" },
     },
     light: {
       background: "#fcfcfc", surface: "#ffffff", foreground: "#171717", muted: "#626262",
-      border: "#dfdfdf", primary: "#169c68", onPrimary: "#ffffff", accent: "#e6f7f0",
-      chrome: { rail: "#f3f4f3", railSelection: "#ededed", hover: "#ededed",
-        segmented: "#e6e8e6", primaryHover: "#128356", primaryActive: "#0e6b46", inputBorder: "#dfdfdf" },
+      border: "#dfdfdf", primary: "#0e754d", onPrimary: "#ffffff", accent: "#e6f7f0",
+      chrome: { rail: "#f3f4f3", hover: "#ededed",
+        segmented: "#e6e8e6", primaryHover: "#0d6744", primaryActive: "#0b593b", inputBorder: "#dfdfdf" },
     },
   },
   catppuccin: {
     dark: {
       background: "#181825", surface: "#1e1e2e", foreground: "#cdd6f4", muted: "#a6adc8",
       border: "#313244", primary: "#cba6f7", onPrimary: "#1e1e2e", accent: "#26233a",
-      chrome: { rail: "#11111b", railSelection: "#1e1e2e", hover: "#292c3c",
+      chrome: { rail: "#11111b", hover: "#292c3c",
         segmented: "#0e0e16", primaryHover: "#d7b8f9", primaryActive: "#b48ef0", inputBorder: "#45475a" },
     },
     light: {
       background: "#eff1f5", surface: "#ffffff", foreground: "#4c4f69", muted: "#55586e",
       border: "#bcc0cc", primary: "#8839ef", onPrimary: "#ffffff", accent: "#eae0fc",
-      chrome: { rail: "#e6e9ef", railSelection: "#ccd0da", hover: "#ccd0da",
+      chrome: { rail: "#e6e9ef", hover: "#ccd0da",
         segmented: "#dce0e8", primaryHover: "#7626de", primaryActive: "#641bc4", inputBorder: "#bcc0cc" },
     },
   },
@@ -106,14 +106,14 @@ const colors: Record<Palette, { light: Colors; dark: Colors }> = {
     dark: {
       background: "#0f172a", surface: "#1e293b", foreground: "#e2e8f0", muted: "#94a3b8",
       border: "#334155", primary: "#34d399", onPrimary: "#0f172a", accent: "#162e38",
-      chrome: { rail: "#0b1120", railSelection: "#1e293b", hover: "#2d3748",
+      chrome: { rail: "#0b1120", hover: "#2d3748",
         segmented: "#080c17", primaryHover: "#4ade80", primaryActive: "#10b981", inputBorder: "#475569" },
     },
     light: {
       background: "#f0f8ff", surface: "#ffffff", foreground: "#1e293b", muted: "#56667c",
-      border: "#cbd5e1", primary: "#16a34a", onPrimary: "#ffffff", accent: "#dcfce7",
-      chrome: { rail: "#e0f2fe", railSelection: "#e0f2fe", hover: "#e0f2fe",
-        segmented: "#dce7f3", primaryHover: "#15803d", primaryActive: "#166534", inputBorder: "#cbd5e1" },
+      border: "#cbd5e1", primary: "#13743b", onPrimary: "#ffffff", accent: "#dcfce7",
+      chrome: { rail: "#e0f2fe", hover: "#e0f2fe",
+        segmented: "#dce7f3", primaryHover: "#116535", primaryActive: "#0e542b", inputBorder: "#cbd5e1" },
     },
   },
 };
@@ -143,9 +143,9 @@ export function makeTheme(prefs: Preferences): Theme {
   return {
     ...palette,
     modalBackdrop: "#00000072",
-    danger: scheme === "dark" ? "#ef4444" : "#d93838",
-    warning: scheme === "dark" ? "#d99b26" : "#c47f17",
-    success: scheme === "dark" ? "#2ea06b" : "#168a53",
+    danger: scheme === "dark" ? "#fda4af" : "#a32136",
+    warning: scheme === "dark" ? "#fbc879" : "#844a04",
+    success: scheme === "dark" ? "#8adcb9" : "#176147",
     fontSize: fontSize >= 12 && fontSize <= 18 ? fontSize : 14,
     radius: radius >= 0 && radius <= 16 ? radius : 8,
     fontFamily: prefs.ui_font === "auto" || !prefs.ui_font.trim() ? languageFonts[prefs.language] : prefs.ui_font.trim(),
@@ -153,4 +153,31 @@ export function makeTheme(prefs: Preferences): Theme {
       ? "Maple Mono NF CN, JetBrains Mono, SF Mono, Cascadia Mono, Ubuntu Sans Mono, Ubuntu Mono, DejaVu Sans Mono, Menlo, Consolas, monospace"
       : prefs.mono_font.trim(),
   };
+}
+
+export function applyNativeTheme(theme: Theme) {
+  setTheme({ cssVars: { theme: {
+    "background": theme.background,
+    "foreground": theme.foreground,
+    "card": theme.surface,
+    "card-foreground": theme.foreground,
+    "popover": theme.surface,
+    "popover-foreground": theme.foreground,
+    "muted": theme.chrome?.hover ?? theme.accent,
+    "muted-foreground": theme.muted,
+    "primary": theme.primary,
+    "primary-foreground": theme.onPrimary,
+    "secondary": theme.accent,
+    "secondary-foreground": theme.foreground,
+    "accent": theme.accent,
+    "accent-foreground": theme.foreground,
+    "border": theme.border,
+    "input": theme.chrome?.inputBorder ?? theme.border,
+    "ring": theme.primary,
+    "destructive": theme.danger,
+    "destructive-foreground": theme.background,
+    "radius": `${theme.radius}px`,
+    "font-sans": theme.fontFamily ?? "sans-serif",
+    "font-mono": theme.monoFamily ?? "monospace",
+  } } });
 }

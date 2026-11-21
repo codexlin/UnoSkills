@@ -35,7 +35,6 @@ export interface Theme {
   radius: number;
   chrome?: {
     rail: string;
-    railSelection: string;
     hover: string;
     segmented: string;
     primaryHover: string;

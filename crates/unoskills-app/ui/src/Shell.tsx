@@ -2,14 +2,14 @@ import { Image, View, announce, cleanup, computed, effect, host, keymap, setColo
 import { Button, Tooltip } from "nsh/base";
 import { titleBar } from "nsh/desktop";
 import { setLocale } from "nsh/i18n";
-import { Action, Icon, InlineError, Label, textSize } from "./controls";
+import { Action, Icon, InlineError, Label, focusOutline, interactionStyles, textSize } from "./controls";
 import { Home } from "./Home";
 import { strings } from "./i18n";
 import { Library, Discover } from "./library";
 import { Projects, Stacks } from "./projects";
 import { Settings } from "./Settings";
 import { call, errorMessage, pendingCalls, type Page, type Route, type ScreenProps, type Theme, type Tone } from "./shared";
-import { defaults, makeTheme, type Preferences } from "./theme";
+import { applyNativeTheme, defaults, makeTheme, type Preferences } from "./theme";
 import { createUpdates, UpdateModal } from "./Updates";
 
 const nav = [
@@ -27,10 +27,7 @@ function NavigationItem(props: {
   count: number; onPress: () => void;
 }) {
   const footer = () => props.item.page === "settings";
-  const selection = () => footer()
-    ? `color-mix(in srgb, ${props.theme.primary} 12%, transparent)`
-    : props.theme.chrome?.railSelection ?? props.theme.accent;
-  const color = () => footer() && props.selected ? props.theme.primary : props.theme.foreground;
+  const states = () => interactionStyles(props.theme, { selectedFill: props.selected ? props.theme.accent : undefined });
   const count = () => props.count > 0 ? `+${props.count}` : undefined;
   return <Button
     accessibilityLabel={count() ? `${props.label} ${count()}` : props.label}
@@ -43,15 +40,16 @@ function NavigationItem(props: {
     style={{ width: "100%", minWidth: 0, height: props.collapsed ? 32 : textSize(props.theme, 28),
       flexDirection: "row", alignItems: "center", justifyContent: props.collapsed ? "center" : "flex-start",
       paddingHorizontal: props.collapsed ? 0 : 8, gap: 8, borderRadius: props.theme.radius,
-      borderWidth: 1, borderColor: "transparent", backgroundColor: props.selected ? selection() : "transparent" }}
-    focusVisibleStyle={{ borderColor: props.theme.primary }}
-    hoverStyle={{ backgroundColor: props.selected ? selection() : props.theme.chrome?.railSelection ?? props.theme.accent }}
-    activeStyle={{ backgroundColor: props.theme.accent }}
+      borderWidth: 1, borderColor: props.selected ? props.theme.primary : "transparent",
+      backgroundColor: props.selected ? props.theme.accent : "transparent" }}
+    hoverStyle={states().hoverStyle}
+    activeStyle={states().activeStyle}
+    focusVisibleStyle={focusOutline(props.theme)}
   >
-    <Icon name={props.item.icon} color={color()} size={textSize(props.theme, footer() ? 16 : 14)} />
+    <Icon name={props.item.icon} color={props.theme.foreground} size={textSize(props.theme, footer() ? 16 : 14)} />
     {!props.collapsed ? <>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Label theme={props.theme} truncate color={color()} weight={props.selected ? "500" : "400"}>{props.label}</Label>
+        <Label theme={props.theme} truncate weight={props.selected ? "600" : "400"}>{props.label}</Label>
       </View>
       {count() ? <View style={{ borderColor: props.theme.warning, borderWidth: 1, paddingHorizontal: 4,
         borderRadius: Math.min(4, props.theme.radius), flexShrink: 0 }}>
@@ -143,6 +141,15 @@ export function App() {
   const themeMode = computed(() => preferences().theme);
   effect(() => setColorScheme(themeMode()));
   effect(() => setLocale(locale()));
+  effect(() => applyNativeTheme(theme()));
+  effect(() => {
+    if (!host.params.native_window_controls) return;
+    const { foreground, chrome, accent } = theme();
+    host.post("unoskills.command", {
+      command: "window.titlebar_colors",
+      input: { foreground, hover: chrome?.hover ?? accent, active: accent },
+    });
+  });
 
   const settingWrites = new Map<keyof Preferences, Promise<void>>();
   function setPreference(key: keyof Preferences, value: string) {

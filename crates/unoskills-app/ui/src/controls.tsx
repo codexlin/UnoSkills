@@ -23,12 +23,62 @@ export function PageHeader(props: { theme: Theme; title: string; children?: JSX.
   </View>;
 }
 
+export function focusOutline(theme: Theme) {
+  return { outlineWidth: 1, outlineOffset: -1, outlineColor: theme.primary };
+}
+
+export function interactionStyles(theme: Theme, options: { selectedFill?: string; primary?: boolean } = {}) {
+  // Bind each state prop explicitly so NSH can track theme and selection changes.
+  const hover = theme.chrome?.hover ?? theme.accent;
+  return {
+    hoverStyle: {
+      backgroundColor: options.selectedFill
+        ?? (options.primary ? theme.chrome?.primaryHover ?? theme.primary : hover),
+    },
+    activeStyle: {
+      backgroundColor: options.selectedFill
+        ?? (options.primary ? theme.chrome?.primaryActive ?? theme.primary
+          : `color-mix(in srgb, ${hover} 60%, ${theme.background})`),
+    },
+  };
+}
+
+export function menuItemStyles(theme: Theme, selected = false) {
+  return {
+    ...interactionStyles(theme, { selectedFill: selected ? theme.accent : undefined }),
+    focusStyle: {
+      ...focusOutline(theme),
+      backgroundColor: selected ? theme.accent : theme.chrome?.hover ?? theme.accent,
+    },
+    checkedStyle: { backgroundColor: theme.accent },
+    disabledStyle: { opacity: 0.55 },
+  };
+}
+
+export function selectPopupStyles(theme: Theme, options: { searchable?: boolean; width?: number; minWidth?: number; height?: number } = {}) {
+  const maxHeight = options.height ?? 244;
+  return {
+    popupStyle: {
+      width: options.width, minWidth: options.minWidth, maxHeight, padding: 4,
+      borderWidth: 1, borderColor: theme.border, borderRadius: theme.radius, backgroundColor: theme.surface,
+    },
+    listStyle: { maxHeight: maxHeight - (options.searchable ? 48 : 10), minHeight: 0, flexShrink: 1 },
+    itemClass: "focus:bg-muted selected:bg-accent selected:focus:bg-accent focus:outline-1 focus:-outline-offset-1 focus:outline-ring disabled:opacity-50",
+    searchStyle: options.searchable ? {
+      marginBottom: 6, paddingHorizontal: 8, minHeight: 32, flexShrink: 0,
+      color: theme.foreground, placeholderColor: theme.muted, backgroundColor: theme.background,
+      fontFamily: theme.fontFamily, fontSize: theme.fontSize,
+      borderWidth: 1, borderColor: theme.chrome?.inputBorder ?? theme.border, borderRadius: theme.radius,
+    } : undefined,
+  };
+}
+
 export function TabItem(props: Pick<TabProps, "accessibilityLabel" | "class" | "style" | "children"> & {
   theme: Theme;
   selected: boolean;
   onPress: () => void;
 }) {
-  const hoverColor = () => props.theme.chrome?.hover ?? props.theme.accent;
+  const states = () => interactionStyles(props.theme, { selectedFill: props.selected ? "transparent" : undefined });
   return (
     <Tab
       accessibilityLabel={props.accessibilityLabel}
@@ -36,11 +86,9 @@ export function TabItem(props: Pick<TabProps, "accessibilityLabel" | "class" | "
       onPress={props.onPress}
       class={props.class}
       style={props.style}
-      hoverStyle={{ backgroundColor: props.selected ? "transparent" : hoverColor() }}
-      activeStyle={{
-        backgroundColor: props.selected ? "transparent" : `color-mix(in srgb, ${hoverColor()} 60%, ${props.theme.background})`,
-      }}
-      focusVisibleStyle={{ outlineWidth: 1, outlineOffset: -1, outlineColor: props.theme.primary }}
+      hoverStyle={states().hoverStyle}
+      activeStyle={states().activeStyle}
+      focusVisibleStyle={focusOutline(props.theme)}
     >
       {props.children}
     </Tab>
@@ -94,6 +142,10 @@ export function Action(props: {
   const ghost = () => props.variant === "ghost";
   const height = () => props.height ?? (props.compact ? 30 : 36);
   const ink = () => primary() ? props.theme.onPrimary : props.danger ? props.theme.danger : props.theme.foreground;
+  const states = () => interactionStyles(props.theme, {
+    primary: primary(),
+    selectedFill: !primary() && props.selected ? props.theme.accent : undefined,
+  });
   return (
     <Button
       role={props.role}
@@ -119,9 +171,9 @@ export function Action(props: {
         borderColor: primary() ? props.theme.primary : ghost() ? "transparent" : props.theme.border,
         borderWidth: 1,
       }}
-      focusVisibleStyle={{ borderColor: props.theme.primary }}
-      hoverStyle={{ backgroundColor: primary() ? props.theme.chrome?.primaryHover ?? props.theme.primary : props.theme.chrome?.hover ?? props.theme.accent }}
-      activeStyle={{ backgroundColor: primary() ? props.theme.chrome?.primaryActive ?? props.theme.primary : props.theme.accent }}
+      hoverStyle={states().hoverStyle}
+      activeStyle={states().activeStyle}
+      focusVisibleStyle={focusOutline(props.theme)}
       disabledStyle={{ opacity: 0.5 }}
     >
       {props.glyph ? <Icon name={props.glyph} color={ink()} size={height() <= 20 ? 12 : height() <= 24 ? 14 : 16} /> : null}
@@ -144,7 +196,8 @@ export function Section(props: { theme: Theme; title: string; children?: JSX.Ele
 
 export function InlineError(props: { theme: Theme; message: string }) {
   return (
-    <View role="alert" style={{ padding: 8, borderRadius: props.theme.radius, borderColor: props.theme.danger, borderWidth: 1 }}>
+    <View role="alert" style={{ padding: 8, backgroundColor: props.theme.surface,
+      borderRadius: props.theme.radius, borderColor: props.theme.danger, borderWidth: 1 }}>
       <Label theme={props.theme} color={props.theme.danger}>{props.message}</Label>
     </View>
   );
@@ -197,6 +250,7 @@ export function Choice(props: {
   searchLabel?: string;
   onChange: (value: string) => void;
 }) {
+  const popup = () => selectPopupStyles(props.theme, { searchable: props.searchable });
   return (
     <View style={{ gap: 4, minWidth: 0 }}>
       {!props.inline ? <Label theme={props.theme}>{props.title}</Label> : null}
@@ -210,12 +264,18 @@ export function Choice(props: {
         searchPlaceholder={props.searchLabel}
         onChange={({ value }) => { if (value !== null) props.onChange(value); }}
         offset={4}
-        itemClass="rounded-md px-2 py-1.5 text-sm focus:bg-accent focus:text-accent-foreground disabled:opacity-50"
-        popupStyle={{ padding: 4, backgroundColor: props.theme.surface, borderColor: props.theme.border,
-          borderWidth: 1, borderRadius: props.theme.radius }}
+        popupStyle={popup().popupStyle}
+        listStyle={popup().listStyle}
+        searchStyle={popup().searchStyle}
+        itemClass={popup().itemClass}
+        cover={false}
+        itemStyle={{ borderRadius: props.theme.radius, paddingHorizontal: 8, paddingVertical: 6 }}
         renderItem={(item) => <Label theme={props.theme}>{item.title}</Label>}
         trigger={
-          <View style={{ minHeight: props.inline ? 28 : 36, paddingHorizontal: 10, borderRadius: props.theme.radius,
+          <View
+            hoverStyle={interactionStyles(props.theme).hoverStyle}
+            activeStyle={interactionStyles(props.theme).activeStyle}
+            focusVisibleStyle={focusOutline(props.theme)} style={{ minHeight: props.inline ? 28 : 36, paddingHorizontal: 10, borderRadius: props.theme.radius,
             borderColor: props.theme.border, borderWidth: 1, backgroundColor: props.theme.background,
             flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <Label theme={props.theme} truncate>{props.items.find((item) => item.value === props.value)?.title ?? props.value}</Label>

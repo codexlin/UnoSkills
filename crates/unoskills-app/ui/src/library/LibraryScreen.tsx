@@ -19,7 +19,7 @@ import {
   ResizablePanelGroup,
   Select,
 } from "nsh/base";
-import { Label } from "../controls";
+import { Label, focusOutline, interactionStyles, menuItemStyles, selectPopupStyles } from "../controls";
 import type { ScreenProps } from "../shared";
 import { LibraryListPane } from "./LibraryListPane";
 import { SkillInspector } from "./SkillInspector";
@@ -69,6 +69,7 @@ import type {
 const ALL_AGENTS_VALUE = "__all_agents__";
 
 export function Library(props: ScreenProps) {
+  const popup = () => selectPopupStyles(props.theme, { minWidth: 200 });
   const skills = signal<Skill[]>([]);
   const agents = signal<AgentInfo[]>([]);
   const projects = signal<ProjectWorkspace[]>([]);
@@ -921,8 +922,9 @@ export function Library(props: ScreenProps) {
                 borderColor: props.theme.border,
                 backgroundColor: props.theme.background,
               }}
-              hoverStyle={{ backgroundColor: props.theme.accent }}
-              focusVisibleStyle={{ borderColor: props.theme.primary }}
+              hoverStyle={interactionStyles(props.theme).hoverStyle}
+              activeStyle={interactionStyles(props.theme).activeStyle}
+              focusVisibleStyle={focusOutline(props.theme)}
             >
               <Text
                 style={{
@@ -954,8 +956,11 @@ export function Library(props: ScreenProps) {
               paddingVertical: 7,
               borderRadius: 6,
             }}
-            focusStyle={{ backgroundColor: props.theme.accent }}
-            hoverStyle={{ backgroundColor: props.theme.accent }}
+            hoverStyle={menuItemStyles(props.theme, selectedProjectId() === null).hoverStyle}
+            activeStyle={menuItemStyles(props.theme, selectedProjectId() === null).activeStyle}
+            focusStyle={menuItemStyles(props.theme, selectedProjectId() === null).focusStyle}
+            checkedStyle={menuItemStyles(props.theme, selectedProjectId() === null).checkedStyle}
+            disabledStyle={menuItemStyles(props.theme, selectedProjectId() === null).disabledStyle}
           >
             <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>
               {selectedProjectId() === null ? "✓" : ""}
@@ -983,8 +988,11 @@ export function Library(props: ScreenProps) {
                 paddingVertical: 7,
                 borderRadius: 6,
               }}
-              focusStyle={{ backgroundColor: props.theme.accent }}
-              hoverStyle={{ backgroundColor: props.theme.accent }}
+              hoverStyle={menuItemStyles(props.theme, true).hoverStyle}
+              activeStyle={menuItemStyles(props.theme, true).activeStyle}
+              focusStyle={menuItemStyles(props.theme, true).focusStyle}
+              checkedStyle={menuItemStyles(props.theme, true).checkedStyle}
+              disabledStyle={menuItemStyles(props.theme, true).disabledStyle}
             >
               <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>✓</Text>
               <Label theme={props.theme} size={13} truncate>
@@ -1009,8 +1017,11 @@ export function Library(props: ScreenProps) {
                   paddingVertical: 7,
                   borderRadius: 6,
                 }}
-                focusStyle={{ backgroundColor: props.theme.accent }}
-                hoverStyle={{ backgroundColor: props.theme.accent }}
+                hoverStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").hoverStyle}
+                activeStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").activeStyle}
+                focusStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").focusStyle}
+                checkedStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").checkedStyle}
+                disabledStyle={menuItemStyles(props.theme, selectedProjectId() === project().id && selectedScopePath() === "").disabledStyle}
               >
                 <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>
                   {selectedProjectId() === project().id && selectedScopePath() === "" ? "✓" : ""}
@@ -1038,8 +1049,11 @@ export function Library(props: ScreenProps) {
               paddingVertical: 7,
               borderRadius: 6,
             }}
-            focusStyle={{ backgroundColor: props.theme.accent }}
-            hoverStyle={{ backgroundColor: props.theme.accent }}
+            hoverStyle={menuItemStyles(props.theme).hoverStyle}
+            activeStyle={menuItemStyles(props.theme).activeStyle}
+            focusStyle={menuItemStyles(props.theme).focusStyle}
+            checkedStyle={menuItemStyles(props.theme).checkedStyle}
+            disabledStyle={menuItemStyles(props.theme).disabledStyle}
           >
             <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>+</Text>
             <Label theme={props.theme} size={13}>
@@ -1057,14 +1071,10 @@ export function Library(props: ScreenProps) {
           }}
           accessibilityLabel={s().library_agent_filter}
           offset={4}
-          popupStyle={{
-            minWidth: 200,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: props.theme.border,
-            backgroundColor: props.theme.surface,
-            padding: 4,
-          }}
+          popupStyle={popup().popupStyle}
+          listStyle={popup().listStyle}
+          itemClass={popup().itemClass}
+          cover={false}
           itemStyle={{
             paddingHorizontal: 10,
             paddingVertical: 7,
@@ -1093,8 +1103,9 @@ export function Library(props: ScreenProps) {
                 borderColor: props.theme.border,
                 backgroundColor: props.theme.background,
               }}
-              hoverStyle={{ backgroundColor: props.theme.accent }}
-              focusVisibleStyle={{ borderColor: props.theme.primary }}
+              hoverStyle={interactionStyles(props.theme).hoverStyle}
+              activeStyle={interactionStyles(props.theme).activeStyle}
+              focusVisibleStyle={focusOutline(props.theme)}
             >
               <Text
                 style={{

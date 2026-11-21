@@ -1,6 +1,6 @@
 import { cleanup, effect, signal, Text, untracked, View, type InputRef, type JSX } from "nsh";
 import { AlertDialog, Button, Checkbox, Input, Menu, MenuItem, Progress, Select, Tooltip } from "nsh/base";
-import { Icon, PageHeader, textSize } from "../controls";
+import { Icon, PageHeader, focusOutline, interactionStyles, menuItemStyles, selectPopupStyles, textSize } from "../controls";
 import type { IconName } from "../icons";
 import { errorMessage, type ScreenProps, type Theme } from "../shared";
 import { strings } from "./strings";
@@ -61,9 +61,9 @@ export function Action(props: {
 }) {
   return <Button accessibilityLabel={props.accessibilityLabel ?? props.label} disabled={props.disabled || props.pending} selected={props.selected} onPress={props.run}
     tooltip={props.iconOnly ? <Hint theme={props.theme} text={props.label} /> : undefined}
-    hoverStyle={{ backgroundColor: props.primary ? props.theme.primary : props.theme.accent }}
-    activeStyle={{ opacity: 0.8 }}
-    focusVisibleStyle={{ borderColor: props.theme.primary }}
+    hoverStyle={interactionStyles(props.theme, { primary: props.primary, selectedFill: props.selected ? props.theme.accent : undefined }).hoverStyle}
+    activeStyle={interactionStyles(props.theme, { primary: props.primary, selectedFill: props.selected ? props.theme.accent : undefined }).activeStyle}
+    focusVisibleStyle={focusOutline(props.theme)}
     selectedStyle={{ backgroundColor: props.theme.accent, borderColor: props.theme.primary }}
     disabledStyle={{ opacity: 0.5 }}
     style={{
@@ -96,7 +96,9 @@ export function OverflowMenu(props: { theme: Theme; label: string; children: JSX
     trigger={<View accessibilityLabel={props.label} tooltip={<Hint theme={props.theme} text={props.label} />}
       style={{ width: 30, height: 30, alignItems: "center", justifyContent: "center",
         borderRadius: props.theme.radius, borderWidth: 1, borderColor: "transparent" }}
-      hoverStyle={{ backgroundColor: props.theme.accent }} focusVisibleStyle={{ borderColor: props.theme.primary }}>
+      hoverStyle={interactionStyles(props.theme).hoverStyle}
+      activeStyle={interactionStyles(props.theme).activeStyle}
+      focusVisibleStyle={focusOutline(props.theme)}>
       <Icon name="ellipsis" color={props.theme.foreground} size={14} />
     </View>}>
     {props.children}
@@ -108,7 +110,11 @@ export function MenuAction(props: {
 }) {
   return <MenuItem accessibilityLabel={props.label} onSelect={props.run} disabled={props.disabled}
     style={{ minWidth: 0, paddingHorizontal: 8, paddingVertical: 6, borderRadius: props.theme.radius }}
-    focusStyle={{ backgroundColor: props.theme.accent }} disabledStyle={{ opacity: 0.5 }}>
+    hoverStyle={menuItemStyles(props.theme).hoverStyle}
+    activeStyle={menuItemStyles(props.theme).activeStyle}
+    focusStyle={menuItemStyles(props.theme).focusStyle}
+    checkedStyle={menuItemStyles(props.theme).checkedStyle}
+    disabledStyle={menuItemStyles(props.theme).disabledStyle}>
     <Label theme={props.theme} label={props.label} danger={props.danger} lines={1} />
   </MenuItem>;
 }
@@ -138,12 +144,17 @@ export function Choice(props: {
   value: string | null; choose: (value: string) => void; disabled?: boolean;
   compact?: boolean; searchable?: boolean; displayValue?: string; menuWidth?: number; menuHeight?: number;
 }) {
+  const popup = () => selectPopupStyles(props.theme, { width: props.menuWidth, height: props.menuHeight, searchable: props.searchable });
   return <View style={{ minWidth: 0 }}>
     <Select items={props.options} value={props.value} accessibilityLabel={props.label}
       disabled={props.disabled || props.options.length === 0} searchable={props.searchable}
       placeholder={props.label} searchPlaceholder={props.label} searchAccessibilityLabel={props.label}
       onChange={({ value }) => { if (value !== null) props.choose(value); }}
-      popupStyle={{ width: props.menuWidth, maxHeight: props.menuHeight, backgroundColor: props.theme.surface, borderWidth: 1, borderColor: props.theme.border, borderRadius: props.theme.radius, padding: 4 }}
+      popupStyle={popup().popupStyle}
+      listStyle={popup().listStyle}
+      searchStyle={popup().searchStyle}
+      itemClass={popup().itemClass}
+      cover={false}
       itemStyle={{ fontSize: props.theme.fontSize, color: props.theme.foreground, padding: 6, borderRadius: 4 }}
       renderItem={(item) => <View style={{ minWidth: 0, gap: 2 }}>
         <Label theme={props.theme} label={item.title} lines={1} />
@@ -151,12 +162,14 @@ export function Choice(props: {
           {(detail) => <Label theme={props.theme} label={detail()} muted lines={1} />}
         </If>
       </View>}
-      itemClass="focus:opacity-80 selected:font-semibold"
       trigger={<View style={{
         flexDirection: "row", justifyContent: "space-between", alignItems: "center",
         minWidth: 0, minHeight: props.compact ? 28 : 32, paddingHorizontal: 8, gap: 8, borderRadius: props.theme.radius,
         borderWidth: 1, borderColor: props.theme.border, backgroundColor: props.theme.background,
-      }} focusStyle={{ borderColor: props.theme.primary }} hoverStyle={{ backgroundColor: props.theme.accent }}>
+      }}
+            hoverStyle={interactionStyles(props.theme).hoverStyle}
+            activeStyle={interactionStyles(props.theme).activeStyle}
+            focusVisibleStyle={focusOutline(props.theme)}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Label theme={props.theme} label={props.displayValue ?? props.options.find((option) => option.value === props.value)?.title ?? props.label}
             muted={props.value === null} lines={1} />
@@ -170,7 +183,9 @@ export function Choice(props: {
 export function Check(props: { theme: Theme; label: string; checked: boolean; update: (checked: boolean) => void; disabled?: boolean; compact?: boolean }) {
   return <Checkbox checked={props.checked} disabled={props.disabled}
     onChange={({ checked }) => props.update(checked)}
-    focusStyle={{ borderColor: props.theme.primary }} disabledStyle={{ opacity: 0.5 }}
+    hoverStyle={interactionStyles(props.theme).hoverStyle}
+    activeStyle={interactionStyles(props.theme).activeStyle}
+    focusVisibleStyle={focusOutline(props.theme)} disabledStyle={{ opacity: 0.5 }}
     style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0, minHeight: props.compact ? 24 : 28, borderWidth: 1, borderColor: "transparent", borderRadius: 4 }}
     indicatorStyle={{
       width: 16, height: 16, flexShrink: 0, alignItems: "center", justifyContent: "center", borderWidth: 1,

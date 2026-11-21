@@ -1,6 +1,6 @@
 import { Clipboard, Scroll, Text, View, openUrl } from "nsh";
 import { Input, Menu, MenuItem, MenuSeparator, Switch, TextView } from "nsh/base";
-import { Label } from "../controls";
+import { Label, focusOutline, interactionStyles, menuItemStyles } from "../controls";
 import type { Theme } from "../shared";
 import {
   ActionButton,
@@ -161,8 +161,9 @@ export function SkillInspector(props: {
                           borderRadius: props.theme.radius ?? 8,
                           backgroundColor: "transparent",
                         }}
-                        hoverStyle={{ backgroundColor: props.theme.accent }}
-                        focusVisibleStyle={{ borderWidth: 1, borderColor: props.theme.primary }}
+                        hoverStyle={interactionStyles(props.theme).hoverStyle}
+                        activeStyle={interactionStyles(props.theme).activeStyle}
+                        focusVisibleStyle={focusOutline(props.theme)}
                       >
                         <Text style={{ fontSize: 15, color: props.theme.foreground }}>⋯</Text>
                       </View>
@@ -178,9 +179,11 @@ export function SkillInspector(props: {
                         disabled={props.updatingSkillId === skill().id}
                         onSelect={() => props.onUpdateSkill(skill())}
                         style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6 }}
-                        focusStyle={{ backgroundColor: props.theme.accent }}
-                        hoverStyle={{ backgroundColor: props.theme.accent }}
-                        disabledStyle={{ opacity: 0.45 }}
+                        hoverStyle={menuItemStyles(props.theme).hoverStyle}
+                        activeStyle={menuItemStyles(props.theme).activeStyle}
+                        focusStyle={menuItemStyles(props.theme).focusStyle}
+                        checkedStyle={menuItemStyles(props.theme).checkedStyle}
+                        disabledStyle={menuItemStyles(props.theme).disabledStyle}
                       >
                         <Label theme={props.theme} size={13}>
                           {s().btn_update_skill}
@@ -195,8 +198,11 @@ export function SkillInspector(props: {
                         });
                       }}
                       style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6 }}
-                      focusStyle={{ backgroundColor: props.theme.accent }}
-                      hoverStyle={{ backgroundColor: props.theme.accent }}
+                      hoverStyle={menuItemStyles(props.theme).hoverStyle}
+                      activeStyle={menuItemStyles(props.theme).activeStyle}
+                      focusStyle={menuItemStyles(props.theme).focusStyle}
+                      checkedStyle={menuItemStyles(props.theme).checkedStyle}
+                      disabledStyle={menuItemStyles(props.theme).disabledStyle}
                     >
                       <Label theme={props.theme} size={13}>
                         {s().tooltip_reveal_folder}
@@ -210,8 +216,11 @@ export function SkillInspector(props: {
                           .catch((error) => props.onNotify(errorMessage(error), "error"));
                       }}
                       style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6 }}
-                      focusStyle={{ backgroundColor: props.theme.accent }}
-                      hoverStyle={{ backgroundColor: props.theme.accent }}
+                      hoverStyle={menuItemStyles(props.theme).hoverStyle}
+                      activeStyle={menuItemStyles(props.theme).activeStyle}
+                      focusStyle={menuItemStyles(props.theme).focusStyle}
+                      checkedStyle={menuItemStyles(props.theme).checkedStyle}
+                      disabledStyle={menuItemStyles(props.theme).disabledStyle}
                     >
                       <Label theme={props.theme} size={13}>
                         {s().library_copy_path}
@@ -225,8 +234,11 @@ export function SkillInspector(props: {
                     <MenuItem
                       onSelect={() => props.onDeleteSkill(skill())}
                       style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6 }}
-                      focusStyle={{ backgroundColor: props.theme.accent }}
-                      hoverStyle={{ backgroundColor: props.theme.accent }}
+                      hoverStyle={menuItemStyles(props.theme).hoverStyle}
+                      activeStyle={menuItemStyles(props.theme).activeStyle}
+                      focusStyle={menuItemStyles(props.theme).focusStyle}
+                      checkedStyle={menuItemStyles(props.theme).checkedStyle}
+                      disabledStyle={menuItemStyles(props.theme).disabledStyle}
                     >
                       <Label theme={props.theme} size={13} color={props.theme.danger}>
                         {s().btn_delete}

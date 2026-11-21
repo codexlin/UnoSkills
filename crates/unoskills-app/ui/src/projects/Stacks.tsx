@@ -1,6 +1,6 @@
 import { Clipboard, cleanup, computed, effect, keymap, List, Scroll, signal, Text, View, type InputRef, type JSX } from "nsh";
 import { Button, MenuSeparator, ResizablePanel, ResizablePanelGroup, Tabs } from "nsh/base";
-import { Icon, TabItem } from "../controls";
+import { Icon, TabItem, focusOutline, interactionStyles } from "../controls";
 import type { IconName } from "../icons";
 import type { ScreenProps, Theme } from "../shared";
 import {
@@ -254,9 +254,10 @@ function StackCard(props: { theme: Theme; stack: Stack; locale: ScreenProps["loc
       style={{ height: 60, minWidth: 0, overflow: "hidden", justifyContent: "center", gap: 4,
         paddingHorizontal: 12, borderWidth: 1, borderColor: props.theme.border, borderRadius: props.theme.radius,
         backgroundColor: props.theme.background }}
-      hoverStyle={{ backgroundColor: props.theme.accent }}
-      selectedStyle={{ backgroundColor: props.theme.accent, borderColor: props.theme.primary }}
-      focusVisibleStyle={{ borderColor: props.theme.primary }} activeStyle={{ opacity: 0.82 }}>
+      hoverStyle={interactionStyles(props.theme, { selectedFill: props.selected ? props.theme.accent : undefined }).hoverStyle}
+      activeStyle={interactionStyles(props.theme, { selectedFill: props.selected ? props.theme.accent : undefined }).activeStyle}
+      focusVisibleStyle={focusOutline(props.theme)}
+      selectedStyle={{ backgroundColor: props.theme.accent, borderColor: props.theme.primary }}>
       <View style={row}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Label theme={props.theme} label={props.stack.name} weight="600" lines={1} />

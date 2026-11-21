@@ -1,6 +1,6 @@
 import { List, Scroll, View, computed, effect, signal, type JSX } from "nsh";
 import { Button, Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
-import { Action, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, textSize } from "./controls";
+import { Action, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, focusOutline, interactionStyles, textSize } from "./controls";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps, type Theme } from "./shared";
 import { paletteFor, palettes, type Preferences } from "./theme";
@@ -40,12 +40,15 @@ export function Settings(props: SettingsProps) {
             {(tab) => (
               <Button accessibilityLabel={tab().label} selected={section() === tab().id}
                 class="w-full min-h-8 flex-row items-center gap-2 px-2"
-                style={{ borderRadius: props.theme.radius, backgroundColor: section() === tab().id ? props.theme.accent : undefined }}
-                hoverStyle={{ backgroundColor: props.theme.accent }}
-                focusVisibleStyle={{ borderColor: props.theme.primary, borderWidth: 1 }}
+                style={{ borderRadius: props.theme.radius, borderWidth: 1,
+                  borderColor: section() === tab().id ? props.theme.primary : "transparent",
+                  backgroundColor: section() === tab().id ? props.theme.accent : undefined }}
+                hoverStyle={interactionStyles(props.theme, { selectedFill: section() === tab().id ? props.theme.accent : undefined }).hoverStyle}
+                activeStyle={interactionStyles(props.theme, { selectedFill: section() === tab().id ? props.theme.accent : undefined }).activeStyle}
+                focusVisibleStyle={focusOutline(props.theme)}
                 onPress={() => props.navigate({ page: "settings", tab: tab().id })}>
                 <Icon name={tab().icon} size={16} color={section() === tab().id ? props.theme.primary : props.theme.muted} />
-                <Label theme={props.theme} truncate color={section() === tab().id ? props.theme.primary : props.theme.foreground}>{tab().label}</Label>
+                <Label theme={props.theme} truncate weight={section() === tab().id ? "600" : "400"}>{tab().label}</Label>
               </Button>
             )}
           </Each>
@@ -109,11 +112,13 @@ function SegmentedSetting(props: SettingField) {
         {(option) => <Toggle pressed={props.value === option().value} accessibilityLabel={option().title}
           onChange={({ pressed }) => { if (pressed) props.onChange(option().value); }}
           class="min-h-7 flex-row items-center justify-center gap-1 px-2"
-          style={{ borderRadius: props.theme.radius, backgroundColor: props.value === option().value ? props.theme.accent : undefined }}
-          hoverStyle={{ backgroundColor: props.theme.surface }}
-          focusVisibleStyle={{ borderColor: props.theme.primary, borderWidth: 1 }}>
+          style={{ borderRadius: props.theme.radius }}
+          pressedStyle={{ backgroundColor: props.theme.accent }}
+          hoverStyle={interactionStyles(props.theme, { selectedFill: props.value === option().value ? props.theme.accent : undefined }).hoverStyle}
+          activeStyle={interactionStyles(props.theme, { selectedFill: props.value === option().value ? props.theme.accent : undefined }).activeStyle}
+          focusVisibleStyle={focusOutline(props.theme)}>
           {option().glyph ? <Icon name={option().glyph!} size={14} color={props.theme.foreground} /> : null}
-          <Label theme={props.theme} size={textSize(props.theme, 13)}>{option().title}</Label>
+          <Label theme={props.theme} weight={props.value === option().value ? "600" : "400"} size={textSize(props.theme, 13)}>{option().title}</Label>
         </Toggle>}
       </Each>
     </ToggleGroup>
@@ -395,7 +400,9 @@ function Agents(props: SettingsProps) {
           <Collapsible open={showUndetected()} content={renderRows(undetected())}>
             <Button accessibilityLabel={t().badge_not_detected} selected={showUndetected()}
               class="min-h-8 flex-row items-center gap-2 px-3"
-              hoverStyle={{ backgroundColor: props.theme.accent }} focusVisibleStyle={{ borderColor: props.theme.primary, borderWidth: 1 }}
+              hoverStyle={interactionStyles(props.theme).hoverStyle}
+              activeStyle={interactionStyles(props.theme).activeStyle}
+              focusVisibleStyle={focusOutline(props.theme)}
               onPress={() => showUndetected.update((shown) => !shown)}>
               <View class={showUndetected() ? "rotate-90" : undefined}><Icon name="chevron-right" color={props.theme.muted} size={14} /></View>
               <Label theme={props.theme} weight="600">{`${t().badge_not_detected} (${undetected().length})`}</Label>

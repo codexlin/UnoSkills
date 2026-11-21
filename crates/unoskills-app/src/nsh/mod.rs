@@ -3,6 +3,8 @@ mod library;
 mod projects;
 mod settings;
 mod update;
+#[cfg(target_os = "linux")]
+mod window_colors;
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -34,16 +36,30 @@ pub(super) fn channel_for(
     let open_manager = Arc::new(open_manager);
     let host = HostChannel::new();
     let mark = STANDARD.encode(include_bytes!("../../assets/icons/uno-mark.svg"));
-    host.set_params(serde_json::Map::from_iter([(
-        "brand_mark".to_owned(),
-        json!(format!("data:image/svg+xml;base64,{mark}")),
-    )]));
+    host.set_params(serde_json::Map::from_iter([
+        (
+            "brand_mark".to_owned(),
+            json!(format!("data:image/svg+xml;base64,{mark}")),
+        ),
+        (
+            "native_window_controls".to_owned(),
+            json!(cfg!(target_os = "linux")),
+        ),
+    ]));
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(4)
         .thread_name(|worker| format!("unoskills-host-{worker}"))
         .build()?;
     let updates = Arc::new(update::Updates::default());
     host.handle("unoskills.command", move |call| {
+        #[cfg(target_os = "linux")]
+        if call.data()["command"] == "window.titlebar_colors" {
+            if let Ok(colors) = serde_json::from_value(call.data()["input"].clone()) {
+                window_colors::apply(colors);
+            }
+            call.resolve(json!({"ok": true, "value": null}));
+            return;
+        }
         let updates = Arc::clone(&updates);
         let open_manager = Arc::clone(&open_manager);
         pool.spawn(move || {

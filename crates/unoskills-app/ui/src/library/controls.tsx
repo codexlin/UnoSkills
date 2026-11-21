@@ -1,6 +1,6 @@
 import { type InputRef, type JSX, Text, View } from "nsh";
 import { Button, Input, Progress, Tabs, Tooltip } from "nsh/base";
-import { InlineError, Label, TabItem } from "../controls";
+import { InlineError, Label, TabItem, focusOutline, interactionStyles } from "../controls";
 import type { Theme } from "../shared";
 import { TOKEN_BUDGET_WARN_THRESHOLD, formatTokensShort } from "./format";
 
@@ -60,8 +60,9 @@ export function ActionButton(props: {
   const fg = () => {
     switch (kind()) {
       case "primary":
-      case "danger":
         return props.theme.onPrimary;
+      case "danger":
+        return props.theme.background;
       default:
         return props.theme.foreground;
     }
@@ -70,8 +71,9 @@ export function ActionButton(props: {
   const iconColor = () => {
     switch (kind()) {
       case "primary":
-      case "danger":
         return props.theme.onPrimary;
+      case "danger":
+        return props.theme.background;
       case "ghost":
         return hasLabel() ? props.theme.muted : props.theme.foreground;
       default:
@@ -79,6 +81,10 @@ export function ActionButton(props: {
     }
   };
 
+  const states = () => interactionStyles(props.theme, {
+    primary: kind() === "primary",
+    selectedFill: kind() === "danger" ? props.theme.danger : props.selected ? props.theme.accent : undefined,
+  });
   return (
     <Button
       onPress={props.onPress}
@@ -109,12 +115,9 @@ export function ActionButton(props: {
         paddingVertical: props.compact ? 4 : 6,
         flexShrink: 0,
       }}
-      focusVisibleStyle={{ borderWidth: 1, borderColor: props.theme.primary }}
-      hoverStyle={{
-        backgroundColor: kind() === "primary" || kind() === "danger" ? bg() : props.theme.accent,
-        opacity: kind() === "primary" || kind() === "danger" ? 0.92 : 1,
-      }}
-      activeStyle={{ opacity: 0.82 }}
+      hoverStyle={states().hoverStyle}
+      activeStyle={states().activeStyle}
+      focusVisibleStyle={focusOutline(props.theme)}
       selectedStyle={{
         backgroundColor: props.theme.accent,
         borderColor: props.theme.primary,
@@ -221,8 +224,9 @@ export function SearchField(props: {
             justifyContent: "center",
             flexShrink: 0,
           }}
-          hoverStyle={{ backgroundColor: props.theme.accent }}
-          focusVisibleStyle={{ borderWidth: 1, borderColor: props.theme.primary }}
+          hoverStyle={interactionStyles(props.theme).hoverStyle}
+          activeStyle={interactionStyles(props.theme).activeStyle}
+          focusVisibleStyle={focusOutline(props.theme)}
         >
           <Text style={{ fontSize: 12, color: props.theme.muted }}>×</Text>
         </Button>

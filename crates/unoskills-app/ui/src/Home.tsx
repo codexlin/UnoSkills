@@ -1,7 +1,7 @@
 import { Scroll, View, cleanup, computed, effect, openUrl, reduceMotion, signal, windowSize } from "nsh";
 import { Button, Tabs } from "nsh/base";
 import { Bar, Grid, Plot, PlotAxis } from "nsh/base/plot";
-import { Action, Icon, InlineError, Label, PageHeader, TabItem, textSize } from "./controls";
+import { Action, Icon, InlineError, Label, PageHeader, TabItem, focusOutline, interactionStyles, textSize } from "./controls";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps } from "./shared";
 import { request } from "./projects/host";
@@ -105,9 +105,9 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
         onPress={() => props.navigate(item().route)}
         style={{ ...row, height: 44, minWidth: 0, paddingHorizontal: 10, gap: 8, borderRadius: theme().radius,
           borderWidth: 1, borderColor: "transparent" }}
-        focusVisibleStyle={{ borderColor: theme().primary }}
-        hoverStyle={{ backgroundColor: theme().chrome?.hover ?? theme().accent }}
-        activeStyle={{ backgroundColor: theme().accent }}>
+       hoverStyle={interactionStyles(theme()).hoverStyle}
+       activeStyle={interactionStyles(theme()).activeStyle}
+       focusVisibleStyle={focusOutline(theme())}>
         <Icon name={item().icon} color={theme().muted} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Label theme={theme()} truncate>{item().label}</Label>
@@ -165,9 +165,9 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                       onPress={() => props.navigate({ page: "library", skillId: skill().id })}
                       style={{ ...row, gap: 8, height: 32, paddingHorizontal: 10, borderRadius: theme().radius,
                         borderColor: "transparent", borderWidth: 1 }}
-                      focusVisibleStyle={{ borderColor: theme().primary }}
-                      hoverStyle={{ backgroundColor: theme().chrome?.hover ?? theme().accent }}
-                      activeStyle={{ backgroundColor: theme().accent }}>
+                     hoverStyle={interactionStyles(theme()).hoverStyle}
+                     activeStyle={interactionStyles(theme()).activeStyle}
+                     focusVisibleStyle={focusOutline(theme())}>
                       <Icon name="file-text" color={theme().muted} />
                       <View style={{ flex: 1, minWidth: 0 }}><Label theme={theme()} truncate>{skill().name}</Label></View>
                       {skill().date ? <Label theme={theme()} muted size={textSize(theme(), 12)}>{skill().date}</Label> : null}
