@@ -5,201 +5,133 @@
 <h1 align="center">UnoSkills</h1>
 
 <p align="center">
-  A <strong>fast, native Rust workbench</strong> to manage, share, and sync<br/>AI agent skills & <strong>Skill Stacks</strong> across every coding tool.
+  A native desktop workbench for AI agent skills.<br/>
+  Keep one local library, build reusable stacks, and deploy them to the agents and projects you use.
 </p>
 
 <p align="center">
-  Pure Rust · Zero WebView · Zero Node.js · Instant startup
-</p>
-
-<p align="center">
+  <a href="https://github.com/codexlin/UnoSkills/releases/latest"><img src="https://img.shields.io/github/v/release/codexlin/UnoSkills?sort=semver&display_name=tag" alt="Latest release" /></a>
   <a href="https://github.com/codexlin/UnoSkills/actions/workflows/ci.yml"><img src="https://github.com/codexlin/UnoSkills/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://github.com/codexlin/UnoSkills/releases/latest"><img src="https://img.shields.io/github/v/release/codexlin/UnoSkills?sort=semver&display_name=tag" alt="Release" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/codexlin/UnoSkills" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20·%20Windows%20·%20Linux-blue" alt="Platforms" />
-  <img src="https://img.shields.io/badge/Rust-1.85%2B-orange" alt="Rust 1.85+" />
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/codexlin/UnoSkills" alt="MIT license" /></a>
 </p>
 
 <p align="center">
-  <a href="README.zh-CN.md">中文说明</a>
-  &nbsp;·&nbsp;
-  <a href="#features">Features</a> &nbsp;·&nbsp;
-  <a href="#install">Install</a> &nbsp;·&nbsp;
-  <a href="#quick-start">Quick Start</a> &nbsp;·&nbsp;
-  <a href="#supported-tools">Supported Tools</a> &nbsp;·&nbsp;
-  <a href="#development">Development</a>
+  <a href="https://github.com/codexlin/UnoSkills/releases/latest"><strong>Download</strong></a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#project-skills">Project skills</a> ·
+  <a href="#desktop-screenshots">Screenshots</a> ·
+  <a href="README.zh-CN.md">简体中文</a>
 </p>
 
----
+![UnoSkills Home showing the local workspace, recent projects, and the skills.sh leaderboard](assets/demo/home.png)
 
-<p align="center">
-  <img src="assets/demo/library.png" width="800" alt="UnoSkills Library: inspect a skill, check token budget & lint, toggle per-agent deployment" />
-</p>
-<p align="center"><em><strong>Library</strong> — inspect skills, check lint & context-token budget, toggle per-agent deployment in one click.</em></p>
+## Install
 
-## Why UnoSkills?
+Download the installer for your platform from [GitHub Releases](https://github.com/codexlin/UnoSkills/releases/latest). Each release includes the desktop app, the `unoskills` CLI, and `SHA256SUMS.txt`.
 
-Most skill managers are Electron/Tauri apps with a WebView and a Node runtime. UnoSkills is built on [GPUI Kit](https://gpui-kit.com/) (the GPU renderer behind [Zed](https://zed.dev)), so the whole app — lists, Markdown preview, dialogs — is rendered natively on the GPU. It starts instantly, sips memory, and virtualizes long lists so large libraries keep scrolling smoothly.
+| Platform | Installer |
+| --- | --- |
+| macOS (Apple Silicon) | Open `unoskills-macos-arm64.dmg` and drag UnoSkills to Applications. |
+| Windows x64 | Run `unoskills-setup-<version>-windows-x64.exe`. |
+| Debian and Ubuntu x64 | Run `sudo apt install ./unoskills_<version>_amd64.deb`. |
 
-But fast is only half of it. A skill manager touches your agents' config directories, so **safety is a product feature**, not a checkbox:
+Portable archives are available on the same release page. macOS builds are currently ad-hoc signed.
 
-- **Strict skill detection** — recognizes canonical `SKILL.md` (plus legacy `skill.md`); never misclassifies `README.md` or `CLAUDE.md` as a skill.
-- **No silent clobbering** — targets are classified with `symlink_metadata` (never follows links), and deployments default to `NoClobber`: an unmanaged folder stops with an explicit confirmation dialog instead of being overwritten.
-- **Shared-directory reference counting** — when several agents resolve to the same physical directory (e.g. `~/.agents/skills`), undeploying one agent never deletes another agent's live skills.
-- **Path hardening** — every slug passes traversal/reserved-name sanitization; every copy/link is checked against source-overlap recursion.
-- **Destructive actions confirm** — CLI `remove` requires `--yes`; GUI shows an explicit `AlertDialog`.
+## Quick start
 
-## Features
+1. **Add a skill.** In **Discover**, browse skills.sh or choose **Install from Link** to add a GitHub skill, an `owner/repo@skill` reference, or a local folder. **Local skills** lists skills already on your machine that you can bring under management.
+2. **Deploy from your library.** Select a skill in **Library** and toggle deployment for the agents that need it. Symlink mode uses the central copy directly. Copy mode creates a local copy at the deployment destination.
+3. **Save a reusable stack.** In **Stacks → My Stacks**, group skills into a named stack. Install its missing skills together, export the TOML, or share it with your team.
 
-<p align="center">
-  <img src="assets/demo/stacks.png" width="800" alt="UnoSkills Stacks: one-click install of curated skill combinations" />
-</p>
-<p align="center"><em><strong>Stacks</strong> — install a curated skill combination in one click, or bundle your own.</em></p>
+The library lives on your machine at `~/.unoskills`. Library management, local stacks, and TOML import and export work without an account.
 
-### 📚 Library — your central skill repo
+## Project skills
 
-- Install skills from Git repos (`owner/repo@skill`), GitHub `/tree/branch/subpath` URLs, local folders, or the [skills.sh](https://skills.sh) marketplace — everything lands in one local-first library at `~/.unoskills`.
-- Preview and quick-edit `SKILL.md` in place; frontmatter lint + estimated context tokens per skill.
-- **One-click update check**: compares Git / `skills.sh` / local sources via SHA-256 and upgrades in place without breaking symlinks or managed deployments.
-- **Per-agent deploy switches** right on the card — Symlink (default, live-updating) or Copy mode, for 22 built-in agents and any custom tool you register.
-- **Project scopes**: attach a repo workspace and deploy skills into repo-local `.claude/skills`, `.codex/skills`, `.cursor/skills`… with the same safety guarantees.
+Attach a project from **Home → Recent Projects**. Open it to see the technologies UnoSkills recognized and the configuration file behind each result. For a monorepo, choose a detected subproject under **Scan Scope** to get recommendations for that part of the codebase.
 
-### 🧩 Stacks — skills, composed
+![Project overview showing the detected stack and skill recommendations for the apps/store subproject](assets/demo/projects.png)
 
-- A Stack is a declarative `.unoskills-stack.toml` manifest — a named recipe of skills *without duplicating their source code*.
-- Featured stacks ship in-app (React & Next.js, Anthropic essentials, Superpowers engineering discipline…); create your own from installed skills, export as TOML, and share via Gist or PR.
-- **Incremental one-click install**: existing skills are skipped, missing ones are fetched, nothing is installed twice.
+Select the skills you want and choose **Save as Stack**. If skills are missing from the library, install them and continue to the deployment preview. Choose an agent and the **Deployment Folder**. The preview defaults to the project root and also lets you choose a detected subproject. It shows the deployment counts before confirmation and preserves existing files when targets conflict.
 
-### 🔍 Discover — find & adopt
+<details>
+<summary>See the deployment preview</summary>
 
-<p align="center">
-  <img src="assets/demo/discover.png" width="800" alt="UnoSkills Discover: adopt existing unmanaged skills" />
-</p>
-<p align="center"><em><strong>Adopt</strong> — skills you already installed by hand are detected and can be absorbed into the library in one click.</em></p>
+![Deployment preview for a saved stack targeting the apps/store folder and Claude Code](assets/demo/deployment.png)
 
-- Quick Install from `owner/repo@skill`, GitHub links, or a local directory.
-- Browse the [skills.sh](https://skills.sh) leaderboard (trending / rising / all-time) with search and infinite scroll.
-- **Adopt existing skills**: scan your agents' directories for unmanaged skills and bring them under management — no re-install, no duplicates.
+</details>
 
-### ⚙️ Settings
+## What you can do
 
-- Full **Simplified Chinese / English / Japanese** UI, Dark/Light themes, system font discovery (CJK-aware).
-- Default deploy mode (Symlink/Copy), proxy support (HTTP/SOCKS for Git + marketplace), local-only GitHub PAT, and a **declarative agent registry** — 22 agents defined in one `agents.toml`, with automatic installation detection.
+| Area | What it does |
+| --- | --- |
+| **Home** | Open recent projects, jump to My Stacks, and see library activity and the skills.sh leaderboard. |
+| **Library** | Preview or edit `SKILL.md`, check lint findings and token estimates, update skills, and manage per-agent deployments. |
+| **Stacks** | Use featured or community stacks, create your own, and exchange portable TOML manifests. |
+| **Discover** | Search the marketplace, filter loaded results by source, install from links, or add existing local skills to the library. |
+| **Settings** | Choose system, light, or dark appearance, switch between English, 简体中文, and 日本語, and configure agents, network access, and Git backup. |
 
-### 🖥️ An agent-friendly CLI ships alongside
+## Desktop screenshots
 
-The `unoskills` CLI shares the exact same engine and SQLite store as the desktop app — and every command speaks `--json`, so Claude Code / Codex / your scripts can manage skills themselves:
+These screenshots show the current Linux build with a sample workspace.
+
+<details>
+<summary>Library and Stacks</summary>
+
+![Library with a selected skill, estimated token counts, and per-agent deployment switches](assets/demo/library.png)
+
+![My Stacks showing a reusable frontend review stack and the Deploy to Project action](assets/demo/stacks.png)
+
+</details>
+
+<details>
+<summary>Discover and Settings</summary>
+
+![Discover displaying the skills.sh marketplace in a three-column grid](assets/demo/discover.png)
+
+![Appearance settings with system, light, and dark modes](assets/demo/settings.png)
+
+</details>
+
+## Supported agents
+
+UnoSkills detects 22 built-in agents, including Claude Code, Codex, Cursor, Antigravity, OpenCode, Gemini CLI, and GitHub Copilot. See the [full agent registry](crates/unoskills-core/data/agents.toml). You can register a custom agent or override a built-in agent’s skills directory in **Settings**.
+
+## CLI
+
+The desktop app and CLI share the same library and SQLite database. Use `--json` when scripting.
 
 ```bash
 unoskills install anthropics/skills@skill-creator
 unoskills deploy skill-creator --agent claude_code --agent codex
-unoskills stack install rust-gpui-workbench --agent cursor
-unoskills update skill-creator
-unoskills adopt --dry-run          # see what's unmanaged
-unoskills project deploy my-skill --project my-app --agent opencode
-unoskills list --json              # machine-readable output
+unoskills project add ./my-app
+unoskills project deploy skill-creator --project my-app --agent codex
+unoskills stack install ./frontend-review.unoskills-stack.toml
+unoskills list --json
 ```
-
-## Install
-
-Grab the latest from [**Releases**](https://github.com/codexlin/UnoSkills/releases/latest) — every release ships a `SHA256SUMS.txt`:
-
-| Platform | Recommended | Notes |
-|---|---|---|
-| macOS (Apple Silicon) | `unoskills-macos-arm64.dmg` | drag `UnoSkills.app` into `/Applications` |
-| Windows x64 | `unoskills-setup-<version>-windows-x64.exe` | Inno Setup installer: Start-menu + uninstall support |
-| Linux (Debian/Ubuntu) | `unoskills_<version>_amd64.deb` | `sudo apt install ./unoskills_<version>_amd64.deb` |
-
-Bare binaries (`unoskills-app-*` GUI, `unoskills-*` CLI) and raw archives are also attached for power users.
-
-> **Heads-up (macOS)**: builds are not yet Developer-ID-signed/notarized, so the first launch needs a right-click → **Open**. Proper signing is on the [roadmap](docs/ROADMAP.md).
-
-## Quick Start
-
-1. **Install a skill** — open **Discover**, paste `owner/repo@skill` or a GitHub link, pick a local folder, or grab one from the marketplace.
-2. **Deploy it** — in **Library**, flip the switch next to each agent that should receive it. Symlink mode keeps deployed copies live with the central library.
-3. **Bundle a workflow** — in **Stacks**, select skills → **Create**, then export the TOML to share your setup with the team.
-4. **Adopt what you have** — already hand-installed skills? **Discover → Adopt Existing** absorbs them without reinstalling.
-5. Optional: attach a **project workspace** in the Library toolbar and keep per-repo skills isolated.
-
-## Sharing a Skill Stack
-
-Every stack is a lightweight declarative TOML manifest — no skill source code is duplicated:
-
-```toml
-[stack]
-id = "rust-gpui-workbench"
-name = "Rust + GPUI Native Stack"
-author = "your-github-handle"
-description = "Curated skills for building native Rust desktop apps."
-tags = ["rust", "gpui", "desktop"]
-recommended_agents = ["claude_code", "codex", "cursor"]
-
-[[stack.skills]]
-name = "skill-creator"
-source = "anthropics/skills@skill-creator"
-note = "Author and lint SKILL.md files"
-```
-
-Install it from a URL, a local file, or straight from the app: `unoskills stack install rust-gpui-workbench --agent claude_code`.
-
-## Supported Tools
-
-22 agents are supported out of the box, detected automatically:
-
-Claude Code · Codex · Cursor · Antigravity · OpenCode · Gemini CLI · GitHub Copilot · Windsurf · Cline · Roo Code · Kilo Code · Amp · Goose · TRAE IDE · Warp · Kimi Code CLI · Grok · Droid · Augment · Replit · OpenClaw · OMP Agent
-
-**Settings** also lets you register custom tools with their own skills directories, or override paths for built-in ones.
-
-## Tech Stack
-
-| Layer | Tech |
-|---|---|
-| UI | [GPUI Kit](https://gpui-kit.com/) (GPUI — Zed's GPU renderer) |
-| Domain core | Pure Rust, SQLite WAL, symlink/copy/junction sync engine |
-| CLI | `clap`, `--json` machine output |
-| i18n | Simplified Chinese / English / Japanese |
-| Packaging | `.dmg` (app bundle) · Inno Setup `.exe` · `.deb` |
 
 ## Development
 
-**Prerequisites**: Rust 1.85+ (edition 2024). On Linux, install the GPUI system deps (see `ci.yml` for the exact package list).
+Use the stable Rust toolchain. On Linux, install the system dependencies listed in the [CI workflow](.github/workflows/ci.yml).
 
 ```bash
-cargo test -p unoskills-core          # core unit & integration tests
-cargo run -p unoskills-app             # native GPUI desktop app
-cargo run -p unoskills-cli -- agents   # CLI
+cargo test --workspace --locked
+cargo run -p unoskills-app --locked
+cargo run -p unoskills-cli --locked -- agents
 ```
 
-Workspace layout:
+The workspace uses GPUI Kit for the desktop app, a shared Rust core for the library and safe deployment, and a thin CLI.
 
-```text
-unoskills/
-├── crates/
-│   ├── unoskills-core/   # pure Rust domain: SQLite WAL, safe sync, stacks, data/*.toml
-│   ├── unoskills-cli/    # thin `unoskills` CLI (--json)
-│   └── unoskills-app/    # GPUI Kit app (shell, features/*, i18n, assets)
-├── docs/                 # architecture, stack spec, roadmap
-├── packaging/            # per-platform installer templates & icons
-└── skills/unoskills/     # bundled dogfooding SKILL.md
-```
-
-## Documentation
-
-- **[Architecture & Best Practices](docs/ARCHITECTURE.md)** — workspace boundaries, GPUI entity/event flow, performance & sync-safety patterns
-- **[Skill Stacks Spec](docs/STACKS_SPEC.md)** — declarative `.unoskills-stack.toml` format and community evolution
-- **[Roadmap](docs/ROADMAP.md)** — delivered capabilities and upcoming milestones
-- **[AGENTS.md](AGENTS.md)** — mandatory engineering & GPUI Kit rules for AI agents and reviewers
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to add new agents, languages, or featured Stacks
+- [Architecture](docs/ARCHITECTURE.md)
+- [Skill stack format](docs/STACKS_SPEC.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Contributing](CONTRIBUTING.md) and [engineering guidelines](AGENTS.md)
 
 ## Troubleshooting
 
-**macOS blocks the app on first launch.** Current builds are unsigned, so Gatekeeper shows "unidentified developer". Right-click `UnoSkills.app` → **Open** → confirm. (Developer ID signing + notarization is planned.)
-
-**Linux: window fails to open / blank.** GPUI renders through Vulkan (wgpu). On minimal VMs install a Vulkan-capable driver (e.g. `mesa-vulkan-drivers`); on pure Wayland compositors without XWayland the X11 backend needs `libxkbcommon-x11`.
-
-Anything else — [open an issue](https://github.com/codexlin/UnoSkills/issues) with the CLI output of `unoskills agents --json`.
+- **macOS blocks the first launch.** Check **System Settings → Privacy & Security** for the option to allow the app to open.
+- **The Linux window is blank or fails to open.** Check that a Vulkan-capable graphics driver is installed. An X11 session may also need `libxkbcommon-x11`.
+- **An agent is missing.** Check its detection or path override in **Settings**. If you [open an issue](https://github.com/codexlin/UnoSkills/issues), include the relevant portion of `unoskills agents --json`.
 
 ## License
 
-MIT
+[MIT](LICENSE)
