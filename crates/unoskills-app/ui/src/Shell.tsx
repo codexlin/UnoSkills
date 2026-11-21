@@ -1,13 +1,13 @@
 import { Image, Keyboard, View, announce, cleanup, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
 import { titleBar } from "nsh/desktop";
 import { setLocale } from "nsh/i18n";
-import { Action, ActionControl, Hint, Icon, InlineError, Label, interactionStyles, textSize } from "./components";
+import { Action, InlineError, Label, NavigationControl, interactionStyles, textSize } from "./components";
 import { Home } from "./Home";
 import { strings } from "./i18n";
 import { Library, Discover } from "./library";
 import { Projects, Stacks } from "./projects";
 import { Settings } from "./Settings";
-import { call, errorMessage, type Page, type Route, type ScreenProps, type Theme, type Tone } from "./shared";
+import { call, errorMessage, type Page, type Route, type ScreenProps, type Tone } from "./shared";
 import { applyNativeTheme, defaults, loadThemeFonts, makeTheme, type Preferences } from "./theme";
 import { createUpdates, UpdateModal } from "./Updates";
 
@@ -20,43 +20,6 @@ const nav = [
 ] as const;
 const logo = typeof host.params.brand_mark === "string" ? host.params.brand_mark : "";
 type Notice = { message: string; tone: Tone };
-
-function NavigationItem(props: {
-  theme: Theme; item: typeof nav[number]; label: string; selected: boolean; collapsed: boolean;
-  count: number; onPress: () => void;
-}) {
-  const footer = () => props.item.page === "settings";
-  const count = () => props.count > 0 ? `+${props.count}` : undefined;
-  const sidebar = () => props.theme.sidebar;
-  const ink = () => (props.selected ? sidebar()?.onSelected : sidebar()?.foreground) ?? props.theme.foreground;
-  const badgeInk = () => props.selected && sidebar() ? ink() : props.theme.warning;
-  const navTheme = computed(() => ({
-    ...props.theme, ring: sidebar()?.ring ?? props.theme.ring,
-    accent: sidebar()?.selected ?? props.theme.accent, foreground: sidebar()?.foreground ?? props.theme.foreground,
-  }));
-  return <ActionControl theme={navTheme()}
-    accessibilityLabel={count() ? `${props.label} ${count()}` : props.label}
-    selected={props.selected}
-    onPress={props.onPress}
-    tooltip={props.collapsed ? <Hint theme={props.theme} text={props.label} placement="right" /> : undefined}
-    style={{ width: "100%", minWidth: 0, height: props.collapsed ? 32 : textSize(props.theme, 28),
-      flexDirection: "row", alignItems: "center", justifyContent: props.collapsed ? "center" : "flex-start",
-      paddingHorizontal: props.collapsed ? 0 : 8, gap: 8, borderRadius: props.theme.control.radius,
-      borderWidth: 1, borderColor: props.selected ? navTheme().primary : "transparent",
-      backgroundColor: props.selected ? navTheme().accent : "transparent" }}
-  >
-    <Icon name={props.item.icon} color={ink()} size={textSize(props.theme, footer() ? 16 : 14)} />
-    {!props.collapsed ? <>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Label theme={props.theme} color={ink()} truncate weight={props.selected ? "600" : "400"}>{props.label}</Label>
-      </View>
-      {count() ? <View style={{ borderColor: badgeInk(), borderWidth: 1, paddingHorizontal: 4,
-        borderRadius: Math.min(4, props.theme.radius), flexShrink: 0 }}>
-        <Label theme={props.theme} size={textSize(props.theme, 12)} color={badgeInk()}>{count()}</Label>
-      </View> : null}
-    </> : null}
-  </ActionControl>;
-}
 
 export function App() {
   const page = signal<Page>("home");
@@ -210,8 +173,10 @@ export function App() {
   const titleBarInset = (edge: number) => edge > 0 ? Math.max(controlsInset, edge) : edge;
   const collapseLabel = () => collapsed() ? t().expand_sidebar : t().collapse_sidebar;
   const navItem = (item: typeof nav[number]) =>
-    <NavigationItem theme={theme()} item={item} label={t()[item.label]} selected={selectedNav() === item.page}
-      collapsed={collapsed()} count={item.page === "discover" ? adoptable() : 0}
+    <NavigationControl theme={theme()} sidebar label={t()[item.label]} glyph={item.icon}
+      selected={selectedNav() === item.page} collapsed={collapsed()} height={textSize(theme(), 28)}
+      glyphSize={textSize(theme(), item.page === "settings" ? 16 : 14)}
+      badge={item.page === "discover" && adoptable() > 0 ? `+${adoptable()}` : undefined}
       onPress={() => openFromNavigation(item.page)} />;
 
   return (

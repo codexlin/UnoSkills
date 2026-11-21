@@ -1,6 +1,6 @@
 import { List, Scroll, Text, View, computed, effect, host, nativeModule, signal, type JSX } from "nsh";
 import { Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
-import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, controlMotionClass, focusOutline, interactionStyles, panelSurface, textSize } from "./components";
+import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, NavigationControl, PageHeader, controlMotionClass, focusOutline, interactionStyles, panelSurface, textSize } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps, type Theme } from "./shared";
 import { bundledThemeFonts, paletteFor, palettes, type Preferences } from "./theme";
@@ -37,19 +37,9 @@ export function Settings(props: SettingsProps) {
       <View class="flex-1 min-h-0 flex-row">
         <View class="shrink-0 gap-1 p-3" style={{ width: 184, borderRightWidth: 1, borderColor: props.theme.border }}>
           <Each of={tabs()} key={(tab) => tab.id}>
-            {(tab) => {
-              const selected = () => section() === tab().id;
-              return <ActionControl theme={props.theme} accessibilityLabel={tab().label} selected={selected()}
-                class="w-full min-h-8 flex-row items-center gap-2 px-2"
-                style={{ borderRadius: props.theme.control.radius, borderWidth: 1,
-                  borderColor: selected() ? props.theme.primary : "transparent",
-                  backgroundColor: selected() ? props.theme.accent : undefined }}
-                onPress={() => props.navigate({ page: "settings", tab: tab().id })}>
-                <Icon name={tab().icon} size={16} color={selected() ? props.theme.onAccent : props.theme.muted} />
-                <Label theme={props.theme} color={selected() ? props.theme.onAccent : undefined}
-                  truncate weight={selected() ? "600" : "400"}>{tab().label}</Label>
-              </ActionControl>;
-            }}
+            {(tab) => <NavigationControl theme={props.theme} label={tab().label} glyph={tab().icon}
+              selected={section() === tab().id}
+              onPress={() => props.navigate({ page: "settings", tab: tab().id })} />}
           </Each>
         </View>
         {section() === "agents" ? <Agents {...props} /> : (

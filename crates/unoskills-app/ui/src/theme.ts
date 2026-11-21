@@ -119,8 +119,8 @@ export function makeTheme(prefs: Preferences): Theme {
     secondary: { background: tokens.secondary, foreground: tokens["secondary-foreground"] },
     destructive: { background: tokens.destructive, foreground: tokens["destructive-foreground"] },
     sidebar: {
-      foreground: tokens["sidebar-foreground"], selected: tokens["sidebar-accent"],
-      onSelected: tokens["sidebar-accent-foreground"], ring: tokens["sidebar-ring"],
+      foreground: tokens["sidebar-foreground"], accent: tokens["sidebar-accent"],
+      onAccent: tokens["sidebar-accent-foreground"], ring: tokens["sidebar-ring"],
     },
     chrome: {
       rail: tokens.sidebar, hover: mix(tokens.accent, hoverWeight, tokens.card), segmented: tokens.muted,
