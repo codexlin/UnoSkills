@@ -27,7 +27,7 @@ use unoskills_core::{
 
 use super::LibraryView;
 use crate::components::page_header::PageHeader;
-use crate::state::{WorkspaceEvent, WorkspaceState};
+use crate::state::{ProjectStackSelection, WorkspaceEvent, WorkspaceState};
 
 #[derive(Clone)]
 struct ProjectChoice<T> {
@@ -123,10 +123,11 @@ impl ProjectOverview {
                 |view: &mut Self,
                  _,
                  event: &SelectEvent<SearchableVec<ProjectChoice<PathBuf>>>,
-                 _,
+                 window,
                  cx| {
                     if let SelectEvent::Confirm(Some(path)) = event {
                         view.choose_module(path.clone(), cx);
+                        view.scan_inventory(window, cx);
                     }
                 },
             ),
@@ -229,7 +230,6 @@ impl ProjectOverview {
         let retain_selection = self.module().is_some();
         let active_module = self.module_path.clone();
         self.modules = None;
-        self.scan_inventory(window, cx);
         let manager = self.workspace.read(cx).manager().clone();
         let id = self.project.id.clone();
         let background = cx.background_executor().clone();
@@ -271,6 +271,7 @@ impl ProjectOverview {
                     cx.notify();
                 }
                 view.update_scope_options(window, cx);
+                view.scan_inventory(window, cx);
             });
         }));
     }
@@ -285,12 +286,13 @@ impl ProjectOverview {
         };
         let manager = self.workspace.read(cx).manager().clone();
         let id = self.project.id.clone();
+        let scope = self.module_path.clone();
         let background = cx.background_executor().clone();
         self._inventory_scan = Some(cx.spawn_in(window, async move |this, cx| {
             let result = background
                 .spawn(async move {
                     manager
-                        .inspect_project_skills(&id, &agent)
+                        .inspect_project_skills_at(&id, &agent, &scope)
                         .map_err(|error| format!("{error:#}"))
                 })
                 .await;
@@ -319,7 +321,8 @@ impl ProjectOverview {
         };
         let manager = self.workspace.read(cx).manager().clone();
         let id = self.project.id.clone();
-        let target = id.clone();
+        let project_id = id.clone();
+        let module_path = self.module_path.clone();
         let agent = self.agent.clone();
         let background = cx.background_executor().clone();
         self.saving = true;
@@ -337,7 +340,15 @@ impl ProjectOverview {
                             .lang()
                             .toast_stack_created(&stack.name, stack.skills.len());
                         ws.notify_toast(false, message, window, cx);
-                        ws.open_project_stack(stack.id, target, agent, cx);
+                        ws.open_project_stack(
+                            ProjectStackSelection {
+                                stack_id: stack.id,
+                                project_id,
+                                module_path,
+                                agent_key: agent,
+                            },
+                            cx,
+                        );
                     }
                     Err(error) => ws.notify_toast(true, format!("{error:#}"), window, cx),
                 });
@@ -353,7 +364,7 @@ impl ProjectOverview {
         let s = ws.t();
         let muted = cx.theme().muted_foreground;
         let border = cx.theme().border;
-        let modes = self
+        let modules = self
             .modules
             .as_ref()
             .and_then(|result| result.as_ref().ok());
@@ -366,32 +377,64 @@ impl ProjectOverview {
             .min_w_0()
             .gap_3()
             .child(
-                div()
+                v_flex()
+                    .gap_2()
                     .text_sm()
-                    .text_color(muted)
-                    .child(self.project.path.display().to_string()),
+                    .when(self.module().is_some(), |details| {
+                        details.child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_color(muted)
+                                        .child(gpui_kit::text!(s.project_module)),
+                                )
+                                .when_else(
+                                    modules.is_some_and(|modules| modules.len() > 1),
+                                    |row| {
+                                        row.child(
+                                            div().w(px(176.)).min_w_0().child(
+                                                Select::new(&self.scope_select)
+                                                    .small()
+                                                    .accessibility_label(s.project_module)
+                                                    .menu_max_h(px(280.)),
+                                            ),
+                                        )
+                                    },
+                                    |row| {
+                                        row.child(div().flex_1().min_w_0().truncate().child(
+                                            if self.module_path.as_os_str().is_empty() {
+                                                s.project_root.to_owned()
+                                            } else {
+                                                self.module_path.display().to_string()
+                                            },
+                                        ))
+                                    },
+                                ),
+                        )
+                    })
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_color(muted)
+                                    .child(gpui_kit::text!(s.project_default_deploy_directory)),
+                            )
+                            .child(
+                                div().flex_1().min_w_0().child(gpui_kit::text!(
+                                    self.project.path.display().to_string()
+                                )),
+                            ),
+                    ),
             )
             .child(
-                h_flex()
-                    .gap_2()
-                    .flex_wrap()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_base()
-                            .font_semibold()
-                            .child(s.project_technologies),
-                    )
-                    .when(modes.is_some_and(|modules| modules.len() > 1), |row| {
-                        row.child(
-                            div().w(px(176.)).max_w_full().child(
-                                Select::new(&self.scope_select)
-                                    .small()
-                                    .accessibility_label(s.project_module)
-                                    .menu_max_h(px(280.)),
-                            ),
-                        )
-                    }),
+                div()
+                    .text_base()
+                    .font_semibold()
+                    .child(s.project_technologies),
             )
             .when(self.modules.is_none(), |pane| {
                 pane.child(Spinner::new().small())
@@ -404,7 +447,7 @@ impl ProjectOverview {
                     pane.child(Alert::error("project-scan-error", error.clone()).banner())
                 },
             )
-            .when(modes.is_some_and(Vec::is_empty), |pane| {
+            .when(modules.is_some_and(Vec::is_empty), |pane| {
                 pane.child(
                     div()
                         .text_sm()

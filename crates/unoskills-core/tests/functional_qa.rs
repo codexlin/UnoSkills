@@ -706,8 +706,24 @@ fn project_stack_status_supports_copy_records_created_before_fingerprints() {
     drop(manager);
 
     let conn = rusqlite::Connection::open(root.join("unoskills.db")).unwrap();
-    conn.execute("ALTER TABLE project_deployments DROP COLUMN copy_hash", [])
-        .unwrap();
+    conn.execute_batch(
+        "ALTER TABLE project_deployments RENAME TO scoped_deployments;
+         CREATE TABLE project_deployments (
+             id TEXT PRIMARY KEY,
+             skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+             project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+             agent_key TEXT NOT NULL,
+             target_path TEXT NOT NULL,
+             mode TEXT NOT NULL,
+             synced_at INTEGER NOT NULL,
+             UNIQUE (skill_id, project_id, agent_key)
+         );
+         INSERT INTO project_deployments
+             SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at
+             FROM scoped_deployments;
+         DROP TABLE scoped_deployments;",
+    )
+    .unwrap();
     drop(conn);
     let manager = UnoSkillsManager::open_at(root).unwrap();
     let status = manager
@@ -721,6 +737,158 @@ fn project_stack_status_supports_copy_records_created_before_fingerprints() {
         manager.list_skills().unwrap()[0].project_deployments[0]
             .copy_hash
             .is_none()
+    );
+    assert!(manager.list_skills().unwrap()[0].is_deployed_to_project(&project.id, "codex"));
+}
+
+#[test]
+fn project_stack_deployment_keeps_root_and_module_placements_independent() {
+    use std::path::Path;
+    use unoskills_core::project_analysis::SkillLocation;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join("uno");
+    let manager = UnoSkillsManager::open_at(data.clone()).unwrap();
+    manager.set_default_deploy_mode(DeployMode::Copy).unwrap();
+    let agent_path = tmp.path().join("codex");
+    std::fs::create_dir(&agent_path).unwrap();
+    manager
+        .set_agent_override("codex", agent_path.to_str())
+        .unwrap();
+    let source = tmp.path().join("review");
+    create_skill_dir(&source, "review", "Review skill", &["qa"]);
+    let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    let stack = manager
+        .create_stack_from_skills("QA", "", "", vec![], std::slice::from_ref(&skill.id))
+        .unwrap();
+    let root = tmp.path().join("workspace");
+    let module = Path::new("apps").join("shop");
+    std::fs::create_dir_all(root.join(&module)).unwrap();
+    std::fs::write(root.join(&module).join("package.json"), "{}").unwrap();
+    let project = manager.add_project(&root, None).unwrap();
+    let root_target = project.path.join(".codex/skills/review/SKILL.md");
+    let module_target = project
+        .path
+        .join(&module)
+        .join(".codex/skills/review/SKILL.md");
+    assert!(
+        manager
+            .project_module_paths(&project.id)
+            .unwrap()
+            .contains(&module)
+    );
+
+    for invalid in [
+        Path::new("../review"),
+        source.as_path(),
+        Path::new("apps/missing"),
+    ] {
+        assert!(
+            manager
+                .stack_project_deploy_status_at(&stack, &project.id, "codex", invalid)
+                .is_err()
+        );
+        assert!(
+            manager
+                .deploy_stack_to_project_at(&stack, &project.id, "codex", invalid)
+                .is_err()
+        );
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&source, root.join("linked")).unwrap();
+        assert!(
+            manager
+                .deploy_stack_to_project_at(&stack, &project.id, "codex", Path::new("linked"))
+                .is_err()
+        );
+        let agent_dir = root.join(&module).join(".codex");
+        std::os::unix::fs::symlink(&source, &agent_dir).unwrap();
+        assert!(
+            manager
+                .deploy_stack_to_project_at(&stack, &project.id, "codex", &module)
+                .is_err()
+        );
+        std::fs::remove_file(agent_dir).unwrap();
+    }
+
+    assert_eq!(
+        manager
+            .deploy_stack_to_project(&stack, &project.id, "codex")
+            .unwrap()
+            .deployed,
+        1
+    );
+    assert!(!module_target.exists());
+    assert_eq!(
+        manager
+            .stack_project_deploy_status_at(&stack, &project.id, "codex", &module)
+            .unwrap()
+            .pending,
+        1
+    );
+    std::fs::create_dir_all(module_target.parent().unwrap()).unwrap();
+    std::fs::write(&module_target, "project-specific skill").unwrap();
+    assert_eq!(
+        manager
+            .stack_project_deploy_status_at(&stack, &project.id, "codex", &module)
+            .unwrap()
+            .conflicts,
+        1
+    );
+    let conflict = manager
+        .deploy_stack_to_project_at(&stack, &project.id, "codex", &module)
+        .unwrap();
+    assert!(conflict.failed[0].1.contains("TARGET_CONFLICT"));
+    assert_eq!(
+        std::fs::read_to_string(&module_target).unwrap(),
+        "project-specific skill"
+    );
+    std::fs::remove_dir_all(module_target.parent().unwrap()).unwrap();
+    assert_eq!(
+        manager
+            .deploy_stack_to_project_at(&stack, &project.id, "codex", &module)
+            .unwrap()
+            .deployed,
+        1
+    );
+    assert!(root_target.is_file() && module_target.is_file());
+    drop(manager);
+
+    let manager = UnoSkillsManager::open_at(data).unwrap();
+    assert_eq!(manager.list_projects().unwrap().len(), 1);
+    let skill = manager.list_skills().unwrap().pop().unwrap();
+    assert_eq!(skill.project_deployments.len(), 2);
+    assert!(
+        skill
+            .project_deployments
+            .iter()
+            .any(|dep| dep.scope_path == module)
+    );
+    let status = manager
+        .deploy_stack_to_project_at(&stack, &project.id, "codex", &module)
+        .unwrap();
+    assert_eq!((status.deployed, status.already_deployed), (0, 1));
+    let inventory: Vec<_> = manager
+        .inspect_project_skills_at(&project.id, "codex", &module)
+        .unwrap()
+        .into_iter()
+        .filter(|skill| skill.location != SkillLocation::Global)
+        .collect();
+    assert_eq!(inventory.len(), 1);
+    assert_eq!(inventory[0].location, SkillLocation::ProjectDeployment);
+    assert_eq!(inventory[0].path, module_target.parent().unwrap());
+    manager
+        .undeploy_skill_from_project(&skill.id, &project.id, "codex")
+        .unwrap();
+    assert!(!root_target.exists() && module_target.exists());
+    assert!(!manager.list_skills().unwrap()[0].is_deployed_to_project(&project.id, "codex"));
+    manager.remove_project(&project.id).unwrap();
+    assert!(!module_target.exists());
+    assert!(
+        manager.list_skills().unwrap()[0]
+            .project_deployments
+            .is_empty()
     );
 }
 

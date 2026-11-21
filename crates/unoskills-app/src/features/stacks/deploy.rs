@@ -1,15 +1,19 @@
+use std::path::{Path, PathBuf};
+
 use gpui_kit::component::{
-    ActiveTheme, Disableable, IconName, IndexPath, StyledExt, WindowExt,
+    ActiveTheme, Disableable, IconName, IndexPath, Sizable, StyledExt, WindowExt,
     alert::Alert,
     button::{Button, ButtonVariants},
     h_flex,
     searchable_list::{SearchableListItem, SearchableVec},
     select::{Select, SelectEvent, SelectState},
+    tooltip::Tooltip,
     v_flex,
 };
 use gpui_kit::{
-    AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString,
-    Styled, Subscription, Task, Window, div, prelude::FluentBuilder, px,
+    AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement,
+    Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Task, Window, div,
+    prelude::FluentBuilder, px,
 };
 use unoskills_core::{StackManifest, StackProjectDeployStatus, StackProjectDeploySummary};
 
@@ -65,16 +69,41 @@ impl SearchableListItem for DeploymentTarget {
 
 type TargetSelect = SelectState<SearchableVec<DeploymentTarget>>;
 
+#[derive(Clone)]
+struct ScopeChoice {
+    path: PathBuf,
+    label: SharedString,
+}
+
+impl SearchableListItem for ScopeChoice {
+    type Value = PathBuf;
+
+    fn title(&self) -> SharedString {
+        self.label.clone()
+    }
+
+    fn value(&self) -> &PathBuf {
+        &self.path
+    }
+}
+
+type ScopeSelect = SelectState<SearchableVec<ScopeChoice>>;
+
 struct ProjectDeployForm {
     workspace: Entity<WorkspaceState>,
     stack: StackManifest,
     project: Entity<TargetSelect>,
     agent: Entity<TargetSelect>,
+    scope: Entity<ScopeSelect>,
+    selection: Option<ProjectStackSelection>,
+    modules: Vec<PathBuf>,
+    module_task: Option<Task<()>>,
+    module_error: Option<String>,
     running: bool,
     status: Option<Result<StackProjectDeployStatus, String>>,
     status_task: Option<Task<()>>,
     result: Option<Result<StackProjectDeploySummary, String>>,
-    _subscriptions: [Subscription; 3],
+    _subscriptions: [Subscription; 4],
 }
 
 impl StacksView {
@@ -91,7 +120,7 @@ impl StacksView {
             .filter(|selection| selection.stack_id == stack.id);
         let form =
             cx.new(|cx| ProjectDeployForm::new(workspace.clone(), stack, selection, window, cx));
-        form.update(cx, |form, cx| form.check_status(window, cx));
+        form.update(cx, |form, cx| form.project_changed(window, cx));
         window.open_dialog(cx, move |dialog, _, cx| {
             let running = form.read(cx).running;
             let content = form.clone();
@@ -124,6 +153,7 @@ impl ProjectDeployForm {
             })
             .map(|index| IndexPath::default().row(index));
         let agents = agent_targets(ws);
+        let root = ws.t().project_root;
         let agent_index = selection
             .and_then(|selection| selection.agent_key.as_deref())
             .and_then(|key| agents.iter().position(|agent| agent.id == key))
@@ -135,14 +165,42 @@ impl ProjectDeployForm {
         });
         let agent =
             cx.new(|cx| SelectState::new(SearchableVec::new(agents), agent_index, window, cx));
+        let scope = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(scope_options(root, &[], None)),
+                Some(IndexPath::default()),
+                window,
+                cx,
+            )
+        });
         let subscriptions = [
-            cx.subscribe_in(&project, window, Self::target_changed),
-            cx.subscribe_in(&agent, window, Self::target_changed),
+            cx.subscribe_in::<_, SelectEvent<_>>(
+                &project,
+                window,
+                |form: &mut Self, _, _, window, cx| {
+                    form.project_changed(window, cx);
+                },
+            ),
+            cx.subscribe_in::<_, SelectEvent<_>>(
+                &agent,
+                window,
+                |form: &mut Self, _, _, window, cx| {
+                    form.target_changed(window, cx);
+                },
+            ),
+            cx.subscribe_in::<_, SelectEvent<_>>(
+                &scope,
+                window,
+                |form: &mut Self, _, _, window, cx| {
+                    form.target_changed(window, cx);
+                },
+            ),
             cx.subscribe_in(
                 &workspace,
                 window,
                 |this, ws, event, window, cx| match event {
                     WorkspaceEvent::Reloaded => {
+                        let previous = this.project.read(cx).selected_value().cloned();
                         let projects = project_targets(ws.read(cx));
                         let agents = agent_targets(ws.read(cx));
                         this.project.update(cx, |state, cx| {
@@ -152,10 +210,15 @@ impl ProjectDeployForm {
                             state.set_items(SearchableVec::new(agents), window, cx);
                         });
                         if !this.running {
-                            this.check_status(window, cx);
+                            if this.project.read(cx).selected_value() != previous.as_ref() {
+                                this.project_changed(window, cx);
+                            } else {
+                                this.check_status(window, cx);
+                            }
                         }
                     }
-                    WorkspaceEvent::LanguageChanged => cx.notify(),
+                    WorkspaceEvent::LanguageChanged => this.update_scopes(window, cx),
+                    WorkspaceEvent::InstallStateChanged => this.check_status(window, cx),
                     _ => {}
                 },
             ),
@@ -165,6 +228,11 @@ impl ProjectDeployForm {
             stack,
             project,
             agent,
+            scope,
+            selection: selection.cloned(),
+            modules: Vec::new(),
+            module_task: None,
+            module_error: None,
             running: false,
             status: None,
             status_task: None,
@@ -173,31 +241,76 @@ impl ProjectDeployForm {
         }
     }
 
-    fn target_changed(
-        &mut self,
-        _: &Entity<TargetSelect>,
-        _: &SelectEvent<SearchableVec<DeploymentTarget>>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn update_scopes(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let project = self.project.read(cx).selected_value();
+        let suggested = self
+            .selection
+            .as_ref()
+            .filter(|selection| Some(&selection.project_id) == project)
+            .map(|selection| selection.module_path.as_path());
+        let root = self.workspace.read(cx).t().project_root;
+        let options = scope_options(root, &self.modules, suggested);
+        self.scope.update(cx, |state, cx| {
+            state.set_items(SearchableVec::new(options), window, cx);
+        });
+        cx.notify();
+    }
+
+    fn project_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.modules.clear();
+        self.module_task = None;
+        self.module_error = None;
+        self.update_scopes(window, cx);
+        self.scope.update(cx, |state, cx| {
+            state.set_selected_index(Some(IndexPath::default()), window, cx);
+        });
+        self.target_changed(window, cx);
+        let Some(project) = self.project.read(cx).selected_value().cloned() else {
+            return;
+        };
+        let manager = self.workspace.read(cx).manager().clone();
+        let background = cx.background_executor().clone();
+        self.module_task = Some(cx.spawn_in(window, async move |form, cx| {
+            let paths = background
+                .spawn(async move { manager.project_module_paths(&project) })
+                .await;
+            let _ = form.update_in(cx, |form, window, cx| {
+                match paths {
+                    Ok(paths) => form.modules = paths,
+                    Err(error) => form.module_error = Some(format!("{error:#}")),
+                }
+                form.module_task = None;
+                form.update_scopes(window, cx);
+            });
+        }));
+    }
+
+    fn target_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.result = None;
         self.check_status(window, cx);
     }
 
-    fn selected_target(&self, cx: &Context<Self>) -> Option<(String, String)> {
+    fn selected_target(&self, cx: &Context<Self>) -> Option<(String, String, PathBuf)> {
         Some((
             self.project.read(cx).selected_value()?.clone(),
             self.agent.read(cx).selected_value()?.clone(),
+            self.scope.read(cx).selected_value()?.clone(),
         ))
     }
 
     fn check_status(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.running {
+            return;
+        }
         self.status_task = None;
         self.status = None;
         cx.notify();
-        let Some((project, agent)) = self.selected_target(cx) else {
+        let Some((project, agent, scope)) = self.selected_target(cx) else {
             return;
         };
+        if self.workspace.read(cx).is_stack_installing(&self.stack.id) {
+            return;
+        }
         let manager = self.workspace.read(cx).manager().clone();
         let stack = self.stack.clone();
         let background = cx.background_executor().clone();
@@ -205,7 +318,7 @@ impl ProjectDeployForm {
             let status = background
                 .spawn(async move {
                     manager
-                        .stack_project_deploy_status(&stack, &project, &agent)
+                        .stack_project_deploy_status_at(&stack, &project, &agent, &scope)
                         .map_err(|error| format!("{error:#}"))
                 })
                 .await;
@@ -226,15 +339,14 @@ impl ProjectDeployForm {
                         state.set_items(SearchableVec::new(projects), window, cx);
                         state.set_selected_value(&id, window, cx);
                     });
-                    form.result = None;
-                    form.check_status(window, cx);
+                    form.project_changed(window, cx);
                 });
             });
         });
     }
 
     fn deploy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((project, agent)) = self.selected_target(cx) else {
+        let Some((project, agent, scope)) = self.selected_target(cx) else {
             return;
         };
         if self.running
@@ -259,7 +371,7 @@ impl ProjectDeployForm {
             let result = background
                 .spawn(async move {
                     manager
-                        .deploy_stack_to_project(&stack, &project, &agent)
+                        .deploy_stack_to_project_at(&stack, &project, &agent, &scope)
                         .map_err(|error| format!("{error:#}"))
                 })
                 .await;
@@ -288,6 +400,17 @@ impl Render for ProjectDeployForm {
             .projects()
             .iter()
             .find(|project| Some(&project.id) == project_id);
+        let scope = self.scope.read(cx).selected_value();
+        let selection = self
+            .selection
+            .as_ref()
+            .filter(|selection| Some(&selection.project_id) == project_id);
+        let has_subproject = self.modules.iter().any(|path| !path.as_os_str().is_empty())
+            || selection.is_some_and(|selection| !selection.module_path.as_os_str().is_empty());
+        let directory = project
+            .zip(scope)
+            .map(|(project, scope)| project.path.join(scope).display().to_string());
+        let installing = ws.is_stack_installing(&self.stack.id);
         let status = self.status.as_ref().and_then(|status| status.as_ref().ok());
         let pending = status.map_or(0, |status| status.pending);
         let unavailable = status.map_or(0, |status| status.unavailable);
@@ -301,12 +424,13 @@ impl Render for ProjectDeployForm {
             .iter()
             .any(|agent| agent.installed && agent.enabled);
         let muted = cx.theme().muted_foreground;
-        let has_target = project.is_some() && agent_key.is_some();
-        let checking = has_target && self.status.is_none();
+        let has_target = project.is_some() && agent_key.is_some() && scope.is_some();
+        let checking = has_target && self.status.is_none() && !installing;
         let progress = match status {
             Some(status) => {
                 lang.stack_project_progress(status.deployed, self.stack.skills.len(), pending)
             }
+            None if installing => s.stack_project_installing.to_owned(),
             None if checking => s.stack_project_checking.to_owned(),
             None => String::new(),
         };
@@ -365,16 +489,71 @@ impl Render for ProjectDeployForm {
                             })),
                     ),
             )
-            .when_some(project, |form, project| {
+            .when_some(selection, |form, selection| {
+                let path = if selection.module_path.as_os_str().is_empty() {
+                    s.project_root.to_owned()
+                } else {
+                    selection.module_path.display().to_string()
+                };
                 form.child(
-                    div()
-                        .min_h(px(16.))
-                        .flex_shrink_0()
+                    h_flex()
+                        .gap_2()
                         .text_xs()
                         .text_color(muted)
-                        .truncate()
-                        .child(project.path.to_string_lossy().into_owned()),
+                        .child(div().flex_shrink_0().child(s.project_module))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .child(gpui_kit::text!(path)),
+                        ),
                 )
+            })
+            .when_some(directory, |form, directory| {
+                form.child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_medium()
+                                        .child(s.stack_project_directory),
+                                )
+                                .when(has_subproject, |row| {
+                                    row.child(
+                                        div().w(px(200.)).max_w_full().min_w_0().child(
+                                            Select::new(&self.scope)
+                                                .small()
+                                                .accessibility_label(s.stack_project_directory)
+                                                .disabled(self.running)
+                                                .menu_max_h(px(240.)),
+                                        ),
+                                    )
+                                }),
+                        )
+                        .child(
+                            div()
+                                .id("stack-project-directory-path")
+                                .text_xs()
+                                .text_color(muted)
+                                .truncate()
+                                .tooltip({
+                                    let directory = directory.clone();
+                                    move |window, cx| {
+                                        Tooltip::new(directory.clone()).build(window, cx)
+                                    }
+                                })
+                                .child(gpui_kit::text!(directory)),
+                        ),
+                )
+            })
+            .when_some(self.module_error.as_ref(), |form, error| {
+                form.child(Alert::warning("stack-project-module-error", error.clone()).banner())
             })
             .child(
                 Select::new(&self.agent)
@@ -390,7 +569,7 @@ impl Render for ProjectDeployForm {
                         .child(s.stack_no_deploy_agents),
                 )
             })
-            .when(has_target, |form| {
+            .when(has_target || installing, |form| {
                 form.child(
                     h_flex()
                         .w_full()
@@ -401,7 +580,7 @@ impl Render for ProjectDeployForm {
                                 .min_w_0()
                                 .text_sm()
                                 .font_medium()
-                                .child(progress),
+                                .child(gpui_kit::text!(progress)),
                         )
                         .child(
                             Button::new("refresh-project-deploy-status")
@@ -410,8 +589,8 @@ impl Render for ProjectDeployForm {
                                 .icon(IconName::RefreshCw)
                                 .tooltip(s.stack_project_refresh)
                                 .accessibility_label(s.stack_project_refresh)
-                                .loading(checking)
-                                .disabled(self.running || checking)
+                                .loading(checking || installing)
+                                .disabled(self.running || checking || installing)
                                 .on_click(cx.listener(|form, _, window, cx| {
                                     form.result = None;
                                     form.check_status(window, cx);
@@ -461,13 +640,32 @@ impl Render for ProjectDeployForm {
                             .primary()
                             .label(s.stack_deploy_apply)
                             .loading(self.running)
-                            .disabled(!has_target || pending == 0)
+                            .disabled(!has_target || installing || pending == 0)
                             .on_click(cx.listener(|form, _, window, cx| {
                                 form.deploy(window, cx);
                             })),
                     ),
             )
     }
+}
+
+fn scope_options(root: &str, modules: &[PathBuf], scanned: Option<&Path>) -> Vec<ScopeChoice> {
+    let mut paths = modules.to_vec();
+    paths.extend(scanned.map(Path::to_path_buf));
+    paths.push(PathBuf::new());
+    paths.sort();
+    paths.dedup();
+    paths
+        .into_iter()
+        .map(|path| {
+            let label = if path.as_os_str().is_empty() {
+                root.into()
+            } else {
+                path.display().to_string().into()
+            };
+            ScopeChoice { path, label }
+        })
+        .collect()
 }
 
 fn project_targets(workspace: &WorkspaceState) -> Vec<DeploymentTarget> {

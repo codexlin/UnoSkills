@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui_kit::component::button::ButtonVariant;
@@ -75,6 +76,7 @@ pub enum SettingsSection {
 pub struct ProjectStackSelection {
     pub stack_id: String,
     pub project_id: String,
+    pub module_path: PathBuf,
     pub agent_key: Option<String>,
 }
 
@@ -745,19 +747,9 @@ impl WorkspaceState {
         cx.emit(WorkspaceEvent::OpenProject(project_id));
     }
 
-    pub fn open_project_stack(
-        &mut self,
-        stack_id: String,
-        project_id: String,
-        agent_key: Option<String>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn open_project_stack(&mut self, selection: ProjectStackSelection, cx: &mut Context<Self>) {
         self.navigate(NavTab::Stacks, cx);
-        cx.emit(WorkspaceEvent::SelectProjectStack(ProjectStackSelection {
-            stack_id,
-            project_id,
-            agent_key,
-        }));
+        cx.emit(WorkspaceEvent::SelectProjectStack(selection));
     }
 
     pub fn open_local_skills(&mut self, cx: &mut Context<Self>) {

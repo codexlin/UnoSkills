@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -122,9 +122,11 @@ impl Skill {
     }
 
     pub fn is_deployed_to_project(&self, project_id: &str, agent_key: &str) -> bool {
-        self.project_deployments
-            .iter()
-            .any(|d| d.project_id == project_id && d.agent_key == agent_key)
+        self.project_deployments.iter().any(|d| {
+            d.project_id == project_id
+                && d.agent_key == agent_key
+                && d.scope_path.as_os_str().is_empty()
+        })
     }
 }
 
@@ -152,11 +154,17 @@ pub struct ProjectDeployment {
     pub skill_id: String,
     pub project_id: String,
     pub agent_key: String,
+    #[serde(default, skip_serializing_if = "empty_path")]
+    pub scope_path: PathBuf,
     pub target_path: PathBuf,
     pub mode: DeployMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy_hash: Option<String>,
     pub synced_at: i64,
+}
+
+fn empty_path(path: &Path) -> bool {
+    path.as_os_str().is_empty()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

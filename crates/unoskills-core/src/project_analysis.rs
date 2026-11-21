@@ -9,7 +9,7 @@ use walkdir::WalkDir;
 
 use crate::domain::{ProjectWorkspace, Skill, StackManifest, StackSkillRef, StackSource};
 use crate::manager::{
-    StackProjectTarget, UnoSkillsManager, inspect_stack_project_target, project_skills_dir,
+    StackProjectTarget, UnoSkillsManager, inspect_stack_project_target, scoped_project_skills_dir,
 };
 use crate::parser::{is_valid_skill_dir, sanitize_slug};
 use crate::stacks::load_builtin_featured_stacks;
@@ -105,6 +105,11 @@ type Evidence = BTreeMap<PathBuf, BTreeMap<Technology, PathBuf>>;
 type DetectionSnapshot = BTreeMap<String, Vec<Technology>>;
 
 impl UnoSkillsManager {
+    pub fn project_module_paths(&self, project_id: &str) -> Result<Vec<PathBuf>> {
+        let project = self.analysis_project(project_id)?;
+        Ok(detect_technologies(&project.path)?.into_keys().collect())
+    }
+
     pub fn analyze_project(&self, project_id: &str) -> Result<Vec<ProjectModule>> {
         let project = self.analysis_project(project_id)?;
         let evidence = detect_technologies(&project.path)?;
@@ -155,13 +160,22 @@ impl UnoSkillsManager {
         project_id: &str,
         agent_key: &str,
     ) -> Result<Vec<ProjectSkill>> {
+        self.inspect_project_skills_at(project_id, agent_key, Path::new(""))
+    }
+
+    pub fn inspect_project_skills_at(
+        &self,
+        project_id: &str,
+        agent_key: &str,
+        scope: &Path,
+    ) -> Result<Vec<ProjectSkill>> {
         let project = self.analysis_project(project_id)?;
         let agent = self
             .list_agents()?
             .into_iter()
             .find(|agent| agent.key == agent_key && agent.installed && agent.enabled)
             .context("Agent is unavailable")?;
-        let local = project.path.join(project_skills_dir(&agent));
+        let local = scoped_project_skills_dir(&project, scope, &agent)?;
         let skills = self.list_skills()?;
         let managed = skills
             .iter()

@@ -200,6 +200,15 @@ impl Lang {
         }
     }
 
+    pub fn stack_install_and_preview(self, count: usize) -> String {
+        match self {
+            Self::ZhCn => format!("安装 {count} 项并预览部署"),
+            Self::En if count == 1 => "Install 1 Skill and Preview".to_owned(),
+            Self::En => format!("Install {count} Skills and Preview"),
+            Self::Ja => format!("{count} 件をインストールして配備を確認"),
+        }
+    }
+
     pub fn stack_project_unavailable(self, count: usize) -> String {
         match self {
             Self::ZhCn => format!("{count} 项未入库或来源不符。可在组合详情检查。"),
@@ -704,6 +713,7 @@ pub struct Strings {
     pub project_scan: &'static str,
     pub project_root: &'static str,
     pub project_module: &'static str,
+    pub project_default_deploy_directory: &'static str,
     pub project_technologies: &'static str,
     pub project_no_technologies: &'static str,
     pub project_new_technology: &'static str,
@@ -778,6 +788,8 @@ pub struct Strings {
     pub stack_deploy_busy: &'static str,
     pub stack_project_target_conflict: &'static str,
     pub stack_project_checking: &'static str,
+    pub stack_project_installing: &'static str,
+    pub stack_project_directory: &'static str,
     pub stack_project_refresh: &'static str,
     pub empty_local_stacks_title: &'static str,
     pub empty_featured_stacks_title: &'static str,

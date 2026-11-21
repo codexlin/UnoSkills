@@ -396,9 +396,9 @@ impl Store {
     pub fn upsert_project_deployment(&self, dep: &ProjectDeployment) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO project_deployments (id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(skill_id, project_id, agent_key) DO UPDATE SET
+            "INSERT INTO project_deployments (id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash, scope_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(skill_id, project_id, agent_key, scope_path) DO UPDATE SET
                 target_path = excluded.target_path,
                 mode = excluded.mode,
                 synced_at = excluded.synced_at,
@@ -412,6 +412,7 @@ impl Store {
                 dep.mode.as_str(),
                 dep.synced_at,
                 dep.copy_hash,
+                dep.scope_path.to_string_lossy(),
             ],
         )?;
         Ok(())
@@ -432,17 +433,9 @@ impl Store {
         Ok(())
     }
 
-    pub fn delete_project_deployment(
-        &self,
-        skill_id: &str,
-        project_id: &str,
-        agent_key: &str,
-    ) -> Result<()> {
+    pub fn delete_project_deployment(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "DELETE FROM project_deployments WHERE skill_id = ?1 AND project_id = ?2 AND agent_key = ?3",
-            params![skill_id, project_id, agent_key],
-        )?;
+        conn.execute("DELETE FROM project_deployments WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -452,36 +445,24 @@ impl Store {
     ) -> Result<Vec<ProjectDeployment>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash
+            "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash, scope_path
              FROM project_deployments WHERE project_id = ?1 ORDER BY agent_key ASC",
         )?;
-        let rows = stmt.query_map(params![project_id], |row| {
-            Ok(ProjectDeployment {
-                id: row.get(0)?,
-                skill_id: row.get(1)?,
-                project_id: row.get(2)?,
-                agent_key: row.get(3)?,
-                target_path: PathBuf::from(row.get::<_, String>(4)?),
-                mode: DeployMode::from_str_lossy(&row.get::<_, String>(5)?),
-                synced_at: row.get(6)?,
-                copy_hash: row.get(7)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![project_id], project_deployment_from_row)?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     pub fn count_project_deployments_at_path(
         &self,
-        project_id: &str,
         target_path: &Path,
-        exclude_agent_key: &str,
+        exclude_id: &str,
     ) -> Result<usize> {
         let conn = self.conn.lock().unwrap();
         let target_str = target_path.to_string_lossy().to_string();
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM project_deployments
-             WHERE project_id = ?1 AND target_path = ?2 AND agent_key != ?3",
-            params![project_id, target_str, exclude_agent_key],
+             WHERE target_path = ?1 AND id != ?2",
+            params![target_str, exclude_id],
             |row| row.get(0),
         )?;
         Ok(count.max(0) as usize)
@@ -549,27 +530,30 @@ fn load_all_project_deployments(
     conn: &Connection,
 ) -> Result<HashMap<String, Vec<ProjectDeployment>>> {
     let mut stmt = conn.prepare(
-        "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash
+        "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash, scope_path
          FROM project_deployments ORDER BY project_id ASC, agent_key ASC",
     )?;
     let mut map: HashMap<String, Vec<ProjectDeployment>> = HashMap::new();
-    let rows = stmt.query_map([], |row| {
-        Ok(ProjectDeployment {
-            id: row.get(0)?,
-            skill_id: row.get(1)?,
-            project_id: row.get(2)?,
-            agent_key: row.get(3)?,
-            target_path: PathBuf::from(row.get::<_, String>(4)?),
-            mode: DeployMode::from_str_lossy(&row.get::<_, String>(5)?),
-            synced_at: row.get(6)?,
-            copy_hash: row.get(7)?,
-        })
-    })?;
+    let rows = stmt.query_map([], project_deployment_from_row)?;
     for row in rows {
         let dep = row?;
         map.entry(dep.skill_id.clone()).or_default().push(dep);
     }
     Ok(map)
+}
+
+fn project_deployment_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectDeployment> {
+    Ok(ProjectDeployment {
+        id: row.get(0)?,
+        skill_id: row.get(1)?,
+        project_id: row.get(2)?,
+        agent_key: row.get(3)?,
+        target_path: PathBuf::from(row.get::<_, String>(4)?),
+        mode: DeployMode::from_str_lossy(&row.get::<_, String>(5)?),
+        synced_at: row.get(6)?,
+        copy_hash: row.get(7)?,
+        scope_path: PathBuf::from(row.get::<_, String>(8)?),
+    })
 }
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -641,7 +625,8 @@ fn migrate(conn: &mut Connection) -> Result<()> {
             mode TEXT NOT NULL,
             synced_at INTEGER NOT NULL,
             copy_hash TEXT,
-            UNIQUE(skill_id, project_id, agent_key)
+            scope_path TEXT NOT NULL DEFAULT '',
+            UNIQUE(skill_id, project_id, agent_key, scope_path)
         );",
     )?;
     let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -654,6 +639,33 @@ fn migrate(conn: &mut Connection) -> Result<()> {
         transaction.execute(
             "ALTER TABLE project_deployments ADD COLUMN copy_hash TEXT",
             [],
+        )?;
+    }
+    let has_scope: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_deployments') WHERE name = 'scope_path')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_scope {
+        transaction.execute_batch(
+            "CREATE TABLE scoped_project_deployments (
+                id TEXT PRIMARY KEY,
+                skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                agent_key TEXT NOT NULL,
+                target_path TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                synced_at INTEGER NOT NULL,
+                copy_hash TEXT,
+                scope_path TEXT NOT NULL DEFAULT '',
+                UNIQUE(skill_id, project_id, agent_key, scope_path)
+            );
+            INSERT INTO scoped_project_deployments
+                (id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash)
+                SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash
+                FROM project_deployments;
+            DROP TABLE project_deployments;
+            ALTER TABLE scoped_project_deployments RENAME TO project_deployments;",
         )?;
     }
     transaction.commit()?;
