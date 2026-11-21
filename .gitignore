@@ -2,3 +2,5 @@
 *.db-shm
 *.db-wal
 .DS_Store
+/crates/unoskills-app/ui/dist/
+.nsh/

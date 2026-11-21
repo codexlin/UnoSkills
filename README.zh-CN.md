@@ -31,11 +31,15 @@
 
 | 平台 | 安装方式 |
 | --- | --- |
-| macOS（Apple 芯片） | 打开 `unoskills-macos-arm64.dmg`，将 UnoSkills 拖到「应用程序」。 |
+| macOS 14 及以上（Apple 芯片） | 打开 `unoskills-macos-arm64.dmg`，将 UnoSkills 拖到「应用程序」。 |
 | Windows x64 | 运行 `unoskills-setup-<版本>-windows-x64.exe`。 |
-| Debian 和 Ubuntu x64 | 运行 `sudo apt install ./unoskills_<版本>_amd64.deb`。 |
+| Debian 和 Ubuntu x64（GTK 4.14 及以上） | 运行 `sudo apt install ./unoskills_<版本>_amd64.deb`。 |
 
-发布页也提供便携压缩包。macOS 构建目前采用临时签名。
+发布页也提供便携压缩包，其中包含 macOS CLI。macOS 构建目前采用临时签名。
+
+### 从 0.6 升级
+
+在原有应用上安装 0.7。新桌面端和 CLI 继续读取 `~/.unoskills` 中的技能库和设置。也可以在「设置 → 关于与更新」检查版本，下载并校验安装包，再打开安装。
 
 ## 快速上手
 
@@ -68,16 +72,16 @@
 | **技能库** | 预览或编辑 `SKILL.md`，查看检查结果和 token 估算，更新技能并管理各 Agent 的部署。 |
 | **技能组合** | 使用精选或社区组合，保存个人组合，导入和导出可分享的 TOML 清单。 |
 | **发现** | 搜索市场、按来源筛选已加载结果、从链接安装，或将本机技能纳入技能库。 |
-| **设置** | 跟随系统外观或固定使用深浅主题，切换简体中文、English 和日本語，配置 Agent、网络及 Git 备份。 |
+| **设置** | 选择主题预设、搜索已安装字体、调整基础字号，设置语言、Agent、网络和 Git 备份。 |
 
 ## 桌面截图
 
-截图来自当前 Linux 构建，使用示例工作区和英文界面。
+截图来自 0.7 的 Linux 构建，使用示例工作区和英文界面。
 
 <details>
 <summary>技能库和技能组合</summary>
 
-![技能库展示所选技能、token 估算及各 Agent 的部署开关](assets/demo/library.png)
+![技能库展示所选技能的 Markdown 预览和 token 估算](assets/demo/library.png)
 
 ![我的组合展示前端审查组合、包含的技能和部署到项目入口](assets/demo/stacks.png)
 
@@ -111,15 +115,18 @@ unoskills list --json
 
 ## 开发
 
-使用稳定版 Rust 工具链。在 Linux 上先安装 [CI 工作流](.github/workflows/ci.yml) 中列出的系统依赖。
+使用稳定版 Rust 工具链和 [CI 工作流](.github/workflows/ci.yml) 中的系统依赖。Cargo 构建会内嵌桌面 UI。使用 NSH 0.6.1 CLI 可以单独检查、构建和测试 TSX。
 
 ```bash
 cargo test --workspace --locked
 cargo run -p unoskills-app --locked
 cargo run -p unoskills-cli --locked -- agents
+nsh check crates/unoskills-app/ui
+nsh build crates/unoskills-app/ui --release
+nsh test crates/unoskills-app/ui
 ```
 
-桌面端基于 GPUI Kit，技能库和部署逻辑由 Rust 核心实现，桌面端与 CLI 共用同一套核心逻辑。
+桌面端基于 Native Shell（NSH），技能库和部署逻辑由 Rust 核心实现，桌面端与 CLI 共用同一套核心逻辑。
 
 - [架构](docs/ARCHITECTURE.md)
 - [技能组合格式](docs/STACKS_SPEC.md)
@@ -129,7 +136,7 @@ cargo run -p unoskills-cli --locked -- agents
 ## 疑难解答
 
 - **macOS 拦截首次打开。** 在「系统设置 → 隐私与安全性」中查看允许打开应用的选项。
-- **Linux 窗口空白或无法打开。** 检查是否安装了支持 Vulkan 的图形驱动。X11 环境还可能需要 `libxkbcommon-x11`。
+- **Linux 应用无法打开。** 确认系统提供 GTK 4.14 或更高版本，可从终端运行 `unoskills-app` 查看启动错误。
 - **没有检测到某个 Agent。** 先在「设置」检查检测状态和路径配置。如果需要[提交问题](https://github.com/codexlin/UnoSkills/issues)，请附上 `unoskills agents --json` 中与问题相关的部分。
 
 ## 许可证

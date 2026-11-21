@@ -1,0 +1,15 @@
+{
+  "id": "dev.unoskills.UnoSkills",
+  "name": "UnoSkills",
+  "theme": "themes/unoskills.json",
+  "capabilities": {
+    "application": true,
+    "host": ["unoskills.command"],
+    "clipboard": true,
+    "openUrl": { "schemes": ["https"] }
+  },
+  "window": {
+    "minSize": { "width": 960, "height": 600 },
+    "titleBar": { "style": "hidden", "height": 36 }
+  }
+}

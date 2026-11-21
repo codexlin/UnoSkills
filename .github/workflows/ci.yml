@@ -55,20 +55,11 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install Linux GPUI dependencies
+      - name: Install Linux NSH dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shm0-dev \
-            libwayland-dev \
-            libfontconfig1-dev \
-            libssl-dev
+          sudo apt-get install -y pkg-config libgtk-4-dev libssl-dev
 
       - name: Clippy full workspace (zero warnings)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -78,3 +69,29 @@ jobs:
 
       - name: Build unoskills-app binary
         run: cargo build -p unoskills-app --locked
+
+  ui:
+    name: NSH UI Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install NSH v0.6.1
+        run: |
+          curl --fail --location --retry 3 --output nsh-linux-x86_64.tar.gz \
+            https://github.com/longbridge/nsh/releases/download/v0.6.1/nsh-linux-x86_64.tar.gz
+          echo "9a7ac692f1c229df476be8ff83a3c5912d271453b644e313f02cb19d18696070  nsh-linux-x86_64.tar.gz" | sha256sum --check
+          tar -xzf nsh-linux-x86_64.tar.gz
+          echo "$PWD/nsh/bin" >> "$GITHUB_PATH"
+      - name: Check TSX
+        run: nsh check crates/unoskills-app/ui
+      - name: Bundle TSX
+        run: nsh build crates/unoskills-app/ui --release
+      - name: Test TSX headlessly
+        run: nsh test crates/unoskills-app/ui --junit "$RUNNER_TEMP/nsh-results.xml"
+      - name: Upload NSH test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsh-test-results
+          path: ${{ runner.temp }}/nsh-results.xml
+          if-no-files-found: ignore

@@ -4,7 +4,7 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 
 ---
 
-## Delivered (`v0.1` — Foundation & Daily-Usable Workbench)
+## Delivered
 
 ### Core Engine (`unoskills-core`)
 - [x] Central skill library (`~/.unoskills`) backed by SQLite WAL (`busy_timeout = 5000ms`)
@@ -15,15 +15,15 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 - [x] Unmanaged local skill scanner & adopter (single + bulk)
 - [x] Declarative Skill Stacks (`.unoskills-stack.toml`): featured stacks, local creation, TOML import/export, incremental one-click install
 
-### Native Desktop App (`unoskills-app`, GPUI Kit)
-- [x] Lean 4-tab desktop shell (`Library` / `Stacks` / `Discover` / `Settings`) with collapsible sidebar
-- [x] Modular entity + event architecture (`WorkspaceState`, `WorkspaceEvent`, feature folders, `RenderOnce` components)
-- [x] Custom Uno brand SVG icon via composite `AssetSource` (`UnoAssets` + `AppIcon`)
-- [x] Full i18n parity for Simplified Chinese (`zh-CN`), English (`en`), and Japanese (`ja`) with `Select` dropdown and `gpui-kit` locale sync
+### Native Desktop App (`unoskills-app`, Native Shell)
+- [x] Home and four working areas with a collapsible sidebar
+- [x] NSH TSX screens and reusable controls, with typed commands to the shared Rust manager
+- [x] Embedded UnoSkills brand and packaged theme fonts
+- [x] Simplified Chinese (`zh-CN`), English (`en`), and Japanese (`ja`) with NSH locale synchronization
 - [x] Language-aware automatic UI fonts, searchable system UI & monospace font pickers, global font-size scaling
 - [x] Persisted Dark / Light appearance without resetting custom fonts
-- [x] Virtualized lists (`uniform_list`), cached `TextViewState` Markdown preview, quick raw-frontmatter edit with unsaved-edit protection
-- [x] `AlertDialog` delete confirmation, concurrent async busy-task stack, out-of-order search guards
+- [x] Native virtualized lists, selectable `TextView` Markdown, and a skill-bound source editor with unsaved-edit protection
+- [x] Native confirmation dialogs, per-operation feedback, and guards against stale search and editor requests
 - [x] Manual GitHub Releases version check (HTTP status + semver comparison)
 
 ### CLI & Open-Source Engineering
@@ -33,7 +33,7 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 
 ---
 
-## Upcoming Milestones
+## Release Milestones
 
 ### `v0.2` — Daily Workflow & Sync Polish
 - [x] **Skill Upstream Update Check & Upgrade**: check Git / `skills.sh` / local skills for content changes via SHA-256 hash, update in one click, and automatically refresh `Copy`-mode deployments
@@ -48,7 +48,7 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 
 ### `v0.3.0` — Release Engineering (delivered 2026-11-20)
 - [x] **Branch + PR + Ruleset workflow**: three-OS CI as required checks, linear-history squash merges, Conventional Commits
-- [x] **User-Facing Installers** (from the GPUI Kit packaging guide): macOS `.app` → `.dmg`, Windows Inno Setup installer, Linux `.deb` with auto-resolved `Depends`, plus stable platform identity (`dev.unoskills.UnoSkills`)
+- [x] **User-Facing Installers**: macOS `.app` → `.dmg`, Windows Inno Setup installer, Linux `.deb` with auto-resolved `Depends`, plus stable platform identity (`dev.unoskills.UnoSkills`)
 - [x] **Curated Release Notes**: `git-cliff` with a hand-written CHANGELOG override per version
 - [x] **README revamp**: brand header, badges, real app screenshots, bilingual (EN + zh-CN)
 
@@ -59,9 +59,18 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 - [x] **Private Git Backup / Multi-Machine Sync (in Settings)**: bind a personal private Git repo to push/pull plain-text `skills/` + `stacks/*.toml` (never syncing binary SQLite; index rebuilds locally on pull)
 - [x] **In-App Guided Updater v1**: startup rate-limited check, explicit download & install consent, SHA256SUMS verification, per-platform install paths (Inno upgrade / DMG guidance / browser for deb)
 
-### Later (after `v0.4`)
+### `v0.6` — Project Skills
+- [x] Project and subproject technology detection, skill recommendations, and scoped deployment
+- [x] Guided updates with installer verification and manual recheck
+
+### `v0.7.0` — Native Shell Desktop
+- [x] Port the desktop windows and workflows to NSH 0.6.1 while opening existing skill libraries and settings
+- [x] Theme presets and shared text scaling across interface and Markdown screens
+- [x] NSH type checks and UI tests alongside the Rust workspace and three-platform CI
+
+## Planned
 - [ ] **Crates.io Publishing**: publish `unoskills-core` and `unoskills-cli` (`cargo install unoskills-cli`)
-- [ ] **Signed Auto-Update v2**: `gpui-updater-pre` with Ed25519-signed release manifests (requires Apple Developer ID for the macOS in-place bundle path)
+- [ ] **Signed Updates**: sign platform packages and publish signed release metadata
 - [ ] **Real-Hardware Cross-Platform Verification**: end-to-end validation on macOS (Apple Silicon / Intel) and Windows (NTFS Junctions)
 - [ ] **Stage 2 Community Hub**: lightweight API backend (Cloudflare Workers / Supabase) behind the same `StackRegistry` trait
 
@@ -72,4 +81,4 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 - **No forced account or cloud lock-in**: local skill management and TOML Stacks always work offline.
 - **No workspace rule-file manager (`CLAUDE.md` / `AGENTS.md` / `.cursorrules`)**: project rules are tightly bound to a single repo and belong in your IDE/Git workflow, whereas UnoSkills focuses exclusively on reusable Skills & shareable Skill Stacks.
 - **No full code IDE**: `SKILL.md` editing stays lightweight and fast; complex multi-file authoring belongs in your editor.
-- **No Electron / WebView runtime**: keep startup instant, memory footprint low, and rendering 100% native via GPUI.
+- **No Electron / WebView runtime**: keep startup instant, memory footprint low, and rendering native via NSH.

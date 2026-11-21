@@ -100,6 +100,6 @@
 3. **发现与收编**。实现按内容宽度计算的虚拟网格和详情面板。验证缓存、搜索、最后一个不满行、反复切榜与分页重试。收编按勾选与实际结果验收。
 4. **技能组合与设置**。确认加入技能库和部署的动词与执行一致。验证 TOML 导入错误、自定义 Agent、折叠分组焦点、连接失败与更新入口。
 
-原生实现优先组合 Sidebar、TabBar、Button、Input、Select、Dialog、Sheet 与现有 uniform_list。给长文本留可缩空间，长列表滚动视口独立于内边距，界面文案进入三语资源。实施后在 960 × 600、1240 × 780、1440 × 900 实机检查。 [GPUI Kit 设计指南](https://gpui-kit.com/docs/design-guides/) · [GPUI Kit 滚动指南](https://gpui-kit.com/component/scrollable/)
+NSH 实现使用共享侧栏和官方 Tabs、Button、Input、Select、Dialog，长列表使用虚拟化的 List。给长文本留可缩空间，长列表滚动视口独立于内边距，界面文案进入三语资源。实施后在 960 × 600、1240 × 780、1440 × 900 检查布局。 [NSH 设计指南](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/design-guides.md) · [NSH 列表指南](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/lists.md)
 
-当前实现参考 [窗口](../../crates/unoskills-app/src/shell.rs)、[技能库](../../crates/unoskills-app/src/features/library/mod.rs)、[组合](../../crates/unoskills-app/src/features/stacks/mod.rs)、[市场](../../crates/unoskills-app/src/features/discover/marketplace.rs)、[收编](../../crates/unoskills-app/src/features/discover/adopt.rs)、[设置](../../crates/unoskills-app/src/features/settings/mod.rs)。
+当前实现见 [窗口](../../crates/unoskills-app/ui/src/Shell.tsx)、[技能库](../../crates/unoskills-app/ui/src/library/LibraryScreen.tsx)、[组合](../../crates/unoskills-app/ui/src/projects/Stacks.tsx)、[市场](../../crates/unoskills-app/ui/src/library/MarketplaceTab.tsx)、[收编](../../crates/unoskills-app/ui/src/library/AdoptTab.tsx) 和[设置](../../crates/unoskills-app/ui/src/Settings.tsx)。

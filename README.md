@@ -31,11 +31,15 @@ Download the installer for your platform from [GitHub Releases](https://github.c
 
 | Platform | Installer |
 | --- | --- |
-| macOS (Apple Silicon) | Open `unoskills-macos-arm64.dmg` and drag UnoSkills to Applications. |
+| macOS 14 or later (Apple Silicon) | Open `unoskills-macos-arm64.dmg` and drag UnoSkills to Applications. |
 | Windows x64 | Run `unoskills-setup-<version>-windows-x64.exe`. |
-| Debian and Ubuntu x64 | Run `sudo apt install ./unoskills_<version>_amd64.deb`. |
+| Debian and Ubuntu x64 with GTK 4.14 or later | Run `sudo apt install ./unoskills_<version>_amd64.deb`. |
 
-Portable archives are available on the same release page. macOS builds are currently ad-hoc signed.
+Portable archives, including the macOS CLI, are available on the same release page. macOS builds are currently ad-hoc signed.
+
+### Upgrade from 0.6
+
+Install 0.7 over the existing app. The Native Shell desktop opens the same `~/.unoskills` library and settings as 0.6, as does the CLI. In **Settings → About & updates**, check for a release, download and verify the installer, then open it when ready.
 
 ## Quick start
 
@@ -68,16 +72,16 @@ Select the skills you want and choose **Save as Stack**. If skills are missing f
 | **Library** | Preview or edit `SKILL.md`, check lint findings and token estimates, update skills, and manage per-agent deployments. |
 | **Stacks** | Use featured or community stacks, create your own, and exchange portable TOML manifests. |
 | **Discover** | Search the marketplace, filter loaded results by source, install from links, or add existing local skills to the library. |
-| **Settings** | Choose system, light, or dark appearance, switch between English, 简体中文, and 日本語, and configure agents, network access, and Git backup. |
+| **Settings** | Choose a theme preset, search installed fonts, set the base text size, and configure language, agents, network access, and Git backup. |
 
 ## Desktop screenshots
 
-These screenshots show the current Linux build with a sample workspace.
+These screenshots show the 0.7 Linux desktop with a sample workspace.
 
 <details>
 <summary>Library and Stacks</summary>
 
-![Library with a selected skill, estimated token counts, and per-agent deployment switches](assets/demo/library.png)
+![Library showing a selected skill, its Markdown preview, and token estimates](assets/demo/library.png)
 
 ![My Stacks showing a reusable frontend review stack and the Deploy to Project action](assets/demo/stacks.png)
 
@@ -111,15 +115,18 @@ unoskills list --json
 
 ## Development
 
-Use the stable Rust toolchain. On Linux, install the system dependencies listed in the [CI workflow](.github/workflows/ci.yml).
+Use stable Rust and the system dependencies in the [CI workflow](.github/workflows/ci.yml). The Cargo build embeds the UI. Use the NSH 0.6.1 CLI to check, bundle, and test the TSX separately.
 
 ```bash
 cargo test --workspace --locked
 cargo run -p unoskills-app --locked
 cargo run -p unoskills-cli --locked -- agents
+nsh check crates/unoskills-app/ui
+nsh build crates/unoskills-app/ui --release
+nsh test crates/unoskills-app/ui
 ```
 
-The workspace uses GPUI Kit for the desktop app, a shared Rust core for the library and safe deployment, and a thin CLI.
+The workspace uses Native Shell (NSH) for the desktop app, a shared Rust core for the library and safe deployment, and a thin CLI.
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Skill stack format](docs/STACKS_SPEC.md)
@@ -129,7 +136,7 @@ The workspace uses GPUI Kit for the desktop app, a shared Rust core for the libr
 ## Troubleshooting
 
 - **macOS blocks the first launch.** Check **System Settings → Privacy & Security** for the option to allow the app to open.
-- **The Linux window is blank or fails to open.** Check that a Vulkan-capable graphics driver is installed. An X11 session may also need `libxkbcommon-x11`.
+- **The Linux app fails to open.** Check that GTK 4.14 or later is available. Launch `unoskills-app` from a terminal to read the startup error.
 - **An agent is missing.** Check its detection or path override in **Settings**. If you [open an issue](https://github.com/codexlin/UnoSkills/issues), include the relevant portion of `unoskills agents --json`.
 
 ## License
