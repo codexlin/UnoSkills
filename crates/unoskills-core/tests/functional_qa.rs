@@ -1,5 +1,6 @@
 use unoskills_core::{
-    DeployMode, StackSkillRef, UnoSkillsManager, domain::AgentCategory, registry::CustomAgentRecord,
+    DeployMode, DeploymentImpactKind, StackSkillRef, UnoSkillsManager, domain::AgentCategory,
+    registry::CustomAgentRecord,
 };
 
 fn create_skill_dir(path: &std::path::Path, name: &str, desc: &str, tags: &[&str]) {
@@ -280,6 +281,122 @@ fn update_skill_detects_noop_and_refreshes_copy_deployments_on_change() {
     let deployed_md =
         std::fs::read_to_string(copy_agent_dir.join(&skill.slug).join("SKILL.md")).unwrap();
     assert!(deployed_md.contains("v2 description"));
+}
+
+#[test]
+fn reviewed_update_uses_frozen_files_and_can_restore_after_reopening() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("uno");
+    let mgr = UnoSkillsManager::open_at(root.clone()).unwrap();
+    let source = tmp.path().join("revision-skill");
+    create_skill_dir(&source, "revision-skill", "version one", &["v1"]);
+    std::fs::write(source.join("old.txt"), "old reference").unwrap();
+    let skill = mgr.install_from_ref(&source.to_string_lossy()).unwrap();
+
+    for agent in ["clean_agent", "edited_agent", "missing_agent", "git_agent"] {
+        mgr.add_custom_agent(&CustomAgentRecord {
+            key: agent.into(),
+            display_name: agent.into(),
+            skills_dir: tmp.path().join(agent).to_string_lossy().into(),
+            category: AgentCategory::Coding,
+        })
+        .unwrap();
+        mgr.deploy_skill(&skill.id, agent, Some(DeployMode::Copy), false)
+            .unwrap();
+    }
+    let edited = tmp.path().join("edited_agent").join(&skill.slug);
+    let missing = tmp.path().join("missing_agent").join(&skill.slug);
+    let git_file = tmp.path().join("git_agent").join(&skill.slug).join(".git");
+    std::fs::write(&git_file, "local worktree metadata").unwrap();
+    let original = std::fs::read_to_string(edited.join("SKILL.md")).unwrap();
+    let edited_value = format!("{original}local edit\n");
+    std::fs::write(edited.join("SKILL.md"), &edited_value).unwrap();
+    std::fs::remove_dir_all(&missing).unwrap();
+    create_skill_dir(&source, "revision-skill", "version two", &["v2"]);
+    std::fs::remove_file(source.join("old.txt")).unwrap();
+    std::fs::write(source.join("new.txt"), "new reference").unwrap();
+
+    let plan = mgr.prepare_skill_update(&skill.id).unwrap().unwrap();
+    let files: Vec<_> = plan
+        .preview()
+        .files
+        .iter()
+        .map(|item| item.path.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(files, ["SKILL.md", "new.txt", "old.txt"]);
+    assert!(
+        plan.preview()
+            .deployments
+            .iter()
+            .any(|item| item.kind == DeploymentImpactKind::Conflict)
+    );
+    assert!(
+        plan.preview()
+            .deployments
+            .iter()
+            .any(|item| item.kind == DeploymentImpactKind::Missing)
+    );
+    assert!(skill.central_path.join("old.txt").is_file());
+    assert!(!mgr.has_skill_rollback(&skill.id));
+
+    create_skill_dir(&source, "revision-skill", "unreviewed version", &["v3"]);
+    let updated = mgr.apply_skill_revision(plan).unwrap();
+    assert_eq!(updated.skill.description.as_deref(), Some("version two"));
+    assert_eq!(updated.refreshed_copies, 1);
+    assert_eq!(updated.deployment_issues.len(), 3);
+    assert_eq!(
+        std::fs::read_to_string(&git_file).unwrap(),
+        "local worktree metadata"
+    );
+    assert!(!missing.exists());
+    assert_eq!(
+        std::fs::read_to_string(edited.join("SKILL.md")).unwrap(),
+        edited_value
+    );
+    assert!(!skill.central_path.join("old.txt").exists());
+    assert!(skill.central_path.join("new.txt").is_file());
+
+    drop(mgr);
+    let mgr = UnoSkillsManager::open_at(root).unwrap();
+    assert!(mgr.has_skill_rollback(&skill.id));
+    let plan = mgr.prepare_skill_rollback(&skill.id).unwrap().unwrap();
+    let restored = mgr.apply_skill_revision(plan).unwrap();
+    assert_eq!(restored.skill.description.as_deref(), Some("version one"));
+    assert_eq!(restored.skill.tags, ["v1"]);
+    assert_eq!(restored.refreshed_copies, 1);
+    assert_eq!(
+        std::fs::read_to_string(&git_file).unwrap(),
+        "local worktree metadata"
+    );
+    assert_eq!(
+        std::fs::read_to_string(edited.join("SKILL.md")).unwrap(),
+        edited_value
+    );
+    assert_eq!(
+        std::fs::read_to_string(skill.central_path.join("old.txt")).unwrap(),
+        "old reference"
+    );
+    assert!(!skill.central_path.join("new.txt").exists());
+}
+
+#[test]
+fn reviewed_update_rejects_a_local_edit_after_preview() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mgr = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let source = tmp.path().join("revision-skill");
+    create_skill_dir(&source, "revision-skill", "version one", &["v1"]);
+    let skill = mgr.install_from_ref(&source.to_string_lossy()).unwrap();
+    create_skill_dir(&source, "revision-skill", "version two", &["v2"]);
+    let plan = mgr.prepare_skill_update(&skill.id).unwrap().unwrap();
+    mgr.save_skill_markdown(&skill.id, "# Locally edited")
+        .unwrap();
+    let error = mgr.apply_skill_revision(plan).unwrap_err().to_string();
+    assert!(error.contains("STALE_SKILL_REVISION"));
+    assert_eq!(
+        std::fs::read_to_string(skill.central_path.join("SKILL.md")).unwrap(),
+        "# Locally edited"
+    );
+    assert!(!mgr.has_skill_rollback(&skill.id));
 }
 
 #[test]

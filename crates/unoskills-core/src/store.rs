@@ -32,8 +32,9 @@ impl Store {
     }
 
     pub fn upsert_skill(&self, skill: &Skill) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        transaction.execute(
             "INSERT INTO skills (
                 id, slug, name, description, source_type, source_ref, source_subpath,
                 source_branch, central_path, content_hash, estimated_tokens, created_at, updated_at
@@ -67,16 +68,17 @@ impl Store {
             ],
         )?;
 
-        conn.execute(
+        transaction.execute(
             "DELETE FROM skill_tags WHERE skill_id = ?1",
             params![skill.id],
         )?;
         for tag in &skill.tags {
-            conn.execute(
+            transaction.execute(
                 "INSERT OR IGNORE INTO skill_tags (skill_id, tag) VALUES (?1, ?2)",
                 params![skill.id, tag.trim().to_lowercase()],
             )?;
         }
+        transaction.commit()?;
         Ok(())
     }
 

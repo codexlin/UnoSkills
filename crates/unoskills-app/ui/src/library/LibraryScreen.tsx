@@ -24,6 +24,7 @@ import { ActionButton, PageHeader, SearchField } from "./controls";
 import { createProjectScope } from "./scope";
 import { createDeployments } from "./deployments";
 import { createMarkdownEditor } from "./markdownEditor";
+import { SkillRevisionDialog, createSkillRevisions } from "./skillRevisions";
 import {
   attachProject,
   detachProject,
@@ -31,15 +32,12 @@ import {
   loadLibraryState,
   pickFolder,
   removeSkill,
-  updateSkill,
 } from "./host";
 import {
   confirmDeleteSkillDesc,
   confirmDetachProjectDesc,
   getStrings,
   toastProjectAttached,
-  toastSkillUpToDate,
-  toastSkillUpdated,
 } from "./strings";
 import type {
   AgentInfo,
@@ -64,7 +62,7 @@ export function Library(props: ScreenProps) {
   const loadError = signal<string | null>(null);
 
   const inspectorTab = signal<"deployments" | "preview">("deployments");
-  const updatingSkillId = signal<string | null>(null);
+  const rollbackIds = signal<string[]>([]);
   const listPaneWidth = signal(408);
 
   let searchInputRef: InputRef | undefined;
@@ -191,6 +189,7 @@ export function Library(props: ScreenProps) {
 
       batch(() => {
         skills.set(data.skills);
+        rollbackIds.set(data.rollback_skill_ids ?? []);
         agents.set(data.agents);
         scope.apply(scopeRequest, requestedProject, requestedScope, data);
         selectedSkillId.set(nextSkillId);
@@ -233,40 +232,7 @@ export function Library(props: ScreenProps) {
     await editor.load(skillId, false);
   };
 
-  const handleUpdateSkill = async (skill: Skill) => {
-    if (updatingSkillId()) {
-      return;
-    }
-    if (editor.editingSkill(skill.id) && !(await editor.confirmDiscardIfDirty())) {
-      return;
-    }
-    updatingSkillId.set(skill.id);
-    try {
-      const outcome = await updateSkill(skill.id);
-      if (outcome.updated) {
-        if (editor.editingSkill(outcome.skill.id)) {
-          editor.endEditing();
-        }
-        props.notify(
-          toastSkillUpdated(
-            props.locale,
-            outcome.skill.name,
-            outcome.skill.estimated_tokens,
-            outcome.refreshed_copies,
-          ),
-          "success",
-        );
-        props.refresh();
-        await fetchState({ preferredSkillId: outcome.skill.id });
-      } else {
-        props.notify(toastSkillUpToDate(props.locale, outcome.skill.name), "info");
-      }
-    } catch (error) {
-      props.notify(errorMessage(error), "error");
-    } finally {
-      updatingSkillId.set(null);
-    }
-  };
+  const revisions = createSkillRevisions(props, selectedSkillId, isActive, () => props.refresh());
 
   const handleDeleteSkill = async (skill: Skill) => {
     const deployCount = skill.deployments.length + skill.project_deployments.length;
@@ -440,6 +406,12 @@ export function Library(props: ScreenProps) {
         }
       />
 
+      <If when={revisions.dialog()}>
+        {(state) => <SkillRevisionDialog theme={props.theme} locale={props.locale} state={state()}
+          agents={agents()} applying={revisions.applying()} onClose={revisions.close}
+          onConfirm={(plan) => void revisions.confirm(plan)} />}
+      </If>
+
       {/* Library Toolbar */}
       <View
         style={{
@@ -578,7 +550,8 @@ export function Library(props: ScreenProps) {
               draftMarkdown={editor.draft()}
               previewMarkdown={editor.preview()}
               selectedLint={editor.lint()}
-              updatingSkillId={updatingSkillId()}
+              updatingSkillId={revisions.pending()}
+              rollbackAvailable={rollbackIds().includes(selectedSkillId() ?? "")}
               deploying={deployments.pending()}
               onTabChange={(tab) => inspectorTab.set(tab)}
               onStartEdit={editor.start}
@@ -589,9 +562,8 @@ export function Library(props: ScreenProps) {
                 void editor.save();
               }}
               onDraftChange={editor.changeDraft}
-              onUpdateSkill={(skill) => {
-                void handleUpdateSkill(skill);
-              }}
+              onUpdateSkill={(skill) => void revisions.prepare(skill, false)}
+              onRollbackSkill={(skill) => void revisions.prepare(skill, true)}
               onDeleteSkill={(skill) => {
                 void handleDeleteSkill(skill);
               }}

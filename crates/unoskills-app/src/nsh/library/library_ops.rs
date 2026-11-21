@@ -32,6 +32,11 @@ fn scope_path_param(input: &Value) -> Result<&str> {
 
 fn load_state(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
     let skills = manager.list_skills()?;
+    let rollback_skill_ids: Vec<_> = skills
+        .iter()
+        .filter(|skill| manager.has_skill_rollback(&skill.id))
+        .map(|skill| &skill.id)
+        .collect();
     let agents = manager.list_agents()?;
     let projects = manager.list_projects()?;
     let deploy_mode = manager.default_deploy_mode();
@@ -53,6 +58,7 @@ fn load_state(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
 
     Ok(json!({
         "skills": skills,
+        "rollback_skill_ids": rollback_skill_ids,
         "agents": agents,
         "projects": projects,
         "deploy_mode": deploy_mode.as_str(),

@@ -1,3 +1,7 @@
+#[path = "skill_revisions.rs"]
+mod skill_revisions;
+pub use skill_revisions::{PreparedSkillRevision, SkillRevisionPreview};
+
 use anyhow::{Context, Result, bail, ensure};
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
@@ -401,6 +405,7 @@ impl UnoSkillsManager {
     }
 
     pub fn save_skill_markdown(&self, skill_id: &str, new_content: &str) -> Result<Skill> {
+        let _lock = self.lock_skills()?;
         let mut skill = self
             .store
             .find_skill(skill_id)?
@@ -475,102 +480,20 @@ impl UnoSkillsManager {
         }
     }
 
-    /// Re-fetches a skill from its recorded `source_ref` (Git / skills.sh / local
-    /// directory), compares SHA-256 directory hashes, updates the central copy if
-    /// upstream changed, and automatically refreshes any `Copy`-mode deployments.
+    /// Update from the recorded source using the same checks as desktop revisions.
     pub fn update_skill(&self, skill_id_or_slug: &str) -> Result<SkillUpdateResult> {
-        let skill = self
-            .store
-            .find_skill(skill_id_or_slug)?
-            .context("Skill not found")?;
-
-        if skill.source_type == SourceType::Adopted {
-            bail!(
-                "Skill '{}' was adopted locally and has no upstream source URL to update from.",
-                skill.name
-            );
-        }
-        let source_ref = skill
-            .source_ref
-            .clone()
-            .filter(|s| !s.trim().is_empty())
-            .with_context(|| format!("Skill '{}' has no recorded source_ref", skill.name))?;
-
-        let resolved = resolve_source_ref(&source_ref)?;
-        let proxy = self.http_proxy();
-
-        let (fetched_guard, src_dir, new_subpath, new_branch) = match resolved {
-            ResolvedSource::Local(path) => {
-                if !is_valid_skill_dir(&path) {
-                    bail!(
-                        "Original local source {} is no longer a valid skill directory",
-                        path.display()
-                    );
-                }
-                (None, path, None, None)
-            }
-            ResolvedSource::Git {
-                repo_url,
-                branch,
-                subpath,
-                ..
-            } => {
-                let eff_branch = branch.or_else(|| skill.source_branch.clone());
-                let eff_subpath = subpath.or_else(|| skill.source_subpath.clone());
-                let fetched = fetch_git_skill(
-                    &repo_url,
-                    eff_branch.as_deref(),
-                    eff_subpath.as_deref(),
-                    proxy.as_deref(),
-                )?;
-                let dir = fetched.skill_dir.clone();
-                (Some(fetched), dir, eff_subpath, eff_branch)
-            }
-        };
-
-        let new_hash = hash_directory(&src_dir)?;
-        if skill.content_hash.as_deref() == Some(new_hash.as_str()) {
-            drop(fetched_guard);
-            return Ok(SkillUpdateResult {
-                skill,
+        match self.prepare_skill_update(skill_id_or_slug)? {
+            Some(prepared) => self.apply_skill_revision(prepared),
+            None => Ok(SkillUpdateResult {
+                skill: self
+                    .store
+                    .find_skill(skill_id_or_slug)?
+                    .context("Skill not found")?,
                 updated: false,
                 refreshed_copies: 0,
-            });
+                deployment_issues: Vec::new(),
+            }),
         }
-
-        // Preserve the existing slug so central_path & all symlinks remain valid.
-        let mut updated_skill = self.import_directory(
-            &src_dir,
-            Some(&skill.slug),
-            skill.source_type,
-            Some(source_ref),
-            new_subpath,
-            new_branch,
-        )?;
-        drop(fetched_guard);
-
-        // Symlink deployments reflect changes immediately; Copy deployments must be refreshed.
-        let mut refreshed_copies = 0usize;
-        for dep in &updated_skill.deployments {
-            if dep.mode == DeployMode::Copy
-                && deploy_skill_dir(
-                    &updated_skill.central_path,
-                    &dep.target_path,
-                    DeployMode::Copy,
-                    ReplacePolicy::Recorded(DeployMode::Copy),
-                )
-                .is_ok()
-            {
-                refreshed_copies += 1;
-            }
-        }
-        refreshed_copies += self.refresh_project_copies(&mut updated_skill)?;
-
-        Ok(SkillUpdateResult {
-            skill: updated_skill,
-            updated: true,
-            refreshed_copies,
-        })
     }
 
     pub fn import_directory(
@@ -582,6 +505,7 @@ impl UnoSkillsManager {
         source_subpath: Option<String>,
         source_branch: Option<String>,
     ) -> Result<Skill> {
+        let _lock = self.lock_skills()?;
         if !is_valid_skill_dir(source_dir) {
             bail!(
                 "Invalid skill directory (missing SKILL.md): {}",
@@ -656,6 +580,7 @@ impl UnoSkillsManager {
     }
 
     pub fn remove_skill(&self, skill_id_or_slug: &str) -> Result<()> {
+        let _lock = self.lock_skills()?;
         let skill = self
             .store
             .find_skill(skill_id_or_slug)?
@@ -668,7 +593,7 @@ impl UnoSkillsManager {
             .map(|d| d.agent_key.clone())
             .collect();
         for agent_key in agent_keys {
-            let _ = self.undeploy_skill(&skill.id, &agent_key);
+            let _ = self.undeploy_global(&skill.id, &agent_key);
         }
 
         // Also undeploy from every attached project workspace.
@@ -680,6 +605,12 @@ impl UnoSkillsManager {
             std::fs::remove_dir_all(&skill.central_path)?;
         }
         self.store.delete_skill(&skill.id)?;
+        let previous = self.previous_revision_path(&skill.id);
+        if self.has_revisions_dir()
+            && std::fs::symlink_metadata(&previous).is_ok_and(|entry| entry.is_dir())
+        {
+            std::fs::remove_dir_all(previous)?;
+        }
         Ok(())
     }
 
@@ -692,6 +623,7 @@ impl UnoSkillsManager {
         mode_override: Option<DeployMode>,
         force: bool,
     ) -> Result<Deployment> {
+        let _lock = self.lock_skills()?;
         let skill = self
             .store
             .find_skill(skill_id_or_slug)?
@@ -737,6 +669,11 @@ impl UnoSkillsManager {
     }
 
     pub fn undeploy_skill(&self, skill_id_or_slug: &str, agent_key: &str) -> Result<()> {
+        let _lock = self.lock_skills()?;
+        self.undeploy_global(skill_id_or_slug, agent_key)
+    }
+
+    fn undeploy_global(&self, skill_id_or_slug: &str, agent_key: &str) -> Result<()> {
         let skill = self
             .store
             .find_skill(skill_id_or_slug)?
@@ -814,6 +751,7 @@ impl UnoSkillsManager {
     }
 
     pub fn remove_project(&self, project_id_or_name: &str) -> Result<()> {
+        let _lock = self.lock_skills()?;
         let project = self
             .store
             .find_project(project_id_or_name)?
@@ -860,6 +798,7 @@ impl UnoSkillsManager {
         mode_override: Option<DeployMode>,
         force: bool,
     ) -> Result<ProjectDeployment> {
+        let _lock = self.lock_skills()?;
         let skill = self
             .store
             .find_skill(skill_id_or_slug)?
@@ -1011,6 +950,7 @@ impl UnoSkillsManager {
         scope: &Path,
         agent_key: &str,
     ) -> Result<()> {
+        let _lock = self.lock_skills()?;
         let skill = self
             .store
             .find_skill(skill_id_or_slug)?
@@ -1445,6 +1385,7 @@ impl UnoSkillsManager {
         scope: &Path,
         include_global: bool,
     ) -> Result<StackProjectDeploySummary> {
+        let _lock = self.lock_skills()?;
         let (project, agent) = self.stack_deploy_destination(project_id, agent_key)?;
         let directory = scoped_project_skills_dir(&project, scope, &agent)?;
         let scope: PathBuf = scope.components().collect();

@@ -86,10 +86,27 @@ export interface SkillUpdateResult {
   skill: Skill;
   updated: boolean;
   refreshed_copies: number;
+  deployment_issues?: DeploymentImpact[];
+}
+
+export interface DeploymentImpact {
+  path: string;
+  agents: string[];
+  kind: "linked" | "current" | "refresh_copy" | "missing" | "conflict" | "refresh_failed";
+}
+
+export interface SkillRevisionPreview {
+  id: string;
+  skill_id: string;
+  skill_name: string;
+  rollback: boolean;
+  files: { path: string; kind: "added" | "modified" | "removed" }[];
+  deployments: DeploymentImpact[];
 }
 
 export interface LibraryStateResponse {
   skills: Skill[];
+  rollback_skill_ids?: string[];
   agents: AgentInfo[];
   projects: ProjectWorkspace[];
   deploy_mode: DeployMode;

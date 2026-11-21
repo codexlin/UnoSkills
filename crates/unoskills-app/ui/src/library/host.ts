@@ -16,6 +16,7 @@ import type {
   Skill,
   SkillLintReport,
   SkillMarkdownResponse,
+  SkillRevisionPreview,
   SkillUpdateResult,
 } from "./types";
 
@@ -85,10 +86,18 @@ export function lintSkill(skillId: string): Promise<SkillLintReport> {
   });
 }
 
-export function updateSkill(skillId: string): Promise<SkillUpdateResult> {
-  return call<{ skill_id: string }, SkillUpdateResult>("library.update_skill", {
-    skill_id: skillId,
-  });
+export function prepareSkillRevision(skillId: string, rollback: boolean): Promise<SkillRevisionPreview | null> {
+  return call<{ skill_id: string }, SkillRevisionPreview | null>(
+    rollback ? "library.prepare_skill_rollback" : "library.prepare_skill_update", { skill_id: skillId },
+  );
+}
+
+export function applySkillRevision(previewId: string): Promise<SkillUpdateResult> {
+  return call<{ preview_id: string }, SkillUpdateResult>("library.apply_skill_revision", { preview_id: previewId });
+}
+
+export function cancelSkillRevision(previewId: string): Promise<void> {
+  return call<{ preview_id: string }, void>("library.cancel_skill_revision", { preview_id: previewId });
 }
 
 export function removeSkill(skillId: string): Promise<{ removed: boolean; skill_id: string }> {

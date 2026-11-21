@@ -5,6 +5,7 @@ import type { Theme } from "../shared";
 import { ActionButton, EmptyState, hintTooltip } from "./controls";
 import { isSkillDeployedTo, joinPath } from "./format";
 import { errorMessage, revealPath } from "./host";
+import { skillRevisionStrings } from "./skillRevisions";
 import { type Locale, busyUpdatingSkill, getStrings } from "./strings";
 import type {
   AgentInfo,
@@ -35,6 +36,7 @@ export function SkillInspector(props: {
   previewMarkdown: string;
   selectedLint: SkillLintReport | null;
   updatingSkillId: string | null;
+  rollbackAvailable: boolean;
   deploying: boolean;
   onTabChange: (tab: "deployments" | "preview") => void;
   onStartEdit: () => void;
@@ -42,6 +44,7 @@ export function SkillInspector(props: {
   onSaveEdit: () => void;
   onDraftChange: (value: string) => void;
   onUpdateSkill: (skill: Skill) => void;
+  onRollbackSkill: (skill: Skill) => void;
   onDeleteSkill: (skill: Skill) => void;
   onGlobalDeployToggle: (skill: Skill, agent: AgentInfo, currentlyDeployed: boolean) => void;
   onProjectDeployToggle: (
@@ -134,7 +137,11 @@ export function SkillInspector(props: {
                   <ActionMenu theme={props.theme} label={s().library_skill_actions}>
                     <If when={skill().source_type !== "adopted" && Boolean(skill().source_ref?.trim())}>
                       <MenuAction theme={props.theme} label={s().btn_update_skill}
-                        disabled={props.updatingSkillId === skill().id} onSelect={() => props.onUpdateSkill(skill())} />
+                        disabled={Boolean(props.updatingSkillId)} onSelect={() => props.onUpdateSkill(skill())} />
+                    </If>
+                    <If when={props.rollbackAvailable}>
+                      <MenuAction theme={props.theme} label={skillRevisionStrings(props.locale).restore}
+                        disabled={Boolean(props.updatingSkillId)} onSelect={() => props.onRollbackSkill(skill())} />
                     </If>
                     <MenuAction theme={props.theme} label={s().tooltip_reveal_folder} onSelect={() => {
                       void revealPath(skill().central_path).catch((error) => {

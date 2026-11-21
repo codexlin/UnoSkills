@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added / 新增
+
+- **Skill update review and restore / 技能更新预览与恢复**. Review changed files and affected deployment paths in the Library before applying an update. Restore the previous local version and review missing or modified deployments while preserving their files. 在技能库确认更新前查看文件变更与受影响的部署路径，可恢复上一个本地版本。已缺失或手工修改的部署会列出处理提示，手工修改的文件会保留。
+
 ## [v0.7.0] - 2026-11-22
 
 ### Changed / 改进
