@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::Path,
     sync::mpsc::{self, Receiver, Sender},
@@ -6,7 +7,8 @@ use std::{
 };
 
 use nsh_core::{
-    ApproxTextEngine, EventKind, EventPayload, MountBatch, MountItem, NodeId,
+    ApproxTextEngine, Command, EventKind, EventPayload, MountBatch, MountItem, NodeId, ROOT_ID,
+    file_dialog::{FileRequest, OpenDialogKind},
     geometry::{Size, px},
 };
 use nsh_engine::{Engine, EngineConfig, MountSink};
@@ -116,6 +118,7 @@ fn start(root: &Path) -> (Engine, Receiver<Observation>) {
         viewport,
         environment: nsh_engine::Environment {
             window: viewport,
+            file_requests: true,
             ..Default::default()
         },
         ui_sets: crate::nsh::ui_sets(),
@@ -128,6 +131,21 @@ fn start(root: &Path) -> (Engine, Receiver<Observation>) {
     )
 }
 
+fn folder_request(item: &MountItem, title: &str) -> Option<u32> {
+    let MountItem::Command {
+        command: Command::FileRequest { id, request },
+        ..
+    } = item
+    else {
+        return None;
+    };
+    let FileRequest::OpenDialog(dialog) = request.as_ref() else {
+        return None;
+    };
+    (dialog.kind == OpenDialogKind::Folders && dialog.title.as_deref() == Some(title))
+        .then_some(*id)
+}
+
 fn press(engine: &Engine, node: NodeId) {
     for event in [EventKind::PressDown, EventKind::PressUp, EventKind::Press] {
         engine
@@ -137,7 +155,7 @@ fn press(engine: &Engine, node: NodeId) {
 }
 
 #[test]
-fn nested_project_route_reaches_stack_preview_and_returns_to_library() {
+fn native_folder_pick_leads_from_scoped_project_to_stack_preview_and_library() {
     let temp = tempdir().unwrap();
     let root = temp.path().join("library");
     let manager = UnoSkillsManager::open_at(root.clone()).unwrap();
@@ -153,7 +171,7 @@ fn nested_project_route_reaches_stack_preview_and_returns_to_library() {
             category: AgentCategory::Coding,
         })
         .unwrap();
-    let project_dir = temp.path().join("project");
+    let project_dir = temp.path().join("Routing smoke project");
     let scope = Path::new("apps").join("desktop");
     fs::create_dir_all(project_dir.join(&scope)).unwrap();
     fs::write(
@@ -161,23 +179,28 @@ fn nested_project_route_reaches_stack_preview_and_returns_to_library() {
         "[package]\nname = \"smoke-app\"\nversion = \"0.0.0\"\n",
     )
     .unwrap();
-    let project = manager
-        .add_project(&project_dir, Some("Routing smoke project"))
-        .unwrap();
+    let (engine, rx) = start(&root);
+    let mut items = Vec::new();
+    let open = |items: &mut Vec<MountItem>, label: &str| {
+        press(&engine, wait_for(&engine, &rx, items, label, button))
+    };
+    open(&mut items, "Add Project");
+    let request = wait_for(&engine, &rx, &mut items, "Add Project", folder_request);
+    engine.control().dispatch_event(
+        ROOT_ID,
+        EventKind::FileRequest,
+        EventPayload::file_answer(request, vec![project_dir]),
+    );
+    wait_for(&engine, &rx, &mut items, "Project root", visible_text);
+    let projects = manager.list_projects().unwrap();
+    assert_eq!(projects.len(), 1);
+    let project = &projects[0];
     assert!(
         manager
             .project_module_paths(&project.id)
             .unwrap()
             .contains(&scope)
     );
-
-    let (engine, rx) = start(&root);
-    let mut items = Vec::new();
-    let open = |items: &mut Vec<MountItem>, label: &str| {
-        press(&engine, wait_for(&engine, &rx, items, label, button))
-    };
-    open(&mut items, &project.name);
-    wait_for(&engine, &rx, &mut items, "Project root", visible_text);
     open(&mut items, "Scope");
     open(&mut items, &scope.to_string_lossy());
     open(&mut items, "Save selection as a stack");
@@ -193,6 +216,102 @@ fn nested_project_route_reaches_stack_preview_and_returns_to_library() {
     );
 
     open(&mut items, "Open project");
-    open(&mut items, "Open in Library");
+    let open_library = wait_for(&engine, &rx, &mut items, "Open in Library", button);
+    items.clear();
+    press(&engine, open_library);
     wait_for(&engine, &rx, &mut items, "Project Overview", button);
+    wait_for(&engine, &rx, &mut items, &stack_name, visible_text);
+}
+
+#[test]
+fn unreadable_skill_cannot_open_another_skills_editor() {
+    use unoskills_core::SourceType;
+
+    let temp = tempdir().unwrap();
+    let root = temp.path().join("library");
+    let manager = UnoSkillsManager::open_at(root.clone()).unwrap();
+    manager.set_setting("language", "en").unwrap();
+    manager.set_http_proxy(Some("http://127.0.0.1:1")).unwrap();
+
+    let good_markdown = "---\nname: Alpha editable\ndescription: Fixture\n---\n\n# Alpha body\n";
+    let broken_markdown =
+        "---\nname: Bravo unreadable\ndescription: Fixture\n---\n\n# Bravo body\n";
+    let import = |slug: &str, content: &str| {
+        let source = temp.path().join(slug);
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("SKILL.md"), content).unwrap();
+        manager
+            .import_directory(&source, Some(slug), SourceType::Local, None, None, None)
+            .unwrap()
+    };
+    let good = import("alpha-editable", good_markdown);
+    let broken = import("bravo-unreadable", broken_markdown);
+    let unreadable = b"\xff\xfe";
+    let broken_path = broken.central_path.join("SKILL.md");
+    fs::write(&broken_path, unreadable).unwrap();
+
+    let (engine, rx) = start(&root);
+    let mut items = Vec::new();
+    let good_link = wait_for(&engine, &rx, &mut items, &good.name, button);
+    press(&engine, good_link);
+    let preview = wait_for(&engine, &rx, &mut items, "Preview", visible_text);
+    let tab = items
+        .iter()
+        .rev()
+        .find_map(|item| match item {
+            MountItem::Insert { child, parent, .. } if *child == preview => Some(*parent),
+            _ => None,
+        })
+        .expect("Preview tab contains its label");
+    press(&engine, tab);
+    wait_for(&engine, &rx, &mut items, "Edit SKILL.md", |item, label| {
+        edit_button(item, label, false)
+    });
+
+    let broken_row = wait_for(&engine, &rx, &mut items, &broken.name, button);
+    press(&engine, broken_row);
+    wait_for(
+        &engine,
+        &rx,
+        &mut items,
+        "UTF-8",
+        |item, expected| match item {
+            MountItem::Text { id, text, .. } if text.text.contains(expected) => Some(*id),
+            _ => None,
+        },
+    );
+    let mut removed = HashSet::new();
+    for item in items.iter().rev() {
+        match item {
+            MountItem::Delete { id } | MountItem::Remove { id } => {
+                removed.insert(*id);
+            }
+            MountItem::ViewProps { id, props }
+                if !removed.contains(id)
+                    && props.accessibility.label.as_deref() == Some("Edit SKILL.md") =>
+            {
+                assert!(props.accessibility.state.disabled);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    assert_eq!(
+        fs::read_to_string(good.central_path.join("SKILL.md")).unwrap(),
+        good_markdown
+    );
+    assert_eq!(fs::read(broken_path).unwrap(), unreadable);
+}
+
+fn edit_button(item: &MountItem, label: &str, disabled: bool) -> Option<NodeId> {
+    match item {
+        MountItem::ViewProps { id, props }
+            if props.accessibility.label.as_deref() == Some(label)
+                && props.accessibility.state.disabled == disabled =>
+        {
+            Some(*id)
+        }
+        _ => None,
+    }
 }
