@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.6.1] - 2026-11-21
+
+### Changed / 改进
+
+- **In-app update flow / 应用内更新流程**. Open the update dialog from the title bar. Confirm once to download, watch progress in the dialog or title bar, and open the installer when verification finishes. 从标题栏直接打开更新窗口。确认后可在窗口或标题栏查看进度，校验完成后直接打开安装包。
+
+### Fixed / 修复
+
+- **Release downloads / 发布附件下载**. If a direct GitHub download fails, retry through the release asset API and verify the installer against the published SHA-256 checksum. GitHub 直连下载失败时，通过附件 API 重试，并使用发布时提供的 SHA-256 校验安装包。
+
 ## [v0.6.0] - 2026-11-21
 
 ### Added / 新增
