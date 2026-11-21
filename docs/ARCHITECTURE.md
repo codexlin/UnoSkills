@@ -119,4 +119,5 @@ cargo test --workspace
 cargo build -p unoskills-app --locked
 nsh check crates/unoskills-app/ui
 nsh build crates/unoskills-app/ui --release
+nsh test crates/unoskills-app/ui
 ```

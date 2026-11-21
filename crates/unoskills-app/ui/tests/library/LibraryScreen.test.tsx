@@ -12,7 +12,7 @@ import type {
   ScanAdoptableResponse,
   Skill,
   SkillMarkdownResponse,
-} from "./types";
+} from "../../src/library/types";
 
 interface CommandPayload {
   command: string;

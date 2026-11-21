@@ -1,7 +1,7 @@
 import { Text, View, host, mount, signal } from "nsh";
-import type { Locale, Route, Theme, Tone } from "../shared";
-import { Discover } from "./DiscoverScreen";
-import { Library } from "./LibraryScreen";
+import type { Locale, Route, Theme, Tone } from "../../src/shared";
+import { Discover } from "../../src/library/DiscoverScreen";
+import { Library } from "../../src/library/LibraryScreen";
 
 const TEST_THEME: Theme = {
   background: "#ffffff",

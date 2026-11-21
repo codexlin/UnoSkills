@@ -1,0 +1,10 @@
+{
+  "id": "dev.unoskills.UnoSkills.LibraryTests",
+  "capabilities": {
+    "application": true,
+    "statusBar": true,
+    "clipboard": true,
+    "host": ["unoskills.command"],
+    "openUrl": { "schemes": ["https"] }
+  }
+}

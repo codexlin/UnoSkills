@@ -86,3 +86,5 @@ jobs:
         run: nsh check crates/unoskills-app/ui
       - name: Bundle TSX
         run: nsh build crates/unoskills-app/ui --release
+      - name: Test TSX headlessly
+        run: nsh test crates/unoskills-app/ui
