@@ -2,6 +2,7 @@
   "id": "dev.unoskills.UnoSkills",
   "name": "UnoSkills",
   "capabilities": {
+    "application": true,
     "host": ["unoskills.command"],
     "clipboard": true,
     "openUrl": { "schemes": ["https"] }
