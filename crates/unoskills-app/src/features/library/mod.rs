@@ -2,6 +2,8 @@ mod inspector;
 mod list;
 mod project;
 
+use std::collections::HashMap;
+
 use gpui_kit::component::{
     IconName, WindowExt,
     button::{Button, ButtonVariant},
@@ -13,12 +15,14 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     AppContext, Context, Entity, Focusable, IntoElement, ParentElement, Render, Styled,
-    Subscription, UniformListScrollHandle, Window, div, prelude::FluentBuilder, px,
+    Subscription, Task, UniformListScrollHandle, Window, div, prelude::FluentBuilder, px,
 };
-use unoskills_core::SkillLintReport;
+use unoskills_core::{ProjectSkillStatus, Skill, SkillLintReport};
 
 use crate::components::page_header::PageHeader;
 use crate::state::{WorkspaceEvent, WorkspaceState};
+
+type ProjectSkillStatuses = HashMap<String, HashMap<String, ProjectSkillStatus>>;
 
 /// Library page: virtualized skill list with live search filtering, plus a
 /// SKILL.md inspector (preview / quick edit) and per-agent deploy switches.
@@ -33,6 +37,8 @@ pub struct LibraryView {
     pub(super) selected_skill_id: Option<String>,
     /// `None` = Global scope (`~/.claude/skills`, etc.), `Some(id)` = attached Project scope.
     pub(super) selected_project_id: Option<String>,
+    project_skill_statuses: Option<Result<ProjectSkillStatuses, String>>,
+    project_skill_check: Option<Task<()>>,
     project_overview: Option<Entity<project::ProjectOverview>>,
     pub(super) markdown_preview_state: Entity<TextViewState>,
     pub(super) markdown_editor: Entity<TextareaState>,
@@ -90,6 +96,8 @@ impl LibraryView {
             library_scroll_handle: UniformListScrollHandle::new(),
             selected_skill_id: None,
             selected_project_id: None,
+            project_skill_statuses: None,
+            project_skill_check: None,
             project_overview: None,
             markdown_preview_state,
             markdown_editor,
@@ -152,6 +160,7 @@ impl LibraryView {
         }) {
             self.agent_filter = None;
         }
+        self.check_project_skills(cx);
         self.refilter(cx);
         let preserve_editor = self.editing_markdown && self.selected_skill_id == prev_selected;
         self.reload_selected_details(preserve_editor, window, cx);
@@ -189,21 +198,58 @@ impl LibraryView {
                     && self
                         .agent_filter
                         .as_deref()
-                        .is_none_or(|agent| self.deployed(skill, agent))
+                        .is_none_or(|agent| self.available(skill, agent).unwrap_or(false))
             })
             .map(|(ix, _)| ix)
             .collect();
     }
 
-    pub(super) fn deployed(&self, skill: &unoskills_core::Skill, agent: &str) -> bool {
-        match self.selected_project_id.as_deref() {
-            Some(project) => skill.is_deployed_to_project(project, agent),
-            None => skill.is_deployed_to(agent),
+    fn project_status(&self, skill: &Skill, agent: &str) -> Option<ProjectSkillStatus> {
+        self.project_skill_statuses
+            .as_ref()?
+            .as_ref()
+            .ok()?
+            .get(agent)?
+            .get(&skill.id)
+            .copied()
+    }
+
+    fn available(&self, skill: &Skill, agent: &str) -> Option<bool> {
+        if self.selected_project_id.is_some() {
+            self.project_status(skill, agent)
+                .map(ProjectSkillStatus::is_available)
+        } else {
+            Some(skill.is_deployed_to(agent))
         }
+    }
+
+    fn check_project_skills(&mut self, cx: &mut Context<Self>) {
+        self.project_skill_check = None;
+        self.project_skill_statuses = None;
+        let Some(project_id) = self.selected_project_id.clone() else {
+            return;
+        };
+        let manager = self.workspace.read(cx).manager().clone();
+        let background = cx.background_executor().clone();
+        self.project_skill_check = Some(cx.spawn(async move |this, cx| {
+            let result = background
+                .spawn(async move {
+                    manager
+                        .project_skill_statuses(&project_id)
+                        .map_err(|error| format!("{error:#}"))
+                })
+                .await;
+            let _ = this.update(cx, |view, cx| {
+                view.project_skill_statuses = Some(result);
+                view.refilter(cx);
+                cx.notify();
+            });
+        }));
     }
 
     pub(super) fn set_scope(&mut self, project: Option<String>, cx: &mut Context<Self>) {
         self.selected_project_id = project;
+        self.check_project_skills(cx);
         self.refilter(cx);
         cx.notify();
     }

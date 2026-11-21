@@ -192,11 +192,24 @@ impl Lang {
         }
     }
 
-    pub fn stack_project_progress(self, deployed: usize, total: usize, pending: usize) -> String {
+    pub fn stack_project_progress(
+        self,
+        status: &unoskills_core::StackProjectDeployStatus,
+        total: usize,
+        pending: usize,
+    ) -> String {
+        let global = status.global_available;
+        let available = status.deployed + status.project_local + global;
         match self {
-            Self::ZhCn => format!("已部署 {deployed}/{total}，待部署 {pending} 项"),
-            Self::En => format!("{deployed}/{total} deployed · {pending} pending"),
-            Self::Ja => format!("配備済み {deployed}/{total} 件、配備待ち {pending} 件"),
+            Self::ZhCn => {
+                format!("可用 {available}/{total} · 全局可用 {global} · 待部署 {pending}")
+            }
+            Self::En => {
+                format!("{available}/{total} available · {global} global · {pending} to deploy")
+            }
+            Self::Ja => {
+                format!("利用可能 {available}/{total} · グローバル {global} · 配備待ち {pending}")
+            }
         }
     }
 
@@ -280,7 +293,17 @@ impl Lang {
     ) -> String {
         let deployed = summary.deployed;
         let failed = summary.failed.len();
+        let skipped = summary.global_available + summary.project_local;
         match self {
+            Self::ZhCn if skipped > 0 => {
+                format!("本次部署 {deployed} 项，已有 {skipped} 项可用，失败 {failed} 项")
+            }
+            Self::En if skipped > 0 => {
+                format!("{deployed} deployed · {skipped} already available · {failed} failed")
+            }
+            Self::Ja if skipped > 0 => {
+                format!("配備 {deployed} 件、利用可能 {skipped} 件、失敗 {failed} 件")
+            }
             Self::ZhCn => format!("本次部署 {deployed} 项，失败 {failed} 项"),
             Self::En => format!("{deployed} deployed · {failed} failed"),
             Self::Ja => format!("配備 {deployed} 件、失敗 {failed} 件"),
@@ -677,6 +700,15 @@ pub struct Strings {
     pub stack_deploy_apply: &'static str,
     pub stack_deploy_busy: &'static str,
     pub stack_project_target_conflict: &'static str,
+    pub library_project_available: &'static str,
+    pub library_global_available: &'static str,
+    pub library_project_deployed: &'static str,
+    pub library_project_local: &'static str,
+    pub library_project_conflict: &'static str,
+    pub library_resolve_project_conflict: &'static str,
+    pub library_project_unavailable: &'static str,
+    pub library_remove_project_deployment: &'static str,
+    pub stack_include_global: &'static str,
     pub stack_project_checking: &'static str,
     pub stack_project_installing: &'static str,
     pub stack_project_directory: &'static str,

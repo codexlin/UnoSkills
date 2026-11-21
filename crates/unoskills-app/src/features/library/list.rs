@@ -1,13 +1,15 @@
 use std::{ops::Range, path::Path};
 
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, StyledExt,
+    ActiveTheme, Icon, IconName, Sizable, StyledExt,
+    alert::Alert,
     button::{Button, ButtonVariants},
     empty::{Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle},
     h_flex,
     input::Input,
     menu::{DropdownMenu, PopupMenuItem},
     scroll::ScrollableElement,
+    spinner::Spinner,
     v_flex,
 };
 use gpui_kit::{
@@ -201,6 +203,29 @@ impl LibraryView {
         let s = self.workspace.read(cx).t();
         let skills_empty = self.workspace.read(cx).skills().is_empty();
         let item_count = self.filtered_indices.len();
+        let project_scope = self.selected_project_id.is_some();
+        if project_scope && self.agent_filter.is_some() && !skills_empty {
+            match &self.project_skill_statuses {
+                None => {
+                    return h_flex()
+                        .flex_1()
+                        .justify_center()
+                        .gap_2()
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .child(Spinner::new().small())
+                        .child(s.stack_project_checking)
+                        .into_any_element();
+                }
+                Some(Err(error)) => {
+                    return div()
+                        .p_4()
+                        .child(Alert::error("library-filter-project-error", error.clone()).banner())
+                        .into_any_element();
+                }
+                Some(Ok(_)) => {}
+            }
+        }
         v_flex()
             .size_full()
             .min_h_0()
@@ -222,7 +247,11 @@ impl LibraryView {
                                 .flex_shrink_0()
                                 .text_right()
                                 .truncate()
-                                .child(s.library_deployment),
+                                .child(if project_scope {
+                                    s.library_project_available
+                                } else {
+                                    s.library_deployment
+                                }),
                         )
                         .child(
                             div()
@@ -317,10 +346,19 @@ impl LibraryView {
                                         let selected = this.selected_skill_id.as_deref()
                                             == Some(skill.id.as_str());
                                         let sid = skill.id.clone();
-                                        let deployed = agents
+                                        let available = agents
                                             .iter()
-                                            .filter(|agent| this.deployed(skill, &agent.key))
+                                            .filter(|agent| {
+                                                this.available(skill, &agent.key) == Some(true)
+                                            })
                                             .count();
+                                        let count = if this.selected_project_id.is_some()
+                                            && !matches!(this.project_skill_statuses, Some(Ok(_)))
+                                        {
+                                            "—".into()
+                                        } else {
+                                            format!("{available} / {}", agents.len())
+                                        };
                                         let source = skill
                                             .source_ref
                                             .as_deref()
@@ -376,10 +414,7 @@ impl LibraryView {
                                                         .flex_shrink_0()
                                                         .text_right()
                                                         .text_sm()
-                                                        .child(format!(
-                                                            "{deployed} / {}",
-                                                            agents.len()
-                                                        )),
+                                                        .child(count),
                                                 )
                                                 .child(
                                                     h_flex()
@@ -402,5 +437,6 @@ impl LibraryView {
                     .vertical_scrollbar(&self.library_scroll_handle)
                     .into_any_element()
             })
+            .into_any_element()
     }
 }

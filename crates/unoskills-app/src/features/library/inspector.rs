@@ -8,6 +8,7 @@ use gpui_kit::component::{
     input::Textarea,
     menu::{DropdownMenu, PopupMenuItem},
     scroll::ScrollableElement,
+    spinner::Spinner,
     switch::Switch,
     text::TextView,
     tooltip::Tooltip,
@@ -17,7 +18,7 @@ use gpui_kit::{
     ClipboardItem, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
-use unoskills_core::Skill;
+use unoskills_core::{ProjectSkillPlacement, Skill};
 
 use crate::components::page_header::page_tabs;
 
@@ -307,17 +308,11 @@ impl LibraryView {
             .agents()
             .iter()
             .filter(|agent| agent.installed && agent.enabled)
-            .map(|agent| {
-                let deployed = self.deployed(skill, &agent.key);
+            .filter_map(|agent| {
                 let skill_id = skill.id.clone();
                 let agent_key = agent.key.clone();
-                let project = self.selected_project_id.clone();
-                let state_label = if deployed {
-                    s.library_deployed
-                } else {
-                    s.library_not_deployed
-                };
-                h_flex()
+                let row = h_flex()
+                    .id(format!("deployment-row-{}", agent.key))
                     .min_h(px(36.))
                     .gap_2()
                     .border_b_1()
@@ -329,33 +324,104 @@ impl LibraryView {
                             .text_sm()
                             .truncate()
                             .child(agent.display_name.clone()),
-                    )
-                    .child(
-                        Switch::new(format!("deploy-{}-{}", skill.id, agent.key))
-                            .flex_shrink_0()
-                            .checked(deployed)
-                            .accessibility_label(format!(
-                                "{} · {} · {scope}",
-                                s.library_deployment, agent.display_name,
-                            ))
-                            .tooltip(format!("{state_label} · {scope}"))
-                            .on_change(cx.listener(move |view, checked: &bool, window, cx| {
-                                if *checked == deployed {
-                                    return;
-                                }
-                                view.workspace.update(cx, |ws, cx| {
-                                    if let Some(project) = project.as_deref() {
-                                        ws.toggle_project_skill_deployment(
-                                            &skill_id, project, &agent_key, deployed, window, cx,
-                                        );
-                                    } else {
+                    );
+                let Some(project) = self.selected_project_id.clone() else {
+                    let deployed = skill.is_deployed_to(&agent.key);
+                    let state_label = if deployed {
+                        s.library_deployed
+                    } else {
+                        s.library_not_deployed
+                    };
+                    return Some(
+                        row.child(
+                            Switch::new(format!("deploy-{}-{}", skill.id, agent.key))
+                                .flex_shrink_0()
+                                .checked(deployed)
+                                .accessibility_label(format!(
+                                    "{} · {} · {scope}",
+                                    s.library_deployment, agent.display_name,
+                                ))
+                                .tooltip(format!("{state_label} · {scope}"))
+                                .on_change(cx.listener(move |view, checked: &bool, window, cx| {
+                                    if *checked == deployed {
+                                        return;
+                                    }
+                                    view.workspace.update(cx, |ws, cx| {
                                         ws.toggle_skill_deployment(
                                             &skill_id, &agent_key, deployed, window, cx,
                                         );
-                                    }
-                                });
+                                    });
+                                })),
+                        ),
+                    );
+                };
+
+                use ProjectSkillPlacement::{Conflict, Local, Managed, Missing, Unavailable};
+                let status = self.project_status(skill, &agent.key)?;
+                let state_label = match status.placement {
+                    Managed => s.library_project_deployed,
+                    Local => s.library_project_local,
+                    Conflict => s.library_project_conflict,
+                    Unavailable => s.library_project_unavailable,
+                    Missing if status.global_available => s.library_global_available,
+                    Missing => s.library_not_deployed,
+                };
+                let label_color = match status.placement {
+                    Conflict | Unavailable => theme.warning,
+                    Managed | Local => theme.foreground,
+                    Missing => muted,
+                };
+                let row = row.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(label_color)
+                        .child(gpui_kit::text!(state_label)),
+                );
+                Some(match status.placement {
+                    Managed => row.child(
+                        Switch::new(format!("project-deploy-{}-{}", skill.id, agent.key))
+                            .flex_shrink_0()
+                            .checked(true)
+                            .accessibility_label(format!(
+                                "{} · {}",
+                                s.library_project_deployed, agent.display_name
+                            ))
+                            .tooltip(s.library_remove_project_deployment)
+                            .on_change(cx.listener(move |view, checked: &bool, window, cx| {
+                                if !checked {
+                                    view.workspace.update(cx, |ws, cx| {
+                                        ws.toggle_project_skill_deployment(
+                                            &skill_id, &project, &agent_key, true, window, cx,
+                                        );
+                                    });
+                                }
                             })),
-                    )
+                    ),
+                    Missing | Conflict => {
+                        let action = if status.placement == Conflict {
+                            s.library_resolve_project_conflict
+                        } else {
+                            s.stack_deploy_project
+                        };
+                        row.child(
+                            Button::new(format!("project-deploy-{}-{}", skill.id, agent.key))
+                                .flex_shrink_0()
+                                .small()
+                                .ghost()
+                                .label(action)
+                                .accessibility_label(format!("{action} · {}", agent.display_name))
+                                .on_click(cx.listener(move |view, _, window, cx| {
+                                    view.workspace.update(cx, |ws, cx| {
+                                        ws.toggle_project_skill_deployment(
+                                            &skill_id, &project, &agent_key, false, window, cx,
+                                        );
+                                    });
+                                })),
+                        )
+                    }
+                    Local | Unavailable => row,
+                })
             })
             .collect();
 
@@ -438,13 +504,34 @@ impl LibraryView {
                         ),
                 )
             })
-            .when(rows.is_empty(), |panel| {
-                panel.child(
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child(s.no_installed_agents),
-                )
+            .when(
+                !ws.agents()
+                    .iter()
+                    .any(|agent| agent.installed && agent.enabled),
+                |panel| {
+                    panel.child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .child(s.no_installed_agents),
+                    )
+                },
+            )
+            .when(self.selected_project_id.is_some(), |panel| {
+                match &self.project_skill_statuses {
+                    None => panel.child(
+                        h_flex()
+                            .gap_2()
+                            .text_sm()
+                            .text_color(muted)
+                            .child(Spinner::new().small())
+                            .child(s.stack_project_checking),
+                    ),
+                    Some(Err(error)) => {
+                        panel.child(Alert::error("library-project-error", error.clone()).banner())
+                    }
+                    Some(Ok(_)) => panel,
+                }
             })
             .child(v_flex().border_t_1().border_color(border).children(rows))
     }

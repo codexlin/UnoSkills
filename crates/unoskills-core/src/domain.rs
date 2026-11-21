@@ -265,17 +265,57 @@ impl StackSkillRef {
 #[derive(Debug, Default)]
 pub struct StackProjectDeployStatus {
     pub deployed: usize,
+    pub global_available: usize,
+    pub project_local: usize,
     pub pending: usize,
     pub unavailable: usize,
     pub conflicts: usize,
+}
+
+impl StackProjectDeployStatus {
+    pub fn pending_count(&self, include_global: bool) -> usize {
+        self.pending
+            + if include_global {
+                self.global_available
+            } else {
+                0
+            }
+    }
 }
 
 #[derive(Debug, Default)]
 pub struct StackProjectDeploySummary {
     pub deployed: usize,
     pub already_deployed: usize,
+    pub global_available: usize,
+    pub project_local: usize,
     pub unavailable: usize,
     pub failed: Vec<(String, String)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectSkillPlacement {
+    Missing,
+    Managed,
+    Local,
+    Conflict,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProjectSkillStatus {
+    pub placement: ProjectSkillPlacement,
+    pub global_available: bool,
+}
+
+impl ProjectSkillStatus {
+    pub fn is_available(self) -> bool {
+        match self.placement {
+            ProjectSkillPlacement::Managed | ProjectSkillPlacement::Local => true,
+            ProjectSkillPlacement::Missing => self.global_available,
+            ProjectSkillPlacement::Conflict | ProjectSkillPlacement::Unavailable => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

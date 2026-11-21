@@ -567,6 +567,121 @@ fn deploy_stack_to_project_skips_existing_and_preserves_unmanaged_skills() {
 }
 
 #[test]
+fn project_availability_counts_global_and_project_files_without_duplicate_deployment() {
+    use unoskills_core::ProjectSkillPlacement;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let agent_dir = tmp.path().join("codex-skills");
+    manager
+        .set_agent_override("codex", agent_dir.to_str())
+        .unwrap();
+    manager.set_default_deploy_mode(DeployMode::Copy).unwrap();
+    let project_dir = tmp.path().join("project");
+    std::fs::create_dir(&project_dir).unwrap();
+    let project = manager.add_project(&project_dir, None).unwrap();
+    let fixture = tmp.path().join("uno-review-fixture");
+    create_skill_dir(&fixture, "uno-review-fixture", "Review skill", &["qa"]);
+    let skill = manager.install_from_ref(fixture.to_str().unwrap()).unwrap();
+    let stack = manager
+        .create_stack_from_skills("QA", "", "", vec![], std::slice::from_ref(&skill.id))
+        .unwrap();
+    let read_status = || manager.project_skill_statuses(&project.id).unwrap()["codex"][&skill.id];
+    let preview = || {
+        manager
+            .stack_project_deploy_status(&stack, &project.id, "codex")
+            .unwrap()
+    };
+    assert!(!read_status().is_available());
+
+    let global = manager
+        .deploy_skill(&skill.id, "codex", None, false)
+        .unwrap();
+    assert!(read_status().is_available());
+    assert_eq!(read_status().placement, ProjectSkillPlacement::Missing);
+    assert!(read_status().global_available);
+    let status = preview();
+    assert_eq!(
+        (
+            status.global_available,
+            status.pending_count(false),
+            status.pending_count(true)
+        ),
+        (1, 0, 1)
+    );
+    let result = manager
+        .deploy_stack_to_project(&stack, &project.id, "codex")
+        .unwrap();
+    assert_eq!((result.global_available, result.deployed), (1, 0));
+    assert!(
+        manager
+            .find_skill(&skill.id)
+            .unwrap()
+            .unwrap()
+            .project_deployments
+            .is_empty()
+    );
+
+    let result = manager
+        .deploy_stack_to_project_at_with_globals(
+            &stack,
+            &project.id,
+            "codex",
+            std::path::Path::new(""),
+            true,
+        )
+        .unwrap();
+    assert_eq!(result.deployed, 1);
+    assert_eq!(preview().deployed, 1);
+    assert_eq!(read_status().placement, ProjectSkillPlacement::Managed);
+    let target = manager
+        .find_skill(&skill.id)
+        .unwrap()
+        .unwrap()
+        .project_deployments[0]
+        .target_path
+        .clone();
+    manager
+        .undeploy_skill_from_project(&skill.id, &project.id, "codex")
+        .unwrap();
+    assert!(!target.exists());
+    assert!(read_status().is_available());
+    assert!(global.target_path.join("SKILL.md").is_file());
+
+    unoskills_core::sync::copy_dir_recursive(&skill.central_path, &target).unwrap();
+    assert_eq!(read_status().placement, ProjectSkillPlacement::Local);
+    assert_eq!(preview().project_local, 1);
+    assert_eq!(
+        manager
+            .deploy_stack_to_project(&stack, &project.id, "codex")
+            .unwrap()
+            .project_local,
+        1
+    );
+
+    std::fs::write(
+        global.target_path.join("SKILL.md"),
+        "different global skill",
+    )
+    .unwrap();
+    std::fs::write(target.join("SKILL.md"), "different project skill").unwrap();
+    let status = read_status();
+    assert_eq!(status.placement, ProjectSkillPlacement::Conflict);
+    assert!(!status.global_available);
+    assert!(!status.is_available());
+    assert_eq!(preview().conflicts, 1);
+    assert!(
+        manager
+            .deploy_skill_to_project(&skill.id, &project.id, "codex", None, false)
+            .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(target.join("SKILL.md")).unwrap(),
+        "different project skill"
+    );
+}
+
+#[test]
 fn project_stack_deployment_repairs_missing_files_and_preserves_replacements() {
     let tmp = tempfile::tempdir().unwrap();
     let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();

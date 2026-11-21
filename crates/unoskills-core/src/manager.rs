@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail, ensure};
 use chrono::Utc;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
@@ -10,9 +10,10 @@ use crate::backup::{
 };
 use crate::domain::{
     AdoptCandidate, AgentInfo, DeployMode, Deployment, GitBackupPullResult, GitBackupPushResult,
-    GitBackupStatus, MarketplacePage, MarketplaceSkill, ProjectDeployment, ProjectWorkspace, Skill,
-    SkillLintReport, SkillUpdateResult, SourceType, StackInstallSummary, StackManifest,
-    StackProjectDeployStatus, StackProjectDeploySummary, StackSkillRef, StackSource,
+    GitBackupStatus, MarketplacePage, MarketplaceSkill, ProjectDeployment, ProjectSkillPlacement,
+    ProjectSkillStatus, ProjectWorkspace, Skill, SkillLintReport, SkillUpdateResult, SourceType,
+    StackInstallSummary, StackManifest, StackProjectDeployStatus, StackProjectDeploySummary,
+    StackSkillRef, StackSource,
 };
 use crate::parser::{
     find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir, parse_skill_dir,
@@ -49,6 +50,7 @@ pub(crate) enum StackProjectTarget {
     Deployed,
     Missing(Option<DeployMode>),
     Register(DeployMode),
+    Local,
     Conflict,
     Unavailable,
 }
@@ -169,6 +171,11 @@ pub(crate) fn inspect_stack_project_target(
             }
             DeployMode::Copy
         }
+        TargetState::RealDir
+            if matching_records().next().is_none() && matches_skill_copy(skill, target) =>
+        {
+            return StackProjectTarget::Local;
+        }
         _ => return StackProjectTarget::Conflict,
     };
     if matching_records().any(|dep| is_current(&dep) && dep.mode == mode) {
@@ -176,6 +183,30 @@ pub(crate) fn inspect_stack_project_target(
     } else {
         StackProjectTarget::Register(mode)
     }
+}
+
+fn matches_skill_copy(skill: &Skill, target: &Path) -> bool {
+    if !is_valid_skill_dir(target) {
+        return false;
+    }
+    let source_hash = skill
+        .content_hash
+        .clone()
+        .or_else(|| hash_directory(&skill.central_path).ok());
+    hash_directory(target).is_ok_and(|hash| Some(hash) == source_hash)
+}
+
+fn is_globally_available(skill: &Skill, agent: &AgentInfo) -> bool {
+    std::iter::once(&agent.skills_dir)
+        .chain(&agent.additional_scan_dirs)
+        .any(|root| {
+            let target = root.join(&skill.slug);
+            match classify_target(&skill.central_path, &target) {
+                TargetState::LinkToSource => is_valid_skill_dir(&target),
+                TargetState::RealDir => matches_skill_copy(skill, &target),
+                _ => false,
+            }
+        })
 }
 
 impl UnoSkillsManager {
@@ -283,6 +314,54 @@ impl UnoSkillsManager {
 
     pub fn list_skills(&self) -> Result<Vec<Skill>> {
         self.store.list_skills()
+    }
+
+    /// Check availability for library skills without changing project or global files.
+    pub fn project_skill_statuses(
+        &self,
+        project_id: &str,
+    ) -> Result<HashMap<String, HashMap<String, ProjectSkillStatus>>> {
+        let project = self
+            .store
+            .find_project(project_id)?
+            .context("Project workspace not found")?;
+        let skills = self.list_skills()?;
+        let mut statuses = HashMap::new();
+        for agent in self
+            .list_agents()?
+            .into_iter()
+            .filter(|agent| agent.installed && agent.enabled)
+        {
+            let directory = scoped_project_skills_dir(&project, Path::new(""), &agent)?;
+            let by_skill = skills
+                .iter()
+                .map(|skill| {
+                    let placement = match inspect_stack_project_target(
+                        skill,
+                        &project,
+                        &agent,
+                        &directory.join(&skill.slug),
+                    ) {
+                        StackProjectTarget::Deployed => ProjectSkillPlacement::Managed,
+                        StackProjectTarget::Missing(_) => ProjectSkillPlacement::Missing,
+                        StackProjectTarget::Register(_) | StackProjectTarget::Local => {
+                            ProjectSkillPlacement::Local
+                        }
+                        StackProjectTarget::Conflict => ProjectSkillPlacement::Conflict,
+                        StackProjectTarget::Unavailable => ProjectSkillPlacement::Unavailable,
+                    };
+                    (
+                        skill.id.clone(),
+                        ProjectSkillStatus {
+                            placement,
+                            global_available: is_globally_available(skill, &agent),
+                        },
+                    )
+                })
+                .collect();
+            statuses.insert(agent.key, by_skill);
+        }
+        Ok(statuses)
     }
 
     pub fn find_skill(&self, id_or_slug_or_name: &str) -> Result<Option<Skill>> {
@@ -763,6 +842,17 @@ impl UnoSkillsManager {
 
         let scope = Path::new("");
         let target_path = scoped_project_skills_dir(&project, scope, agent)?.join(&skill.slug);
+        if !force
+            && matches!(
+                inspect_stack_project_target(&skill, &project, agent, &target_path),
+                StackProjectTarget::Conflict | StackProjectTarget::Local
+            )
+        {
+            bail!(
+                "TARGET_CONFLICT: Deployment target is occupied or has changed: {}",
+                target_path.display()
+            );
+        }
         let desired_mode = mode_override.unwrap_or_else(|| self.default_deploy_mode());
         let existing_dep = skill.project_deployments.iter().find(|d| {
             d.project_id == project.id && d.agent_key == agent_key && d.scope_path == scope
@@ -1259,6 +1349,10 @@ impl UnoSkillsManager {
             let target = directory.join(&skill.slug);
             match inspect_stack_project_target(skill, &project, &agent, &target) {
                 StackProjectTarget::Deployed => status.deployed += 1,
+                StackProjectTarget::Local => status.project_local += 1,
+                StackProjectTarget::Missing(_) if is_globally_available(skill, &agent) => {
+                    status.global_available += 1;
+                }
                 StackProjectTarget::Missing(_) | StackProjectTarget::Register(_) => {
                     status.pending += 1
                 }
@@ -1286,6 +1380,18 @@ impl UnoSkillsManager {
         agent_key: &str,
         scope: &Path,
     ) -> Result<StackProjectDeploySummary> {
+        self.deploy_stack_to_project_at_with_globals(stack, project_id, agent_key, scope, false)
+    }
+
+    /// With `include_global`, also place globally available skills in the project directory.
+    pub fn deploy_stack_to_project_at_with_globals(
+        &self,
+        stack: &StackManifest,
+        project_id: &str,
+        agent_key: &str,
+        scope: &Path,
+        include_global: bool,
+    ) -> Result<StackProjectDeploySummary> {
         let (project, agent) = self.stack_deploy_destination(project_id, agent_key)?;
         let directory = scoped_project_skills_dir(&project, scope, &agent)?;
         let scope: PathBuf = scope.components().collect();
@@ -1305,6 +1411,16 @@ impl UnoSkillsManager {
             let mode = match inspect_stack_project_target(skill, &project, &agent, &target) {
                 StackProjectTarget::Deployed => {
                     summary.already_deployed += 1;
+                    continue;
+                }
+                StackProjectTarget::Local => {
+                    summary.project_local += 1;
+                    continue;
+                }
+                StackProjectTarget::Missing(_)
+                    if !include_global && is_globally_available(skill, &agent) =>
+                {
+                    summary.global_available += 1;
                     continue;
                 }
                 StackProjectTarget::Missing(recorded_mode) => deploy_skill_dir(
