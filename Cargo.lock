@@ -7015,6 +7015,7 @@ name = "unoskills-app"
 version = "0.6.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "chrono",
  "gpui-kit",
  "reqwest",

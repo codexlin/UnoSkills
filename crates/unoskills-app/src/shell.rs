@@ -13,9 +13,9 @@ use gpui_kit::{
 };
 
 use crate::assets::AppIcon;
-use crate::components::badges::StatusBadge;
+use crate::components::{app_update, badges::StatusBadge};
 use crate::features::{DiscoverView, HomeView, LibraryView, SettingsView, StacksView};
-use crate::state::{NavTab, SettingsSection, WorkspaceEvent, WorkspaceState};
+use crate::state::{NavTab, UpdateDownload, WorkspaceEvent, WorkspaceState};
 
 actions!(unoskills, [FocusSearch, SaveSkill, CancelEdit]);
 
@@ -122,6 +122,14 @@ impl Render for UnoSkillsShell {
             .filter(|u| u.update_available)
             .and_then(|u| u.latest.as_ref())
             .map(|r| r.tag_name.clone());
+        let download = self.workspace.read(cx).update_download();
+        let update_status = app_update::status_label(download, s);
+        let update_icon = match download {
+            UpdateDownload::Idle => IconName::ArrowUp,
+            UpdateDownload::InProgress(_) => IconName::ArrowDown,
+            UpdateDownload::Ready(_) => IconName::Check,
+            UpdateDownload::Failed(_) => IconName::RefreshCw,
+        };
 
         let active_view = match self.active_tab {
             NavTab::Home => self.home_view.clone().into_any_element(),
@@ -222,14 +230,13 @@ impl Render for UnoSkillsShell {
                                         Button::new("titlebar-update-btn")
                                             .primary()
                                             .xsmall()
-                                            .icon(IconName::ArrowUp)
-                                            .label(format!("{} {tag}", s.badge_update_available))
-                                            .on_click(cx.listener(|this, _, _, cx| {
+                                            .icon(update_icon)
+                                            .label(update_status.unwrap_or_else(|| {
+                                                format!("{} {tag}", s.badge_update_available)
+                                            }))
+                                            .on_click(cx.listener(|this, _, window, cx| {
                                                 this.workspace.update(cx, |ws, cx| {
-                                                    ws.navigate_settings(
-                                                        SettingsSection::Updates,
-                                                        cx,
-                                                    );
+                                                    ws.prompt_download_update(window, cx);
                                                 });
                                             })),
                                     )
