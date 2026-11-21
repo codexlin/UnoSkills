@@ -34,5 +34,12 @@ test("settings exposes deploy mode, appearance and text size as direct choices",
   await app.press(`role:button[${t.settings_appearance_tab}]`);
   await app.press(`label:${t.theme_light}`);
   await app.press("label:16px");
-  expect(writes).toEqual(["copy", { key: "theme", value: "light" }, { key: "font_size", value: "16" }]);
+  await app.press(`role:button[${t.settings_general}]`);
+  await app.press(`label:${t.settings_language}`);
+  await app.press("日本語");
+  await app.waitFor(`role:button[${strings.ja.settings_appearance_tab}]`);
+  expect(app.texts()).toContain(strings.ja.settings_deploy_mode);
+  expect(writes).toEqual([
+    "copy", { key: "theme", value: "light" }, { key: "font_size", value: "16" }, { key: "language", value: "ja" },
+  ]);
 });
