@@ -1,28 +1,12 @@
 import { type InputRef, type JSX, Text, View } from "nsh";
-import { Input, Progress, Tabs, Tooltip } from "nsh/base";
-import { ActionControl, InlineError, Label, TabItem } from "../controls";
+import { Action, ActionControl, Hint, Label, LoadingLine, TextInput, type ActionVariant } from "../components";
 import type { Theme } from "../shared";
 import { TOKEN_BUDGET_WARN_THRESHOLD, formatTokensShort } from "./format";
 
-export type ButtonKind = "primary" | "outline" | "ghost" | "danger";
+type ButtonKind = Exclude<ActionVariant, "danger-outline">;
 
 export function hintTooltip(theme: () => Theme, text: () => string): JSX.Element {
-  return (
-    <Tooltip
-      placement="bottom"
-      offset={6}
-      style={{
-        borderRadius: 6,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        backgroundColor: theme().foreground,
-      }}
-    >
-      <Label theme={theme()} size={12} color={theme().background}>
-        {text()}
-      </Label>
-    </Tooltip>
-  );
+  return <Hint theme={theme()} text={text()} />;
 }
 
 export function ActionButton(props: {
@@ -38,107 +22,11 @@ export function ActionButton(props: {
   accessibilityLabel?: string;
   tooltip?: string;
 }) {
-  const kind = () => props.kind ?? "outline";
-  const isDisabled = () => Boolean(props.disabled || props.loading);
-  const radius = () => props.theme.radius ?? 8;
-  const hasLabel = () => Boolean(props.label && props.label.length > 0);
-
-  const bg = () => {
-    switch (kind()) {
-      case "primary":
-        return props.theme.primary;
-      case "danger":
-        return props.theme.danger;
-      case "outline":
-        return props.theme.background;
-      case "ghost":
-      default:
-        return "transparent";
-    }
-  };
-
-  const fg = () => {
-    switch (kind()) {
-      case "primary":
-        return props.theme.onPrimary;
-      case "danger":
-        return props.theme.background;
-      default:
-        return props.theme.foreground;
-    }
-  };
-
-  const iconColor = () => {
-    switch (kind()) {
-      case "primary":
-        return props.theme.onPrimary;
-      case "danger":
-        return props.theme.background;
-      case "ghost":
-        return hasLabel() ? props.theme.muted : props.theme.foreground;
-      default:
-        return props.theme.muted;
-    }
-  };
-
-  return (
-    <ActionControl theme={props.theme} primary={kind() === "primary"} dangerFill={kind() === "danger"}
-      onPress={props.onPress}
-      disabled={isDisabled()}
-      selected={props.selected}
-      accessibilityLabel={props.accessibilityLabel ?? props.label ?? props.icon ?? ""}
-      tooltip={
-        props.tooltip
-          ? hintTooltip(
-              () => props.theme,
-              () => props.tooltip ?? "",
-            )
-          : undefined
-      }
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-        minHeight: props.compact ? 28 : 34,
-        minWidth: hasLabel() ? undefined : props.compact ? 28 : 34,
-        borderRadius: radius(),
-        borderWidth: kind() === "outline" ? 1 : 0,
-        borderColor: kind() === "outline" ? props.theme.border : "transparent",
-        backgroundColor: bg(),
-        paddingHorizontal: hasLabel() ? (props.compact ? 10 : 12) : props.compact ? 6 : 8,
-        paddingVertical: props.compact ? 4 : 6,
-        flexShrink: 0,
-      }}
-    >
-      <If when={Boolean(props.icon)}>
-        <Text
-          accessibilityElementsHidden={hasLabel()}
-          style={{
-            fontSize: props.compact ? 12 : 13,
-            color: iconColor(),
-            fontFamily: props.theme.fontFamily,
-          }}
-        >
-          {props.loading && !hasLabel() ? "…" : (props.icon ?? "")}
-        </Text>
-      </If>
-      <If when={hasLabel()}>
-        <Text
-          style={{
-            numberOfLines: 1,
-            textOverflow: "ellipsis",
-            fontSize: props.compact ? 12 : 13,
-            fontWeight: kind() === "primary" || kind() === "danger" ? "600" : "500",
-            color: fg(),
-            fontFamily: props.theme.fontFamily,
-          }}
-        >
-          {props.loading ? `${props.label ?? ""}…` : (props.label ?? "")}
-        </Text>
-      </If>
-    </ActionControl>
-  );
+  return <Action theme={props.theme} label={props.label ?? ""} leading={props.icon}
+    accessibilityLabel={props.accessibilityLabel ?? props.label ?? props.icon ?? ""}
+    variant={props.kind ?? "outline"} size={props.compact ? "compact" : "regular"} iconOnly={!props.label}
+    disabled={props.disabled} pending={props.loading} selected={props.selected} tooltip={props.tooltip}
+    onPress={props.onPress} />;
 }
 
 export function SearchField(props: {
@@ -174,25 +62,10 @@ export function SearchField(props: {
       }}
       focusWithinStyle={{ borderColor: props.theme.primary }}
     >
-      <Input
-        ref={props.inputRef}
-        value={props.value}
-        onChange={({ value }) => props.onChange(value)}
-        onSubmit={props.onSubmit ? ({ text }) => props.onSubmit?.(text) : undefined}
-        placeholder={props.placeholder}
+      <TextInput theme={props.theme} variant="embedded" inputRef={props.inputRef} value={props.value}
+        onChange={props.onChange} onSubmit={props.onSubmit} placeholder={props.placeholder}
         accessibilityLabel={props.accessibilityLabel ?? props.placeholder}
-        returnKeyType={props.returnKeyType}
-        submitBehavior={props.submitBehavior}
-        style={{
-          flex: 1,
-          minWidth: 0,
-          fontSize: 13,
-          paddingVertical: 6,
-          color: props.theme.foreground,
-          placeholderColor: props.theme.muted,
-          fontFamily: props.theme.fontFamily,
-        }}
-      />
+        returnKeyType={props.returnKeyType} submitBehavior={props.submitBehavior} />
       <If when={props.value.length > 0}>
         <ActionControl theme={props.theme}
           accessibilityLabel={props.clearLabel}
@@ -215,45 +88,6 @@ export function SearchField(props: {
           <Text style={{ fontSize: 12, color: props.theme.muted }}>×</Text>
         </ActionControl>
       </If>
-    </View>
-  );
-}
-
-export function LoadingLine(props: {
-  theme: Theme;
-  label: string;
-  compact?: boolean;
-}) {
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 8,
-        flexShrink: 1,
-      }}
-    >
-      <Progress
-        indeterminate
-        accessibilityLabel={props.label}
-        style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-        trackStyle={{
-          width: props.compact ? 40 : 56,
-          height: 4,
-          borderRadius: 999,
-          overflow: "hidden",
-          backgroundColor: props.theme.border,
-          flexShrink: 0,
-        }}
-        indicatorClass="h-full w-1/3 rounded-full animate-pulse motion-reduce:animate-none"
-        indicatorStyle={{
-          backgroundColor: props.theme.primary,
-        }}
-      >
-        <Label theme={props.theme} muted size={props.compact ? 12 : 13} truncate>
-          {props.label}
-        </Label>
-      </Progress>
     </View>
   );
 }
@@ -306,126 +140,6 @@ export function PageHeader(props: {
         </View>
       </If>
     </View>
-  );
-}
-
-export interface PageTabItem {
-  id: string;
-  icon: string;
-  label: string;
-}
-
-export function PageTabs(props: {
-  theme: Theme;
-  accessibilityLabel: string;
-  tabs: PageTabItem[];
-  selectedId: string;
-  paddingHorizontal?: number;
-  backgroundColor?: string;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <View
-      style={{
-        minHeight: 36,
-        paddingHorizontal: props.paddingHorizontal ?? 20,
-        borderBottomWidth: 1,
-        borderColor: props.theme.border,
-        backgroundColor: props.backgroundColor ?? props.theme.background,
-        flexShrink: 0,
-      }}
-    >
-      <Tabs
-        accessibilityLabel={props.accessibilityLabel}
-        style={{ flexDirection: "row", gap: 18 }}
-        indicatorStyle={{ bottom: 0, height: 2, backgroundColor: props.theme.primary }}
-      >
-        <Each of={props.tabs} key={(tab) => tab.id}>
-          {(tab) => (
-            <TabItem
-              theme={props.theme}
-              selected={props.selectedId === tab().id}
-              onPress={() => props.onSelect(tab().id)}
-              class="flex-row items-center gap-1.5 py-2"
-              style={{ borderRadius: props.theme.radius }}
-            >
-              <Text
-                accessibilityElementsHidden
-                style={{
-                  fontSize: 13,
-                  color:
-                    props.selectedId === tab().id ? props.theme.foreground : props.theme.muted,
-                  fontFamily: props.theme.fontFamily,
-                }}
-              >
-                {tab().icon}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 13,
-                  fontWeight: props.selectedId === tab().id ? "600" : "500",
-                  color:
-                    props.selectedId === tab().id ? props.theme.foreground : props.theme.muted,
-                  fontFamily: props.theme.fontFamily,
-                }}
-              >
-                {tab().label}
-              </Text>
-            </TabItem>
-          )}
-        </Each>
-      </Tabs>
-    </View>
-  );
-}
-
-export function AlertBanner(props: {
-  theme: Theme;
-  tone: "error" | "warning" | "info";
-  message: string;
-}) {
-  return (
-    <If
-      when={props.tone === "error"}
-      else={
-        <View
-          role="alert"
-          style={{
-            flexDirection: "row",
-            alignItems: "flex-start",
-            gap: 8,
-            paddingHorizontal: 12,
-            paddingVertical: 10,
-            borderRadius: props.theme.radius ?? 8,
-            borderWidth: 1,
-            borderColor: props.tone === "warning" ? props.theme.warning : props.theme.primary,
-            backgroundColor: props.theme.surface,
-          }}
-        >
-          <Label
-            theme={props.theme}
-            size={12}
-            color={props.tone === "warning" ? props.theme.warning : props.theme.primary}
-          >
-            {props.tone === "warning" ? "▲" : "i"}
-          </Label>
-          <Text
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontSize: 12,
-              lineHeight: 18,
-              color: props.theme.foreground,
-              fontFamily: props.theme.fontFamily,
-            }}
-          >
-            {props.message}
-          </Text>
-        </View>
-      }
-    >
-      <InlineError theme={props.theme} message={props.message} />
-    </If>
   );
 }
 

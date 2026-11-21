@@ -1,8 +1,8 @@
 import { List, Text, View } from "nsh";
 import { Button } from "nsh/base";
-import { focusOutline, interactionStyles } from "../controls";
+import { AlertBanner, LoadingLine, focusOutline, interactionStyles } from "../components";
 import type { Theme } from "../shared";
-import { ActionButton, AlertBanner, EmptyState, LoadingLine, TokenBadge } from "./controls";
+import { ActionButton, EmptyState, TokenBadge } from "./controls";
 import { compactSource } from "./format";
 import { type Locale, getStrings } from "./strings";
 import type { AgentInfo, Skill } from "./types";

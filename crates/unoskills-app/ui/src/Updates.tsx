@@ -1,6 +1,5 @@
 import { openUrl, signal, View, type Accessor } from "nsh";
-import { Progress } from "nsh/base";
-import { Action, InlineError, Label, Modal, textSize } from "./controls";
+import { Action, InlineError, Label, Modal, ProgressBar, textSize } from "./components";
 import type { IconName } from "./icons";
 import { strings } from "./i18n";
 import { call, errorMessage, type Locale, type Tone, type Theme } from "./shared";
@@ -157,7 +156,7 @@ export function UpdatePanel(props: Props & { version: string }) {
             </View>
             <Label theme={props.theme} muted size={textSize(props.theme, 12)}>{t().settings_updates_desc}</Label>
           </View>
-          <Action theme={props.theme} variant="outline" height={32} glyph="refresh-cw"
+          <Action theme={props.theme} variant="outline" size="regular" glyph="refresh-cw"
             label={update.checking() ? t().busy_checking_updates : t().btn_check_updates}
             disabled={update.checking() || update.downloading()} onPress={() => void update.check()} />
         </View>
@@ -173,11 +172,11 @@ export function UpdatePanel(props: Props & { version: string }) {
               </Label>
             </View>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-              {release()!.html_url ? <Action theme={props.theme} variant="outline" role="link" height={32} glyph="external-link"
+              {release()!.html_url ? <Action theme={props.theme} variant="outline" role="link" size="regular" glyph="external-link"
                 label={t().btn_open_release} onPress={() => void update.openRelease(release()!.html_url)} /> : null}
-              {update.downloadState().phase === "ready" ? <Action theme={props.theme} variant="primary" height={32} glyph="check"
+              {update.downloadState().phase === "ready" ? <Action theme={props.theme} variant="primary" size="regular" glyph="check"
                 label={update.installLabel()} disabled={update.installBusy()} onPress={() => void update.install()} />
-                : update.available()?.recommended_asset ? <Action theme={props.theme} variant="primary" height={32} glyph="arrow-down"
+                : update.available()?.recommended_asset ? <Action theme={props.theme} variant="primary" size="regular" glyph="arrow-down"
                   label={update.downloading() ? t().update_view_progress : t().update_action} onPress={() => update.open.set(true)} /> : null}
             </View>
           </View>
@@ -209,10 +208,7 @@ export function UpdateModal(props: Props) {
       {update.downloading() ? (
         <View style={{ gap: 8 }}>
           <Label theme={props.theme}>{update.phaseLabel()}</Label>
-          <Progress value={progress() ?? 0} indeterminate={progress() === null} accessibilityLabel={update.phaseLabel()}
-            trackStyle={{ height: 4, borderRadius: 2, overflow: "hidden", backgroundColor: props.theme.border }}
-            indicatorClass={progress() === null ? "h-full w-1/3 animate-pulse motion-reduce:animate-none" : "h-full"}
-            indicatorStyle={{ borderRadius: 2, backgroundColor: props.theme.primary }} />
+          <ProgressBar theme={props.theme} value={progress()} label={update.phaseLabel()} />
         </View>
       ) : state().phase === "failed" ? (
         <InlineError theme={props.theme} message={`${t().update_download_failed}\n${failure()}`} />
@@ -224,19 +220,19 @@ export function UpdateModal(props: Props) {
       )}
       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}>
         {update.downloading() || state().phase === "ready" || (state().phase === "idle" && asset()) ? (
-          <Action theme={props.theme} variant="outline" height={32}
+          <Action theme={props.theme} variant="outline" size="regular"
             label={update.downloading() ? t().update_background : state().phase === "ready" ? t().btn_close : t().btn_cancel}
             onPress={dismiss} />
         ) : null}
         {!update.downloading() && release() && (!asset() || state().phase === "failed") ? (
-          <Action theme={props.theme} variant="ghost" role="link" height={32} label={t().btn_open_release}
+          <Action theme={props.theme} variant="ghost" role="link" size="regular" label={t().btn_open_release}
             disabled={!release()!.html_url} onPress={() => void update.openRelease(release()!.html_url)} />
         ) : null}
         {state().phase === "ready" ? (
-          <Action theme={props.theme} variant="primary" height={32} label={update.installLabel()}
+          <Action theme={props.theme} variant="primary" size="regular" label={update.installLabel()}
             disabled={update.installBusy()} onPress={() => void update.install()} />
         ) : !update.downloading() && asset() ? (
-          <Action theme={props.theme} variant="primary" height={32} glyph="arrow-down" disabled={update.checking()}
+          <Action theme={props.theme} variant="primary" size="regular" glyph="arrow-down" disabled={update.checking()}
             label={state().phase === "failed" ? t().update_retry : checkFile() ? t().btn_download_update : t().update_start_download}
             onPress={() => void update.download()} />
         ) : null}

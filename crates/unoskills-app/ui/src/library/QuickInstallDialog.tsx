@@ -1,7 +1,8 @@
 import { type InputRef, Text, View, effect, signal } from "nsh";
-import { Dialog, Input } from "nsh/base";
+import { Dialog } from "nsh/base";
 import type { Theme } from "../shared";
-import { ActionButton, AlertBanner, LoadingLine } from "./controls";
+import { ActionButton } from "./controls";
+import { AlertBanner, LoadingLine, TextInput } from "../components";
 import { errorMessage, installFromSource, pickFolder } from "./host";
 import { type Locale, busyInstalling, getStrings, toastInstalled } from "./strings";
 import type { Skill } from "./types";
@@ -110,10 +111,12 @@ export function QuickInstallDialog(props: {
         {s().quick_install_title}
       </Text>
 
-      <Input
-        ref={inputRef}
+      <TextInput
+        theme={props.theme}
+        variant="surface" size="large" mono
+        inputRef={(element) => { inputRef = element; }}
         value={source()}
-        onChange={({ value }) => {
+        onChange={(value) => {
           source.set(value);
           if (inlineError()) {
             inlineError.set(null);
@@ -128,19 +131,6 @@ export function QuickInstallDialog(props: {
         autoCorrect={false}
         returnKeyType="done"
         submitBehavior="submit"
-        focusStyle={{ borderColor: props.theme.primary }}
-        style={{
-          fontSize: 13,
-          paddingHorizontal: 12,
-          paddingVertical: 9,
-          borderRadius: props.theme.radius ?? 8,
-          borderWidth: 1,
-          borderColor: props.theme.border,
-          backgroundColor: props.theme.surface,
-          color: props.theme.foreground,
-          placeholderColor: props.theme.muted,
-          fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
-        }}
       />
 
       <If when={installing()}>

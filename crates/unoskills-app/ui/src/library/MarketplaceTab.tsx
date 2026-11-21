@@ -9,17 +9,9 @@ import {
   signal,
   windowSize,
 } from "nsh";
-import { ActionControl, Label } from "../controls";
-import { ActionMenu, MenuAction, SelectControl } from "../popups";
+import { ActionControl, ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, SelectControl } from "../components";
 import type { Theme } from "../shared";
-import {
-  ActionButton,
-  AlertBanner,
-  EmptyState,
-  LoadingLine,
-  SearchField,
-  hintTooltip,
-} from "./controls";
+import { ActionButton, EmptyState, SearchField, hintTooltip } from "./controls";
 import { formatInstallCount, marketInstallStatus } from "./format";
 import { type Locale, boardLabel, getStrings } from "./strings";
 import type { MarketBoard, MarketplaceSkillItem } from "./types";

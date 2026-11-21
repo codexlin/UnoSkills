@@ -1,7 +1,6 @@
 import { List, Scroll, View, computed, effect, signal, type JSX } from "nsh";
 import { Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
-import { Action, ActionControl, FormText, Icon, InlineError, Label, Modal, PageHeader, focusOutline, interactionStyles, textSize } from "./controls";
-import { Choice } from "./popups";
+import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, focusOutline, interactionStyles, textSize } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps, type Theme } from "./shared";
 import { paletteFor, palettes, type Preferences } from "./theme";
@@ -270,7 +269,7 @@ function Network(props: SettingsProps) {
         <Divider theme={props.theme} />
         <FormText theme={props.theme} title={t().settings_github_token} detail={t().settings_github_token_desc}
           placeholder={t().ph_github_token} masked value={token()} onChange={(value) => token.set(value)} />
-        <View class="flex-row justify-end"><Action theme={props.theme} glyph="check" onPrimary label={networkBusy() ? t().saving : t().btn_save}
+        <View class="flex-row justify-end"><Action theme={props.theme} glyph="check" variant="primary" label={networkBusy() ? t().saving : t().btn_save}
           disabled={networkBusy()} onPress={() => void network()} /></View>
       </SettingsGroup>
       <SettingsGroup theme={props.theme} title={t().settings_git_backup}>
@@ -294,7 +293,7 @@ function Network(props: SettingsProps) {
             disabled={backupBusy() !== null} onPress={() => void backup("save")} />
           <Action theme={props.theme} glyph="arrow-down" label={backupBusy() === "pull" ? t().busy_backup_pulling : t().btn_backup_pull}
             disabled={backupBusy() !== null || !repo().trim()} onPress={() => void backup("pull")} />
-          <Action theme={props.theme} glyph="arrow-up" onPrimary label={backupBusy() === "push" ? t().busy_backup_pushing : t().btn_backup_push}
+          <Action theme={props.theme} glyph="arrow-up" variant="primary" label={backupBusy() === "push" ? t().busy_backup_pushing : t().btn_backup_push}
             disabled={backupBusy() !== null || !repo().trim()} onPress={() => void backup("push")} />
         </View>
       </SettingsGroup>
@@ -367,7 +366,7 @@ function Agents(props: SettingsProps) {
             backgroundColor: props.theme.background }}>
             <View style={{ width: "32%", minWidth: 0 }}><Label theme={props.theme} truncate>{item().display_name}</Label></View>
             <View class="flex-1 min-w-0"><Label theme={props.theme} muted mono truncate size={textSize(props.theme, 12)}>{item().skills_dir}</Label></View>
-            {item().is_custom ? <Action theme={props.theme} compact danger label={t().btn_delete}
+            {item().is_custom ? <Action theme={props.theme} size="compact" variant="danger-outline" label={t().btn_delete}
               disabled={busy()} onPress={() => void mutate("settings.agent_remove", { key: item().key })} /> : null}
             <Switch accessibilityLabel={item().display_name} checked={item().enabled} disabled={busy()}
               onChange={({ checked }) => void mutate("settings.agent_enable", { key: item().key, enabled: checked })}
@@ -417,7 +416,7 @@ function Agents(props: SettingsProps) {
         <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
           <Action theme={props.theme} label={t().btn_cancel} disabled={busy()} onPress={() => open.set(false)} />
           <Action theme={props.theme} label={busy() ? t().saving : t().btn_add_agent}
-            disabled={busy()} onPrimary onPress={add} />
+            disabled={busy()} variant="primary" onPress={add} />
         </View>
       </Modal>
     </View>

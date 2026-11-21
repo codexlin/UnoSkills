@@ -1,7 +1,8 @@
 import { computed, reduceMotion, Scroll, signal, View } from "nsh";
 import { Dialog } from "nsh/base";
 import type { ScreenProps } from "../shared";
-import { Action, Banner, Check, Choice, Feedback, Heading, Label, actions, load, operation, row } from "./controls";
+import { Action, Banner, Check, Choice, Feedback, Heading, Label, actions, row } from "./controls";
+import { load, operation } from "./state";
 import { request, stackRef, type DeployResult, type InstallResult, type ProjectScope, type Stack } from "./host";
 import { Failures, InstallReport } from "./reports";
 import { deploymentConflicts, deploymentProgress, deploymentResult, deploymentUnavailable, strings } from "./strings";

@@ -1,6 +1,7 @@
 import { cleanup, effect, keymap, List, Scroll, signal, View, type InputRef } from "nsh";
 import type { ScreenProps } from "../shared";
-import { Action, Check, Feedback, Field, Header, Label, actions, confirm, load, operation, padding, toggle, viewport } from "./controls";
+import { Action, Check, Feedback, Field, Header, Label, actions, confirm, padding, viewport } from "./controls";
+import { load, operation, toggle } from "./state";
 import { request, type Stack, type StackFormData } from "./host";
 import { stackMemberRows } from "./members";
 import { strings } from "./strings";

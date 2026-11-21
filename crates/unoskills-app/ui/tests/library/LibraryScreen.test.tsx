@@ -402,6 +402,9 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     const recorded: CommandPayload[] = [];
     let webDeployed = false;
     let conflictInjected = false;
+    const olderRefresh = deferred<unknown>();
+    let delayRefresh = false;
+    let refreshRequested = false;
 
     const app = await open("./LibraryTestHarness.tsx", {
       platform: "macos",
@@ -433,6 +436,10 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
             });
 
             if (command === "library.state") {
+              if (delayRefresh && !refreshRequested && scope === "apps/web") {
+                refreshRequested = true;
+                return olderRefresh.promise;
+              }
               return makeLibraryState(
                 skills,
                 scope,
@@ -541,17 +548,28 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       scopePath: "apps/web",
     });
     await app.waitUntil(() => app.texts().includes("/tmp/demo-repo/apps/web"));
-    await app.press("label:Deployment scope");
-    await app.press("text:Demo Repo");
-    await app.waitUntil(() => app.texts().includes("/tmp/demo-repo"));
+    delayRefresh = true;
+    const refresh = app.host.send("test.refresh");
+    try {
+      await app.waitUntil(() => refreshRequested);
+      await app.press("label:Deployment scope");
+      await app.press("text:Demo Repo");
+      await app.waitUntil(() => app.texts().includes("/tmp/demo-repo"));
 
-    const rootStatusCall = recorded.find(
-      (entry) => entry.command === "library.project_statuses",
-    );
-    expect(rootStatusCall?.input).toMatchObject({
-      project_id: "proj-1",
-      scope_path: "",
-    });
+      const rootStatusCall = recorded.find(
+        (entry) => entry.command === "library.project_statuses",
+      );
+      expect(rootStatusCall?.input).toMatchObject({
+        project_id: "proj-1",
+        scope_path: "",
+      });
+    } finally {
+      olderRefresh.resolve(makeLibraryState([{ ...skills[0], name: "Alpha after refresh" }, skills[1]], "apps/web"));
+      await refresh;
+    }
+    await app.waitFor("text:Alpha after refresh");
+    expect(app.texts()).toContain("/tmp/demo-repo");
+    expect(app.texts()).not.toContain("/tmp/demo-repo/apps/web");
   });
 
   test("Discover adopt and quick install routes invoke matching host commands", async () => {

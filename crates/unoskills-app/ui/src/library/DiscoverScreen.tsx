@@ -1,3 +1,4 @@
+import { PageTabs } from "../components";
 import {
   type InputRef,
   type ListRef,
@@ -14,7 +15,7 @@ import type { ScreenProps } from "../shared";
 import { type AdoptGroup, type AdoptRow, AdoptTab } from "./AdoptTab";
 import { ALL_SOURCES_VALUE, MarketplaceTab } from "./MarketplaceTab";
 import { QuickInstallDialog } from "./QuickInstallDialog";
-import { ActionButton, PageHeader, PageTabs } from "./controls";
+import { ActionButton, PageHeader } from "./controls";
 import { marketInstallStatus } from "./format";
 import {
   adoptLocalSkills,

@@ -1,16 +1,8 @@
 import { Clipboard, Scroll, Text, View, openUrl } from "nsh";
 import { Input, Switch, TextView } from "nsh/base";
-import { Label } from "../controls";
-import { ActionMenu, MenuAction, MenuDivider } from "../popups";
+import { ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, MenuDivider, PageTabs } from "../components";
 import type { Theme } from "../shared";
-import {
-  ActionButton,
-  AlertBanner,
-  EmptyState,
-  LoadingLine,
-  PageTabs,
-  hintTooltip,
-} from "./controls";
+import { ActionButton, EmptyState, hintTooltip } from "./controls";
 import { isSkillDeployedTo, joinPath } from "./format";
 import { errorMessage, revealPath } from "./host";
 import { type Locale, getStrings } from "./strings";

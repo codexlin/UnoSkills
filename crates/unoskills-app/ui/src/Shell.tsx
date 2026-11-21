@@ -1,8 +1,7 @@
 import { Image, View, announce, cleanup, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
-import { Tooltip } from "nsh/base";
 import { titleBar } from "nsh/desktop";
 import { setLocale } from "nsh/i18n";
-import { Action, ActionControl, Icon, InlineError, Label, textSize } from "./controls";
+import { Action, ActionControl, Hint, Icon, InlineError, Label, textSize } from "./components";
 import { Home } from "./Home";
 import { strings } from "./i18n";
 import { Library, Discover } from "./library";
@@ -32,10 +31,7 @@ function NavigationItem(props: {
     accessibilityLabel={count() ? `${props.label} ${count()}` : props.label}
     selected={props.selected}
     onPress={props.onPress}
-    tooltip={props.collapsed ? <Tooltip placement="right" style={{ paddingHorizontal: 8, paddingVertical: 4,
-      backgroundColor: props.theme.surface, borderColor: props.theme.border, borderWidth: 1, borderRadius: props.theme.radius }}>
-      <Label theme={props.theme}>{props.label}</Label>
-    </Tooltip> : undefined}
+    tooltip={props.collapsed ? <Hint theme={props.theme} text={props.label} placement="right" /> : undefined}
     style={{ width: "100%", minWidth: 0, height: props.collapsed ? 32 : textSize(props.theme, 28),
       flexDirection: "row", alignItems: "center", justifyContent: props.collapsed ? "center" : "flex-start",
       paddingHorizontal: props.collapsed ? 0 : 8, gap: 8, borderRadius: props.theme.radius,
@@ -220,10 +216,10 @@ export function App() {
           {logo ? <Image accessibilityElementsHidden src={logo} style={{ width: 16, height: 16,
             tintColor: theme().foreground, flexShrink: 0 }} /> : null}
           <Label theme={theme()} weight="600">{"UnoSkills"}</Label>
-          {!narrow() ? <Action theme={theme()} variant="ghost" height={24} glyph="panel-left" iconOnly
+          {!narrow() ? <Action theme={theme()} variant="ghost" size="small" glyph="panel-left" iconOnly
             label={collapseLabel()} tooltip={collapseLabel()}
             onPress={() => void setPreference("sidebar_collapsed", String(!collapsed()))} /> : null}
-          {updates.available() ? <Action theme={theme()} variant="primary" height={20} glyph={updates.phaseIcon()}
+          {updates.available() ? <Action theme={theme()} variant="primary" size="badge" glyph={updates.phaseIcon()}
             label={updates.phaseLabel()} onPress={() => updates.open.set(true)} /> : null}
         </View>
         {initialized() && pendingCalls() > 0 ?
@@ -261,7 +257,7 @@ export function App() {
           <View style={{ flex: 1, minWidth: 0 }}>
             <Label theme={theme()} color={messageColor()}>{notice()!.message}</Label>
           </View>
-          <Action theme={theme()} variant="ghost" height={24} label={t().btn_close} glyph="x" iconOnly onPress={dismissNotice} />
+          <Action theme={theme()} variant="ghost" size="small" label={t().btn_close} glyph="x" iconOnly onPress={dismissNotice} />
         </View>
       ) : null}
       {updates.available() ? <UpdateModal theme={theme()} locale={locale()} updates={updates} /> : null}

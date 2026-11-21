@@ -1,7 +1,6 @@
 import { Scroll, View, cleanup, computed, effect, openUrl, reduceMotion, signal, windowSize } from "nsh";
-import { Tabs } from "nsh/base";
 import { Bar, Grid, Plot, PlotAxis } from "nsh/base/plot";
-import { Action, ActionControl, Icon, InlineError, Label, PageHeader, TabItem, textSize } from "./controls";
+import { Action, ActionControl, Icon, InlineError, Label, PageHeader, TabList, textSize } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps } from "./shared";
 import { request } from "./projects/host";
@@ -118,7 +117,7 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
   return (
     <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
       <PageHeader theme={theme()} title={t().nav_home}>
-        <Action theme={theme()} variant="primary" height={32} glyph="plus" label={t().btn_install_from_link}
+        <Action theme={theme()} variant="primary" size="regular" glyph="plus" label={t().btn_install_from_link}
           onPress={() => props.navigate({ page: "discover", tab: "install" })} />
       </PageHeader>
       <Scroll style={{ flex: 1, minHeight: 0 }}>
@@ -131,7 +130,7 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Label theme={theme()} heading size={textSize(theme(), 18)}>{t().home_workspace}</Label>
                   </View>
-                  <Action theme={theme()} variant="outline" height={24} glyph="layers" label={t().tab_my_stacks}
+                  <Action theme={theme()} variant="outline" size="small" glyph="layers" label={t().tab_my_stacks}
                     onPress={() => props.navigate({ page: "stacks", source: "Local" })} />
                 </View>
                 <View style={{ padding: 4, borderWidth: 1, borderColor: theme().border, borderRadius: radius() }}>
@@ -143,11 +142,11 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                 <Label theme={theme()} weight="600">{t().home_projects}</Label>
                 <Each of={summary()?.projects ?? []} key={(project) => project.id}>{(project) =>
                   <View style={{ maxWidth: 188, minWidth: 0 }}>
-                    <Action theme={theme()} variant="outline" height={24} glyph="folder-open" label={project().name} tooltip={project().path}
+                    <Action theme={theme()} variant="outline" size="small" glyph="folder-open" label={project().name} tooltip={project().path}
                       onPress={() => props.navigate({ page: "projects", projectId: project().id, scopePath: "" })} />
                   </View>
                 }</Each>
-                <Action theme={theme()} variant="ghost" height={24} glyph="plus" label={t().btn_add_project}
+                <Action theme={theme()} variant="ghost" size="small" glyph="plus" label={t().btn_add_project}
                   disabled={attaching()} onPress={() => void attachProject()} />
               </View>
               <View>
@@ -177,26 +176,16 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Label theme={theme()} heading size={textSize(theme(), 18)}>{t().home_market_rank}</Label>
                 </View>
-                <Action theme={theme()} variant="ghost" height={24} glyph={marketLoading() ? "loader-circle" : "refresh-cw"}
+                <Action theme={theme()} variant="ghost" size="small" glyph={marketLoading() ? "loader-circle" : "refresh-cw"}
                   iconOnly tooltip={t().home_refresh_market} label={t().home_refresh_market}
                   disabled={marketLoading()} onPress={() => void loadBoard(board(), true)} />
               </View>
               <View style={{ borderWidth: 1, borderColor: theme().border, borderRadius: radius(),
                 backgroundColor: theme().surface, padding: 12 }}>
                 <View style={{ ...row, flexWrap: "wrap", justifyContent: "space-between", gap: 8, paddingBottom: 12 }}>
-                  <Tabs accessibilityLabel={t().home_market_rank}
-                    indicatorStyle={{ top: 2, bottom: 2, borderRadius: theme().radius, backgroundColor: theme().accent }}
-                    style={{ ...row, alignSelf: "flex-start", padding: 2, borderRadius: radius(),
-                      backgroundColor: theme().chrome?.segmented ?? theme().background }}>
-                    {boardItems.map((entry) => <TabItem theme={theme()} selected={board() === entry}
-                      onPress={() => { board.set(entry); void loadBoard(entry); }}
-                      style={{ minHeight: 28, alignItems: "center", justifyContent: "center", paddingHorizontal: 12,
-                        borderRadius: theme().radius }}>
-                      <Label theme={theme()} muted={board() !== entry} weight={board() === entry ? "600" : "400"}>
-                        {entry === "trending" ? t().board_trending : t().board_all_time}
-                      </Label>
-                    </TabItem>)}
-                  </Tabs>
+                  <TabList theme={theme()} accessibilityLabel={t().home_market_rank} compact selectedId={board()}
+                    tabs={boardItems.map((id) => ({ id, label: id === "trending" ? t().board_trending : t().board_all_time }))}
+                    onSelect={(entry) => { board.set(entry); void loadBoard(entry); }} />
                   {activeRows()?.length ? <View style={{ paddingRight: 40 }}>
                     <Label theme={theme()} muted size={textSize(theme(), 12)}>{t().home_market_installs}</Label>
                   </View> : null}
@@ -223,14 +212,14 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                     </View>
                     <Label theme={theme()} weight="500">{formatInstalls(entry().installs, props.locale)}</Label>
                     <View style={{ width: 24, flexShrink: 0 }}>
-                      {entry().url ? <Action theme={theme()} variant="ghost" height={20} glyph="external-link" iconOnly role="link"
+                      {entry().url ? <Action theme={theme()} variant="ghost" size="badge" glyph="external-link" iconOnly role="link"
                         label={`${t().home_market_details} · ${entry().name} · ${entry().source}`} tooltip={t().home_market_details}
                         onPress={() => void openSkill(entry())} /> : null}
                     </View>
                   </View>
                 }</Each>
                 <View style={{ ...row, justifyContent: "flex-end", borderTopWidth: 1, borderColor: theme().border, paddingTop: 8 }}>
-                  <Action theme={theme()} variant="ghost" height={24} glyph="arrow-right" label={t().home_view_market}
+                  <Action theme={theme()} variant="ghost" size="small" glyph="arrow-right" label={t().home_view_market}
                     onPress={() => props.navigate({ page: "discover", tab: board() })} />
                 </View>
               </View>

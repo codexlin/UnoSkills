@@ -1,10 +1,8 @@
 import { computed, List, Scroll, signal, View } from "nsh";
 import type { ScreenProps } from "../shared";
-import { ActionMenu, MenuAction } from "../popups";
-import {
-  Action, Check, Choice, Feedback, Footer, Header, Heading, Label,
-  actions, confirm, load, operation, row, toggle, viewport,
-} from "./controls";
+import { ActionMenu, MenuAction } from "../components";
+import { Action, Check, Choice, Feedback, Footer, Header, Heading, Label, actions, confirm, row, viewport } from "./controls";
+import { load, operation, toggle } from "./state";
 import { request, type Agent, type Project } from "./host";
 import { projectRecommendationReason, projectSelectionCount, strings } from "./strings";
 

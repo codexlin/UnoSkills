@@ -53,6 +53,7 @@ unoskills-app (NSH TSX + Rust host)   unoskills-cli (clap + --json)
 
 - **Must** use the shared theme tokens for Light, Dark, and System appearance and support keyboard focus, selection, disabled, loading, errors, and destructive actions.
 - **Must** prefer documented NSH base controls for input, selection, dialogs, progress and buttons. Supply accessible names, meaningful focus targets, and keyboard shortcuts.
+- **Should** compose shared controls from `ui/src/components/`. Add reusable sizes, variants and interaction styles to the component that owns them. Use NSH Tabs for tab activation, focus, and the moving indicator.
 - **Should** use a compact, consistent spacing and type scale. Put path and label text in a shrinking column so actions remain visible on narrow windows.
 - **Must** give scroll containers a constrained viewport and use virtualized NSH lists for growing datasets such as Library, Marketplace, and Adopt.
 

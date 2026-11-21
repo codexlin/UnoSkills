@@ -1,15 +1,8 @@
 import { type InputRef, List, type ListRef, Text, View } from "nsh";
 import { Checkbox } from "nsh/base";
-import { ActionControl, Label, focusOutline, interactionStyles } from "../controls";
+import { ActionControl, AlertBanner, Label, focusOutline, interactionStyles } from "../components";
 import type { Theme } from "../shared";
-import {
-  ActionButton,
-  AlertBanner,
-  EmptyState,
-  SearchField,
-  TokenBadge,
-  hintTooltip,
-} from "./controls";
+import { ActionButton, EmptyState, SearchField, TokenBadge, hintTooltip } from "./controls";
 import { type Locale, adoptSelectedCount, getStrings, labelWithCount } from "./strings";
 import type { AdoptCandidate } from "./types";
 

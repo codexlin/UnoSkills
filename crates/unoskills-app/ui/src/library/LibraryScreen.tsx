@@ -8,6 +8,7 @@ import {
   effect,
   keymap,
   signal,
+  untracked,
   windowSize,
 } from "nsh";
 import {
@@ -15,49 +16,36 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "nsh/base";
-import { Label } from "../controls";
-import { ActionMenu, MenuAction, MenuDivider, SelectControl } from "../popups";
+import { ActionMenu, AlertBanner, Label, MenuAction, MenuDivider, SelectControl } from "../components";
 import type { ScreenProps } from "../shared";
 import { LibraryListPane } from "./LibraryListPane";
 import { SkillInspector } from "./SkillInspector";
-import { ActionButton, AlertBanner, PageHeader, SearchField } from "./controls";
-import { isProjectSkillAvailable, isSkillDeployedTo, joinPath } from "./format";
+import { ActionButton, PageHeader, SearchField } from "./controls";
+import { createProjectScope } from "./scope";
+import { createDeployments } from "./deployments";
 import {
   attachProject,
-  deployProjectSkill,
-  deploySkill,
   detachProject,
   errorMessage,
   getSkillMarkdown,
-  isTargetConflictError,
   loadLibraryState,
-  loadProjectStatuses,
   pickFolder,
   removeSkill,
   saveSkillMarkdown,
-  undeployProjectSkill,
-  undeploySkill,
   updateSkill,
 } from "./host";
 import {
   busyUpdatingSkill,
-  confirmConflictDesc,
   confirmDeleteSkillDesc,
   confirmDetachProjectDesc,
   getStrings,
-  toastDeployed,
   toastProjectAttached,
-  toastProjectDeployed,
-  toastProjectUndeployed,
   toastSavedSkill,
   toastSkillUpToDate,
   toastSkillUpdated,
-  toastUndeployed,
 } from "./strings";
 import type {
   AgentInfo,
-  ProjectSkillStatus,
-  ProjectSkillStatusMap,
   ProjectWorkspace,
   Skill,
   SkillLintReport,
@@ -66,20 +54,15 @@ import type {
 const ALL_AGENTS_VALUE = "__all_agents__";
 
 export function Library(props: ScreenProps) {
+  const scope = createProjectScope(() => props.locale);
   const skills = signal<Skill[]>([]);
   const agents = signal<AgentInfo[]>([]);
-  const projects = signal<ProjectWorkspace[]>([]);
   const selectedSkillId = signal<string | null>(null);
-  const selectedProjectId = signal<string | null>(null);
-  const selectedScopePath = signal<string>("");
   const agentFilter = signal<string | null>(null);
   const searchQuery = signal("");
 
   const loadingState = signal(true);
   const loadError = signal<string | null>(null);
-  const projectStatuses = signal<ProjectSkillStatusMap | null>(null);
-  const projectStatusLoading = signal(false);
-  const projectStatusError = signal<string | null>(null);
 
   const inspectorTab = signal<"deployments" | "preview">("deployments");
   const loadedMarkdownSkillId = signal<string | null>(null);
@@ -93,13 +76,11 @@ export function Library(props: ScreenProps) {
   const selectedLint = signal<SkillLintReport | null>(null);
 
   const updatingSkillId = signal<string | null>(null);
-  const deployingKey = signal<string | null>(null);
   const busyLabel = signal<string | null>(null);
   const listPaneWidth = signal(408);
 
   let searchInputRef: InputRef | undefined;
   let stateReqSeq = 0;
-  let projectReqSeq = 0;
   let markdownReqSeq = 0;
   let lastRouteSignature = "";
   let wasActive = false;
@@ -111,11 +92,6 @@ export function Library(props: ScreenProps) {
   const activeAgents = computed(() =>
     agents().filter((agent) => agent.installed && agent.enabled),
   );
-
-  const activeProject = computed(() => {
-    const id = selectedProjectId();
-    return id ? (projects().find((project) => project.id === id) ?? null) : null;
-  });
 
   const selectedSkill = computed(() => {
     const id = selectedSkillId();
@@ -137,16 +113,6 @@ export function Library(props: ScreenProps) {
     loadedMarkdownSkillId() === editingSkillId() &&
     draftMarkdown() !== loadedMarkdown();
 
-  const projectStatusFor = (skillId: string, agentKey: string): ProjectSkillStatus | undefined =>
-    projectStatuses()?.[agentKey]?.[skillId];
-
-  const isAvailableForAgent = (skill: Skill, agentKey: string): boolean | null => {
-    if (selectedProjectId()) {
-      return isProjectSkillAvailable(projectStatusFor(skill.id, agentKey));
-    }
-    return isSkillDeployedTo(skill, agentKey);
-  };
-
   const filteredSkills = computed(() => {
     const query = searchQuery().trim().toLowerCase();
     const filterAgent = agentFilter();
@@ -160,7 +126,7 @@ export function Library(props: ScreenProps) {
       if (!matchesSearch) {
         return false;
       }
-      return filterAgent ? isAvailableForAgent(skill, filterAgent) === true : true;
+      return filterAgent ? scope.isAvailable(skill, filterAgent) === true : true;
     });
   });
 
@@ -171,15 +137,6 @@ export function Library(props: ScreenProps) {
       title: agent.display_name,
     })),
   ]);
-
-  const scopeLabel = () => {
-    const project = activeProject();
-    if (!project) {
-      return s().scope_global;
-    }
-    const scope = selectedScopePath();
-    return scope ? `${project.name} · ${scope}` : project.name;
-  };
 
   const selectedAgentLabel = () => {
     const key = agentFilter();
@@ -274,46 +231,6 @@ export function Library(props: ScreenProps) {
     }
   };
 
-  const refreshProjectStatusesOnly = async (projectId: string | null, scopePath: string) => {
-    const req = ++projectReqSeq;
-    if (!projectId) {
-      batch(() => {
-        projectStatuses.set(null);
-        projectStatusLoading.set(false);
-        projectStatusError.set(null);
-      });
-      return;
-    }
-
-    batch(() => {
-      projectStatuses.set(null);
-      projectStatusLoading.set(true);
-      projectStatusError.set(null);
-    });
-    try {
-      const data = await loadProjectStatuses(projectId, scopePath);
-      if (req !== projectReqSeq) {
-        return;
-      }
-      batch(() => {
-        projectStatuses.set(data.statuses);
-        projectStatusError.set(null);
-      });
-    } catch (error) {
-      if (req !== projectReqSeq) {
-        return;
-      }
-      batch(() => {
-        projectStatuses.set(null);
-        projectStatusError.set(errorMessage(error));
-      });
-    } finally {
-      if (req === projectReqSeq) {
-        projectStatusLoading.set(false);
-      }
-    }
-  };
-
   const fetchState = async (options?: {
     preferredSkillId?: string | null;
     projectIdOverride?: string | null;
@@ -323,19 +240,17 @@ export function Library(props: ScreenProps) {
   }) => {
     const req = ++stateReqSeq;
     const requestedProject =
-      options?.projectIdOverride !== undefined ? options.projectIdOverride : selectedProjectId();
+      options?.projectIdOverride !== undefined ? options.projectIdOverride : scope.projectId();
     const requestedScope =
       options?.scopePathOverride !== undefined
         ? options.scopePathOverride
         : requestedProject
-          ? selectedScopePath()
+          ? scope.path()
           : "";
 
     loadingState.set(true);
     loadError.set(null);
-    if (requestedProject) {
-      projectStatusLoading.set(true);
-    }
+    const scopeRequest = scope.begin(requestedProject);
 
     try {
       const data = await loadLibraryState(requestedProject, requestedScope);
@@ -368,12 +283,6 @@ export function Library(props: ScreenProps) {
           ? desiredSkillId
           : (data.skills[0]?.id ?? null);
 
-      const validProjectId =
-        requestedProject && data.projects.some((project) => project.id === requestedProject)
-          ? requestedProject
-          : null;
-      const validScopePath = validProjectId ? requestedScope : "";
-
       const currentAgentFilter = agentFilter();
       const validAgentFilter =
         currentAgentFilter &&
@@ -392,14 +301,9 @@ export function Library(props: ScreenProps) {
       batch(() => {
         skills.set(data.skills);
         agents.set(data.agents);
-        projects.set(data.projects);
+        scope.apply(scopeRequest, requestedProject, requestedScope, data);
         selectedSkillId.set(nextSkillId);
-        selectedProjectId.set(validProjectId);
-        selectedScopePath.set(validScopePath);
         agentFilter.set(validAgentFilter);
-        projectStatuses.set(validProjectId ? data.project_statuses : null);
-        projectStatusError.set(validProjectId ? data.project_status_error : null);
-        projectStatusLoading.set(false);
         if (!preserveEditor) {
           editingSkillId.set(null);
         }
@@ -416,7 +320,7 @@ export function Library(props: ScreenProps) {
       }
       const message = errorMessage(error);
       loadError.set(message);
-      projectStatusLoading.set(false);
+      scope.finish(scopeRequest);
       props.notify(message, "error");
     } finally {
       if (req === stateReqSeq) {
@@ -424,6 +328,8 @@ export function Library(props: ScreenProps) {
       }
     }
   };
+
+  const deployments = createDeployments(props, () => fetchState());
 
   const selectSkill = async (skillId: string) => {
     if (selectedSkillId() === skillId) {
@@ -434,14 +340,6 @@ export function Library(props: ScreenProps) {
     }
     selectedSkillId.set(skillId);
     await loadSelectedMarkdown(skillId, false);
-  };
-
-  const changeScope = async (projectId: string | null, scopePath = "") => {
-    batch(() => {
-      selectedProjectId.set(projectId);
-      selectedScopePath.set(projectId ? scopePath : "");
-    });
-    await refreshProjectStatusesOnly(projectId, projectId ? scopePath : "");
   };
 
   const startEditMarkdown = () => {
@@ -613,129 +511,6 @@ export function Library(props: ScreenProps) {
     }
   };
 
-  const handleGlobalDeployToggle = async (
-    skill: Skill,
-    agent: AgentInfo,
-    currentlyDeployed: boolean,
-  ) => {
-    const key = `global:${skill.id}:${agent.key}`;
-    if (deployingKey()) {
-      return;
-    }
-    deployingKey.set(key);
-    try {
-      if (currentlyDeployed) {
-        await undeploySkill(skill.id, agent.key);
-        props.notify(toastUndeployed(props.locale, agent.key), "success");
-      } else {
-        const dep = await deploySkill(skill.id, agent.key, { force: false });
-        props.notify(toastDeployed(props.locale, dep.agent_key, dep.mode), "success");
-      }
-      props.refresh();
-      await fetchState({ preferredSkillId: skill.id });
-    } catch (error) {
-      if (!currentlyDeployed && isTargetConflictError(error)) {
-        const targetPath = joinPath(agent.skills_dir, skill.slug);
-        const { action } = await AlertDialog.show({
-          title: s().confirm_conflict_title,
-          description: confirmConflictDesc(props.locale, agent.display_name, targetPath),
-          actions: [
-            { id: "cancel", label: s().btn_cancel, role: "cancel" },
-            { id: "replace", label: s().btn_replace, role: "destructive" },
-          ],
-        });
-        if (action === "replace") {
-          try {
-            const dep = await deploySkill(skill.id, agent.key, { force: true });
-            props.notify(toastDeployed(props.locale, dep.agent_key, dep.mode), "success");
-            props.refresh();
-            await fetchState({ preferredSkillId: skill.id });
-          } catch (forceError) {
-            props.notify(errorMessage(forceError), "error");
-          }
-        }
-      } else {
-        props.notify(errorMessage(error), "error");
-      }
-    } finally {
-      deployingKey.set(null);
-    }
-  };
-
-  const handleProjectDeployToggle = async (
-    skill: Skill,
-    project: ProjectWorkspace,
-    agent: AgentInfo,
-    currentlyDeployed: boolean,
-  ) => {
-    const scopePath = selectedScopePath();
-    const key = `project:${project.id}:${scopePath}:${skill.id}:${agent.key}`;
-    if (deployingKey()) {
-      return;
-    }
-    deployingKey.set(key);
-    const displayScope = scopePath ? `${project.name} · ${scopePath}` : project.name;
-    try {
-      if (currentlyDeployed) {
-        await undeployProjectSkill(skill.id, project.id, agent.key, scopePath);
-        props.notify(toastProjectUndeployed(props.locale, displayScope, agent.key), "success");
-      } else {
-        const dep = await deployProjectSkill(skill.id, project.id, agent.key, {
-          scopePath,
-          force: false,
-        });
-        props.notify(
-          toastProjectDeployed(props.locale, displayScope, dep.agent_key, dep.mode),
-          "success",
-        );
-      }
-      props.refresh();
-      await fetchState({
-        preferredSkillId: skill.id,
-        projectIdOverride: project.id,
-        scopePathOverride: scopePath,
-      });
-    } catch (error) {
-      if (!currentlyDeployed && isTargetConflictError(error)) {
-        const relDir = agent.project_relative_skills_dir.trim() || ".agents/skills";
-        const scopedDir = scopePath ? joinPath(project.path, scopePath) : project.path;
-        const targetPath = joinPath(scopedDir, relDir, skill.slug);
-        const { action } = await AlertDialog.show({
-          title: s().confirm_conflict_title,
-          description: confirmConflictDesc(props.locale, agent.display_name, targetPath),
-          actions: [
-            { id: "cancel", label: s().btn_cancel, role: "cancel" },
-            { id: "replace", label: s().btn_replace, role: "destructive" },
-          ],
-        });
-        if (action === "replace") {
-          try {
-            const dep = await deployProjectSkill(skill.id, project.id, agent.key, {
-              scopePath,
-              force: true,
-            });
-            props.notify(
-              toastProjectDeployed(props.locale, displayScope, dep.agent_key, dep.mode),
-              "success",
-            );
-            props.refresh();
-            await fetchState({
-              preferredSkillId: skill.id,
-              projectIdOverride: project.id,
-              scopePathOverride: scopePath,
-            });
-          } catch (forceError) {
-            props.notify(errorMessage(forceError), "error");
-          }
-        }
-      } else {
-        props.notify(errorMessage(error), "error");
-      }
-    } finally {
-      deployingKey.set(null);
-    }
-  };
-
   // Sync incoming route parameters and shell revisions while active.
   effect(() => {
     const rev = props.revision;
@@ -755,8 +530,7 @@ export function Library(props: ScreenProps) {
 
     if (routeChanged) {
       if (route.projectId !== undefined) {
-        selectedProjectId.set(route.projectId || null);
-        selectedScopePath.set(route.projectId ? (route.scopePath ?? "") : "");
+        scope.select(route.projectId || null, route.scopePath ?? "");
       }
       if (route.agentKey !== undefined) {
         agentFilter.set(route.agentKey || null);
@@ -766,7 +540,7 @@ export function Library(props: ScreenProps) {
       }
     }
 
-    void fetchState({
+    untracked(() => void fetchState({
       preferredSkillId: routeChanged && route.skillId ? route.skillId : undefined,
       projectIdOverride:
         routeChanged && route.projectId !== undefined ? route.projectId || null : undefined,
@@ -777,7 +551,7 @@ export function Library(props: ScreenProps) {
             : ""
           : undefined,
       confirmRouteSkillSwitch: routeChanged && Boolean(route.skillId),
-    });
+    }));
     void rev;
   });
 
@@ -825,21 +599,21 @@ export function Library(props: ScreenProps) {
         busyText={busyLabel()}
         right={
           <>
-            <If when={Boolean(activeProject())}>
+            <If when={Boolean(scope.project())}>
               <ActionButton
                 theme={props.theme}
                 kind="outline"
                 icon="◫"
                 label={s().project_overview}
                 onPress={() => {
-                  const project = activeProject();
+                  const project = scope.project();
                   if (!project) {
                     return;
                   }
                   props.navigate({
                     page: "projects",
                     projectId: project.id,
-                    scopePath: selectedScopePath(),
+                    scopePath: scope.path(),
                     agentKey: agentFilter() ?? undefined,
                   });
                 }}
@@ -886,20 +660,20 @@ export function Library(props: ScreenProps) {
           onChange={(value) => searchQuery.set(value)}
         />
 
-        <ActionMenu theme={props.theme} label={s().library_scope} value={scopeLabel()}
+        <ActionMenu theme={props.theme} label={s().library_scope} value={scope.label()}
           minWidth={220} maxTriggerWidth={260}>
-          <MenuAction theme={props.theme} label={s().scope_global} checked={selectedProjectId() === null}
-            onSelect={() => void changeScope(null, "")} />
-          <If when={Boolean(activeProject() && selectedScopePath())}>
-            <MenuAction theme={props.theme} label={scopeLabel()} checked onSelect={() => {
-              const project = activeProject();
-              if (project) void changeScope(project.id, selectedScopePath());
+          <MenuAction theme={props.theme} label={s().scope_global} checked={scope.projectId() === null}
+            onSelect={() => void scope.change(null, "")} />
+          <If when={Boolean(scope.project() && scope.path())}>
+            <MenuAction theme={props.theme} label={scope.label()} checked onSelect={() => {
+              const project = scope.project();
+              if (project) void scope.change(project.id, scope.path());
             }} />
           </If>
-          <Each of={projects()} key={(project) => project.id}>
+          <Each of={scope.projects()} key={(project) => project.id}>
             {(project) => <MenuAction theme={props.theme} label={project().name}
-              checked={selectedProjectId() === project().id && selectedScopePath() === ""}
-              onSelect={() => void changeScope(project().id, "")} />}
+              checked={scope.projectId() === project().id && scope.path() === ""}
+              onSelect={() => void scope.change(project().id, "")} />}
           </Each>
           <MenuDivider theme={props.theme} />
           <MenuAction theme={props.theme} label={s().btn_add_project} leading="+"
@@ -956,12 +730,12 @@ export function Library(props: ScreenProps) {
               filteredSkills={filteredSkills()}
               activeAgents={activeAgents()}
               selectedSkillId={selectedSkillId()}
-              projectScope={selectedProjectId() !== null}
-              hasProjectStatuses={projectStatuses() !== null}
-              projectStatusLoading={projectStatusLoading()}
-              projectStatusError={projectStatusError()}
+              projectScope={scope.projectId() !== null}
+              hasProjectStatuses={scope.statuses() !== null}
+              projectStatusLoading={scope.loading()}
+              projectStatusError={scope.error()}
               agentFilter={agentFilter()}
-              isAvailableForAgent={isAvailableForAgent}
+              isAvailableForAgent={scope.isAvailable}
               onSelectSkill={(id) => {
                 void selectSkill(id);
               }}
@@ -979,12 +753,12 @@ export function Library(props: ScreenProps) {
               theme={props.theme}
               skill={selectedSkill()}
               activeAgents={activeAgents()}
-              activeProject={activeProject()}
-              scopePath={selectedScopePath()}
-              scopeLabel={scopeLabel()}
-              projectStatusLoading={projectStatusLoading()}
-              projectStatusError={projectStatusError()}
-              projectStatusFor={projectStatusFor}
+              activeProject={scope.project()}
+              scopePath={scope.path()}
+              scopeLabel={scope.label()}
+              projectStatusLoading={scope.loading()}
+              projectStatusError={scope.error()}
+              projectStatusFor={scope.statusFor}
               inspectorTab={inspectorTab()}
               editing={isEditingCurrent()}
               canEdit={canEditCurrent()}
@@ -995,7 +769,7 @@ export function Library(props: ScreenProps) {
               previewMarkdown={previewMarkdown()}
               selectedLint={selectedLint()}
               updatingSkillId={updatingSkillId()}
-              deploying={deployingKey() !== null}
+              deploying={deployments.pending()}
               onTabChange={(tab) => inspectorTab.set(tab)}
               onStartEdit={startEditMarkdown}
               onCancelEdit={() => {
@@ -1012,10 +786,10 @@ export function Library(props: ScreenProps) {
                 void handleDeleteSkill(skill);
               }}
               onGlobalDeployToggle={(skill, agent, deployed) => {
-                void handleGlobalDeployToggle(skill, agent, deployed);
+                void deployments.global(skill, agent, deployed);
               }}
               onProjectDeployToggle={(skill, project, agent, deployed) => {
-                void handleProjectDeployToggle(skill, project, agent, deployed);
+                void deployments.project(skill, project, scope.path(), agent, deployed);
               }}
               onDetachProject={(project) => {
                 void handleDetachProject(project);

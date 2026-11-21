@@ -1,7 +1,9 @@
 import { Text, View, signal, type JSX } from "nsh";
-import { Menu, MenuItem, MenuSeparator, Select, Tooltip, type SelectItem } from "nsh/base";
-import { Icon, Label, disabledControlStyle, focusOutline, interactionStyles } from "./controls";
-import type { Theme } from "./shared";
+import { Dialog, Menu, MenuItem, MenuSeparator, Select, type SelectItem } from "nsh/base";
+import { Icon, Label } from "./layout";
+import { disabledControlStyle, focusOutline, interactionStyles } from "./interaction";
+import { Hint } from "./feedback";
+import type { Theme } from "../shared";
 
 function popupSurface(theme: Theme) {
   return { padding: 4, borderWidth: 1, borderColor: theme.border, borderRadius: theme.radius, backgroundColor: theme.surface };
@@ -14,9 +16,7 @@ function PopupTrigger(props: {
   const iconOnly = () => props.value === undefined;
   const states = () => interactionStyles(props.theme, { selectedFill: props.open ? props.theme.accent : undefined });
   return <View accessibilityLabel={props.title}
-    tooltip={props.hint && !props.open ? <Tooltip placement="bottom" offset={6} style={{
-      paddingHorizontal: 8, paddingVertical: 4, borderRadius: props.theme.radius, backgroundColor: props.theme.foreground,
-    }}><Label theme={props.theme} size={12} color={props.theme.background}>{props.hint}</Label></Tooltip> : undefined}
+    tooltip={props.hint && !props.open ? <Hint theme={props.theme} text={props.hint} /> : undefined}
     style={{
       flexDirection: "row", alignItems: "center", justifyContent: iconOnly() ? "center" : "space-between",
       width: iconOnly() ? 32 : props.width, maxWidth: props.maxWidth, minWidth: 0,
@@ -131,5 +131,28 @@ export function Choice(props: {
         compact={props.inline} searchable={props.searchable} searchLabel={props.searchLabel}
         onChange={(value) => { if (value !== null) props.onChange(value); }} />
     </View>
+  );
+}
+
+export function Modal(props: {
+  theme: Theme;
+  label: string;
+  open: boolean;
+  width?: number;
+  onClose: () => void;
+  children?: JSX.Element;
+}) {
+  return (
+    <Dialog open={props.open} accessibilityLabel={props.label}
+      onOpenChange={({ open }) => { if (!open) props.onClose(); }}
+      backdropStyle={{ backgroundColor: props.theme.modalBackdrop }}
+      style={{ alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <View style={{ width: props.width ?? 440, maxWidth: "100%", gap: 16, padding: 20,
+        backgroundColor: props.theme.background, borderColor: props.theme.border, borderWidth: 1,
+        borderRadius: props.theme.radius }}>
+        <Label theme={props.theme} heading size={20}>{props.label}</Label>
+        {props.children}
+      </View>
+    </Dialog>
   );
 }

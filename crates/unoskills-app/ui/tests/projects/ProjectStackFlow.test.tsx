@@ -21,6 +21,7 @@ const longStack: Stack = {
   name: "Long local stack",
   skills: Array.from({ length: 48 }, (_, index) => ({ ...member, name: `Library skill ${index}` })),
 };
+const secondLocal = { ...savedStack, id: "second-local", name: "Second local stack" };
 const scanned: Module[] = [
   { path: "", evidence: [{ technology: "Rust", path: "Cargo.toml", added: false }], recommendations: [] },
   { path: scope, evidence: [{ technology: "TypeScript", path: "apps/web/package.json", added: true }],
@@ -30,7 +31,7 @@ const scanned: Module[] = [
 type Call = { command: string; input: unknown };
 
 async function openFixture() {
-  let local = [longStack];
+  let local = [longStack, secondLocal];
   let deployed = false;
   const calls: Call[] = [];
   const ok = (value: unknown) => ({ ok: true, value });
@@ -94,6 +95,11 @@ test("Stacks keeps the detail footer available at desktop minimum size and opens
   await app.keyboard.press("r");
   expect(app.value("label:Search stacks by name, author, or tag...")).toBe("r");
   await app.waitFor("label:Remote stack");
+  await app.press("role:tab[My Stacks]");
+  await app.press("label:Second local stack");
+  await app.waitFor("text:Included Skills (1)");
+  await app.press("role:tab[My Stacks]");
+  expect(app.shows("text:Included Skills (1)")).toBe(true);
 });
 
 test("Project Overview sends the exact nested scope to deployment and keeps global deployment opt-in", async () => {

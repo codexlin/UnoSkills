@@ -1,13 +1,9 @@
 import { Clipboard, cleanup, computed, effect, keymap, List, Scroll, signal, Text, View, type InputRef, type JSX } from "nsh";
-import { Button, ResizablePanel, ResizablePanelGroup, Tabs } from "nsh/base";
-import { Icon, TabItem, focusOutline, interactionStyles } from "../controls";
-import { ActionMenu, MenuAction, MenuDivider } from "../popups";
-import type { IconName } from "../icons";
+import { Button, ResizablePanel, ResizablePanelGroup } from "nsh/base";
+import { ActionMenu, Icon, MenuAction, MenuDivider, PageTabs, focusOutline, interactionStyles } from "../components";
 import type { ScreenProps, Theme } from "../shared";
-import {
-  Action, Choice, Feedback, Field, Footer, Header, Heading, Label,
-  confirm, load, operation, padding, row, viewport,
-} from "./controls";
+import { Action, Choice, Feedback, Field, Footer, Header, Heading, Label, confirm, padding, row, viewport } from "./controls";
+import { load, operation } from "./state";
 import { StackDeploy } from "./deploy";
 import { StackEditor, StackImport } from "./editor";
 import { InstallReport } from "./reports";
@@ -91,7 +87,10 @@ export function Stacks(props: ScreenProps) {
 
   function pickTab(next: "Local" | "catalog") {
     tab.set(next);
-    props.navigate({ page: "stacks", source: next === "Local" ? "Local" : source() });
+    props.navigate({
+      page: "stacks", source: next === "Local" ? "Local" : source(),
+      projectId: props.route.projectId, scopePath: props.route.scopePath, agentKey: props.route.agentKey,
+    });
   }
 
   effect(() => {
@@ -136,12 +135,10 @@ export function Stacks(props: ScreenProps) {
           <Action theme={props.theme} label={t().create} glyph="plus"
             run={() => props.navigate({ page: "stacks", tab: "create" })} />
         </Header>
-        <Tabs accessibilityLabel={t().stacks} indicatorStyle={{ bottom: 0, height: 2, backgroundColor: props.theme.primary }}
-          style={{ ...row, minHeight: 36, paddingHorizontal: 20, borderBottomWidth: 1,
-            borderColor: props.theme.border, flexShrink: 0, gap: 16 }}>
-          <CatalogTab theme={props.theme} label={t().Local} glyph="layers" selected={tab() === "Local"} run={() => pickTab("Local")} />
-          <CatalogTab theme={props.theme} label={t().Featured} glyph="users" selected={tab() === "catalog"} run={() => pickTab("catalog")} />
-        </Tabs>
+        <PageTabs<"Local" | "catalog"> theme={props.theme} accessibilityLabel={t().stacks}
+          selectedId={tab()} onSelect={pickTab}
+          tabs={[{ id: "Local", label: t().Local, glyph: "layers" },
+            { id: "catalog", label: t().Featured, glyph: "users" }]} />
         <View style={viewport}>
           <ResizablePanelGroup axis="horizontal" handleStyle={{ backgroundColor: props.theme.border }}
             handleAccessibilityLabel={t().stacks}>
@@ -219,14 +216,6 @@ export function Stacks(props: ScreenProps) {
       {(stack) => <StackDeploy screen={props} stack={stack()} back={() => open(stack())} />}
     </If>
   </View>;
-}
-
-function CatalogTab(props: { theme: Theme; label: string; glyph: IconName; selected: boolean; run: () => void }) {
-  return <TabItem theme={props.theme} accessibilityLabel={props.label} selected={props.selected} onPress={props.run}
-    style={{ ...row, gap: 4, height: 35, borderRadius: props.theme.radius }}>
-    <Icon name={props.glyph} color={props.selected ? props.theme.foreground : props.theme.muted} size={14} />
-    <Label theme={props.theme} label={props.label} muted={!props.selected} weight={props.selected ? "600" : undefined} />
-  </TabItem>;
 }
 
 function CatalogEmpty(props: { theme: Theme; title: string; description: string; showIcon?: boolean; children?: JSX.Element }) {
