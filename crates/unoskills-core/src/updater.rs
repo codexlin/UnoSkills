@@ -1,5 +1,5 @@
-//! In-app guided updater (v1): GitHub Releases check, 24h startup rate limiting,
-//! per-platform installer selection, and strict `SHA256SUMS.txt` verification.
+//! In-app guided updater with GitHub Releases checks, per-platform installer
+//! selection, and strict `SHA256SUMS.txt` verification.
 //!
 //! Always opt-in — downloads and installer launches happen only after explicit
 //! user consent in the UI or CLI.
@@ -23,9 +23,6 @@ use crate::source::build_http_client;
 
 pub const DEFAULT_RELEASES_API_URL: &str =
     "https://api.github.com/repos/codexlin/UnoSkills/releases/latest";
-
-/// Minimum interval between automatic startup update checks (24 hours).
-pub const STARTUP_CHECK_INTERVAL_SECS: i64 = 24 * 60 * 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -101,14 +98,6 @@ pub enum UpdateProgress {
     Preparing,
     Downloading(Option<u8>),
     Verifying,
-}
-
-/// Returns `true` when enough time has elapsed since the previous startup check.
-pub fn should_run_startup_check(last_checked_at: Option<i64>, now_secs: i64) -> bool {
-    match last_checked_at {
-        None => true,
-        Some(prev) => now_secs.saturating_sub(prev) >= STARTUP_CHECK_INTERVAL_SECS,
-    }
 }
 
 struct Semver<'a> {
@@ -525,21 +514,6 @@ mod tests {
         assert!(!is_newer_semver("v0.2.0", "0.3.0"));
         assert!(!is_newer_semver("v0.4.0-beta.1", "0.4.0"));
         assert!(!is_newer_semver("invalid", "0.3.0"));
-    }
-
-    #[test]
-    fn rate_limits_startup_update_checks_to_24_hours() {
-        let now = 1_800_000_000;
-        assert!(should_run_startup_check(None, now));
-        assert!(!should_run_startup_check(Some(now - 3600), now));
-        assert!(!should_run_startup_check(
-            Some(now - STARTUP_CHECK_INTERVAL_SECS + 1),
-            now
-        ));
-        assert!(should_run_startup_check(
-            Some(now - STARTUP_CHECK_INTERVAL_SECS),
-            now
-        ));
     }
 
     #[test]

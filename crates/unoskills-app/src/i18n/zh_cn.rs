@@ -209,7 +209,7 @@ pub static STRINGS: Strings = Strings {
     font_auto_mono: "自动（系统优选等宽）",
     settings_updates: "软件更新",
     settings_current_version: "当前版本",
-    settings_updates_desc: "手动检查 GitHub Releases 新版本（不会在后台静默安装）。",
+    settings_updates_desc: "启动时检查新版本。下载和安装需确认。",
     btn_check_updates: "检查更新",
     settings_network: "网络与备份",
     settings_http_proxy: "HTTP / SOCKS 代理",

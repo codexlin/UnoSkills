@@ -265,10 +265,7 @@ impl WorkspaceState {
         fonts::apply_fonts_to_theme(&self.font_settings, self.lang, cx);
         // Fetch the remote community stacks index once at startup, silently.
         self.refresh_community_stacks(true, window, cx);
-        // Rate-limited (24h) silent startup update check — never downloads silently.
-        if self.manager.should_auto_check_updates() {
-            self.check_for_updates_async(true, window, cx);
-        }
+        self.check_for_updates_async(true, window, cx);
     }
 
     // ── Read accessors ──
@@ -559,7 +556,7 @@ impl WorkspaceState {
         let bg = cx.background_executor().clone();
         cx.spawn_in(window, async move |this, cx| {
             let res = bg
-                .spawn(async move { mgr.check_app_update(&current_ver, true) })
+                .spawn(async move { mgr.check_app_update(&current_ver) })
                 .await;
 
             let _ = this.update_in(cx, |this, window, cx| {
