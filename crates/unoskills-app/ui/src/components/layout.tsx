@@ -2,9 +2,8 @@ import { Image, Text, View, type JSX } from "nsh";
 import { iconSource, type IconName } from "../icons";
 import type { Theme } from "../shared";
 
-export function Icon(props: { name: IconName; color: string; size?: number; spinning?: boolean }) {
+export function Icon(props: { name: IconName; color: string; size?: number }) {
   return <Image accessibilityElementsHidden src={iconSource(props.name)}
-    class={props.spinning ? "animate-spin motion-reduce:animate-none" : undefined}
     style={{ width: props.size ?? 16, height: props.size ?? 16, flexShrink: 0,
       pointerEvents: "none", tintColor: props.color }} />;
 }

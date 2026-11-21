@@ -113,7 +113,6 @@ export function Discover(props: ScreenProps) {
       <PageHeader
         theme={props.theme}
         title={s().discover_title}
-        busyText={adoption.busyText() ?? marketplace.busyText()}
         right={
           <ActionButton
             theme={props.theme}

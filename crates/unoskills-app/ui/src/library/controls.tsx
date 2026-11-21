@@ -1,5 +1,5 @@
 import { type InputRef, type JSX, Text, View } from "nsh";
-import { Action, ActionControl, Hint, Icon, Label, LoadingLine, TextInput, type ActionVariant } from "../components";
+import { Action, ActionControl, Hint, Icon, Label, TextInput, type ActionVariant } from "../components";
 import type { IconName } from "../icons";
 import type { Theme } from "../shared";
 import { TOKEN_BUDGET_WARN_THRESHOLD, formatTokensShort } from "./format";
@@ -96,7 +96,6 @@ export function SearchField(props: {
 export function PageHeader(props: {
   theme: Theme;
   title: string;
-  busyText?: string | null;
   right?: JSX.Element;
 }) {
   return (
@@ -115,25 +114,10 @@ export function PageHeader(props: {
         flexShrink: 0,
       }}
     >
-      <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <Label theme={props.theme} heading size={20} truncate>
           {props.title}
         </Label>
-        <If when={Boolean(props.busyText)}>
-          <View
-            style={{
-              paddingHorizontal: 8,
-              paddingVertical: 3,
-              borderRadius: 999,
-              backgroundColor: props.theme.surface,
-              borderWidth: 1,
-              borderColor: props.theme.border,
-              flexShrink: 1,
-            }}
-          >
-            <LoadingLine theme={props.theme} compact label={props.busyText ?? ""} />
-          </View>
-        </If>
       </View>
       <If when={Boolean(props.right)}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>

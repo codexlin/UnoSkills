@@ -1,6 +1,6 @@
 import { Scroll, View, cleanup, computed, effect, openUrl, reduceMotion, signal, windowSize } from "nsh";
 import { Bar, Grid, Plot, PlotAxis } from "nsh/base/plot";
-import { Action, ActionControl, Icon, InlineError, Label, PageHeader, TabList, textSize } from "./components";
+import { Action, ActionControl, Icon, InlineError, Label, PageHeader, SkeletonBlock, TabList, textSize } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps } from "./shared";
 import { attachProjectFromPicker } from "./projects";
@@ -26,6 +26,8 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
   const wide = () => windowSize().width >= 900;
   const compact = () => windowSize().height < 680;
   const activeRows = computed(() => cache()[board()]);
+  const showRankingSkeleton = () => marketLoading() && activeRows() === undefined;
+  const refreshingRanking = () => marketLoading() && activeRows() !== undefined;
 
   effect(() => {
     void props.revision;
@@ -42,10 +44,10 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
   cleanup(() => { marketRequest += 1; });
   async function loadBoard(selected: Board, force = false) {
     const request = ++marketRequest;
-    marketLoading.set(false);
     marketError.set("");
-    if (!force && cache()[selected]) return;
-    marketLoading.set(true);
+    const shouldFetch = force || cache()[selected] === undefined;
+    marketLoading.set(shouldFetch);
+    if (!shouldFetch) return;
     try {
       const rows = await call<{ board: Board }, Ranking[]>("home.market", { board: selected });
       if (request === marketRequest) cache.update((entries) => ({ ...entries, [selected]: rows }));
@@ -175,9 +177,10 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Label theme={theme()} heading size={textSize(theme(), 18)}>{t().home_market_rank}</Label>
                 </View>
-                <Action theme={theme()} variant="ghost" size="small" glyph={marketLoading() ? "loader-circle" : "refresh-cw"}
-                  iconOnly tooltip={t().home_refresh_market} label={t().home_refresh_market}
-                  disabled={marketLoading()} onPress={() => void loadBoard(board(), true)} />
+                <Action theme={theme()} variant="ghost" size="small" glyph="refresh-cw" iconOnly
+                  tooltip={t().home_refresh_market}
+                  label={refreshingRanking() ? t().home_market_loading : t().home_refresh_market}
+                  disabled={showRankingSkeleton()} pending={refreshingRanking()} onPress={() => void loadBoard(board(), true)} />
               </View>
               <View style={{ borderWidth: 1, borderColor: theme().border, borderRadius: radius(),
                 backgroundColor: theme().surface, padding: 12 }}>
@@ -185,20 +188,17 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                   <TabList theme={theme()} accessibilityLabel={t().home_market_rank} compact selectedId={board()}
                     tabs={boardItems.map((id) => ({ id, label: id === "trending" ? t().board_trending : t().board_all_time }))}
                     onSelect={(entry) => { board.set(entry); void loadBoard(entry); }} />
-                  {activeRows()?.length ? <View style={{ paddingRight: 40 }}>
+                  {showRankingSkeleton() || activeRows()?.length ? <View style={{ paddingRight: 40 }}>
                     <Label theme={theme()} muted size={textSize(theme(), 12)}>{t().home_market_installs}</Label>
                   </View> : null}
                 </View>
-                {marketLoading() ? <View style={{ ...row, gap: 8, paddingVertical: 16 }}>
-                  <Icon name="loader-circle" color={theme().muted} size={14} spinning />
-                  <Label theme={theme()} muted>{t().home_market_loading}</Label>
-                </View> : null}
+                {showRankingSkeleton() ? <RankingSkeleton theme={theme()} label={t().home_market_loading} /> : null}
                 {marketError() ? <InlineError theme={theme()} message={marketError()} /> : null}
-                {activeRows()?.length === 0 ? <View style={{ paddingVertical: 16 }}>
+                {!marketError() && activeRows()?.length === 0 ? <View style={{ paddingVertical: 16 }}>
                   <Label theme={theme()} muted>{t().home_market_empty}</Label>
                 </View> : null}
                 <Each of={activeRows() ?? []} key={(entry) => entry.id}>{(entry, index) =>
-                  <View style={{ ...row, minHeight: 48, gap: 12, paddingHorizontal: 8, borderTopWidth: 1,
+                  <View style={{ ...rankingRow,
                     borderColor: theme().border,
                     backgroundColor: index() === 0 ? `color-mix(in srgb, ${theme().primary} 6%, transparent)` : undefined }}>
                     <View style={{ width: 24, alignItems: "center", flexShrink: 0 }}>
@@ -232,6 +232,28 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
 
 const row = { flexDirection: "row", alignItems: "center" } as const;
 const sectionHeading = { ...row, minHeight: 32, gap: 8 } as const;
+const rankingRow = { ...row, minHeight: 48, gap: 12, paddingHorizontal: 8, borderTopWidth: 1 } as const;
+
+function RankingSkeleton(props: { theme: ScreenProps["theme"]; label: string }) {
+  return <View testID="home-ranking-skeleton" role="summary" accessibilityLabel={props.label}
+    accessibilityState={{ busy: true }}>
+    <Each of={[0, 1, 2, 3, 4]}>{() =>
+      <View style={{ ...rankingRow, borderColor: props.theme.border }}>
+        <View style={{ width: 24, alignItems: "center", flexShrink: 0 }}>
+          <SkeletonBlock theme={props.theme} width={12} height={12} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
+          <SkeletonBlock theme={props.theme} width="64%" height={12} />
+          <SkeletonBlock theme={props.theme} width="42%" height={9} />
+        </View>
+        <SkeletonBlock theme={props.theme} width={30} height={12} />
+        <View style={{ width: 24, alignItems: "center", flexShrink: 0 }}>
+          <SkeletonBlock theme={props.theme} width={12} height={12} />
+        </View>
+      </View>
+    }</Each>
+  </View>;
+}
 
 function formatInstalls(count: number, locale: ScreenProps["locale"]) {
   if (count < 1000) return count.toLocaleString(locale);

@@ -9,7 +9,7 @@ import {
   signal,
   windowSize,
 } from "nsh";
-import { ActionControl, ActionMenu, AlertBanner, Icon, Label, LoadingLine, MenuAction, SelectControl } from "../components";
+import { ActionControl, ActionMenu, AlertBanner, Icon, Label, LoadingLine, MenuAction, SelectControl, SkeletonBlock } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, hintTooltip } from "./controls";
 import { formatInstallCount, marketInstallStatus } from "./format";
@@ -68,6 +68,7 @@ export function MarketplaceTab(props: {
   });
 
   const skeletonCols = computed(() => Array.from({ length: gridColumns() }, (_, i) => i));
+  const showSkeleton = () => props.loading && props.entries.length === 0;
 
   const actionLabelFor = (item: MarketplaceSkillItem): string => {
     const status = marketInstallStatus(item, props.installedSourceRefs, props.installedSkillNames);
@@ -177,9 +178,10 @@ export function MarketplaceTab(props: {
           theme={props.theme}
           kind="ghost"
           glyph="refresh-cw"
-          loading={props.loading}
-          accessibilityLabel={props.loading ? s().market_loading : s().btn_trending}
-          tooltip={props.loading ? s().market_loading : s().btn_trending}
+          loading={props.loading && !showSkeleton()}
+          disabled={showSkeleton()}
+          accessibilityLabel={props.loading && !showSkeleton() ? s().market_loading : s().btn_trending}
+          tooltip={s().btn_trending}
           onPress={props.onRefresh}
         />
 
@@ -208,7 +210,7 @@ export function MarketplaceTab(props: {
         }}
       >
         <If
-          when={props.loading && props.entries.length === 0}
+          when={showSkeleton()}
           else={
             <If
               when={props.entries.length === 0}
@@ -548,21 +550,22 @@ export function MarketplaceTab(props: {
                 </List>
               }
             >
-              <EmptyState
-                theme={props.theme}
-                glyph="globe"
-                title={s().empty_market_title}
-                description={s().empty_market_desc}
-              />
+              <If when={!props.error}>
+                <EmptyState
+                  theme={props.theme}
+                  glyph="globe"
+                  title={s().empty_market_title}
+                  description={s().empty_market_desc}
+                />
+              </If>
             </If>
           }
         >
-          {/* Legacy 4-row Skeleton Card Grid */}
           <View
             testID="market-loading-skeleton"
             role="summary"
             accessibilityState={{ busy: true }}
-            accessibilityLabel={s().market_loading}
+            accessibilityLabel={props.searchActive ? s().market_searching : s().market_loading}
             style={{
               flex: 1,
               minHeight: 0,
@@ -591,14 +594,8 @@ export function MarketplaceTab(props: {
                           backgroundColor: props.theme.surface,
                         }}
                       >
-                        <View
-                          class="h-3 w-1/2 rounded-sm animate-pulse motion-reduce:animate-none"
-                          style={{ backgroundColor: props.theme.border }}
-                        />
-                        <View
-                          class="h-2.5 w-2/5 rounded-sm animate-pulse motion-reduce:animate-none"
-                          style={{ backgroundColor: props.theme.border }}
-                        />
+                        <SkeletonBlock theme={props.theme} width="50%" height={12} />
+                        <SkeletonBlock theme={props.theme} width="40%" height={10} />
                         <View
                           style={{
                             flexDirection: "row",
@@ -606,14 +603,8 @@ export function MarketplaceTab(props: {
                             justifyContent: "space-between",
                           }}
                         >
-                          <View
-                            class="h-2.5 w-1/4 rounded-sm animate-pulse motion-reduce:animate-none"
-                            style={{ backgroundColor: props.theme.border }}
-                          />
-                          <View
-                            class="h-6 w-1/4 rounded-sm animate-pulse motion-reduce:animate-none"
-                            style={{ backgroundColor: props.theme.border }}
-                          />
+                          <SkeletonBlock theme={props.theme} width="25%" height={10} />
+                          <SkeletonBlock theme={props.theme} width="25%" height={24} />
                         </View>
                       </View>
                     )}

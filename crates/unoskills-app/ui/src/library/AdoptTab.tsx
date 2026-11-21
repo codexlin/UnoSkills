@@ -1,9 +1,9 @@
 import { type InputRef, List, type ListRef, Text, View } from "nsh";
 import { Checkbox } from "nsh/base";
-import { ActionControl, AlertBanner, Icon, Label, focusOutline, interactionStyles } from "../components";
+import { ActionControl, AlertBanner, Icon, Label, LoadingLine, focusOutline, interactionStyles } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, TokenBadge, hintTooltip } from "./controls";
-import { type Locale, adoptSelectedCount, getStrings, labelWithCount } from "./strings";
+import { type Locale, adoptSelectedCount, busyAdoptingAll, getStrings, labelWithCount } from "./strings";
 import type { AdoptCandidate } from "./types";
 import type { AdoptGroup, AdoptRow } from "./adoption";
 
@@ -63,8 +63,8 @@ export function AdoptTab(props: {
           kind="outline"
           glyph="refresh-cw"
           label={s().btn_rescan}
-          loading={props.scanning}
-          disabled={props.adopting}
+          loading={props.scanning && props.rows.length > 0 && !props.adopting}
+          disabled={props.scanning || props.adopting}
           onPress={props.onRescan}
         />
       </View>
@@ -283,16 +283,18 @@ export function AdoptTab(props: {
           </List>
         }
       >
-        <EmptyState
-          theme={props.theme}
-          glyph="check"
-          title={
-            props.totalCandidates === 0 ? s().empty_adopt_done_title : s().empty_adopt_filter_title
-          }
-          description={
-            props.totalCandidates === 0 ? s().empty_adopt_done_desc : s().empty_adopt_filter_desc
-          }
-        />
+        {props.scanning && !props.adopting ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 16 }}>
+            <LoadingLine theme={props.theme} label={s().adopt_scanning} />
+          </View>
+        ) : !props.error && !props.adopting ? (
+          <EmptyState
+            theme={props.theme}
+            glyph="check"
+            title={props.totalCandidates === 0 ? s().empty_adopt_done_title : s().empty_adopt_filter_title}
+            description={props.totalCandidates === 0 ? s().empty_adopt_done_desc : s().empty_adopt_filter_desc}
+          />
+        ) : null}
       </If>
 
       <If when={props.selectedCount > 0}>
@@ -327,6 +329,7 @@ export function AdoptTab(props: {
             kind="primary"
             loading={props.adopting}
             label={labelWithCount(props.locale, s().btn_adopt, props.selectedCount)}
+            accessibilityLabel={props.adopting ? busyAdoptingAll(props.locale, props.selectedCount) : undefined}
             onPress={props.onConfirmAdopt}
           />
         </View>

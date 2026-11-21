@@ -137,6 +137,7 @@ A Rust UI component is also appropriate when it wraps a native capability or pro
 - Name components for what users see (`SkillInspector`) and handlers for what users do (`saveSkillMarkdown`). Follow the existing TypeScript camelCase and Rust snake_case conventions. At the wire boundary, spell fields exactly as the serialized Rust contract expects.
 - NSH builds a component once. Read changing props and signals in bindings or computed values. Give subscriptions, shortcuts and timers a component owner and release them on deactivation or disposal as appropriate. A retained background screen may keep its draft. Only the active screen may handle its page shortcuts.
 - Use the existing semantic controls for focus, disabled state and keyboard activation. Keep raw palette values in the theme source and provide localized accessible labels. A virtualized row's key must follow the record through refresh or reorder. Preserve distinguishable occurrences when the data format allows duplicates.
+- Show pending work where its result appears. Use skeletons for the first load of content with a known shape, and retain available results during refresh with feedback on the triggering control. Use one accessible loading status for each operation.
 
 ### TSX to Rust
 

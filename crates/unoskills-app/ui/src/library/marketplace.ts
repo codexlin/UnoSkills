@@ -2,7 +2,7 @@ import { batch, cleanup, computed, signal } from "nsh";
 import type { ScreenProps } from "../shared";
 import { marketInstallStatus } from "./format";
 import { errorMessage, fetchLeaderboard, installFromSource, searchMarketplace } from "./host";
-import { busyInstalling, busySearching, getStrings, toastInstalled } from "./strings";
+import { getStrings, toastInstalled } from "./strings";
 import type { MarketBoard, MarketplaceSkillItem, Skill } from "./types";
 
 export const ALL_SOURCES_VALUE = "__all_sources__";
@@ -27,7 +27,6 @@ export function createMarketplace(
 ) {
   const s = () => getStrings(screen.locale);
   const installingRefs = signal<Record<string, boolean>>({});
-  const queryBusyText = signal<string | null>(null);
   const marketBoard = signal<MarketBoard>("trending");
   const marketCache = new Map<MarketBoard, CachedMarketBoard>();
   const marketItems = signal<MarketplaceSkillItem[]>([]);
@@ -114,7 +113,6 @@ export function createMarketplace(
     if (cached) {
       batch(() => {
         marketLoading.set(false);
-        queryBusyText.set(null);
         marketItems.set(cached.items);
         marketNextPage.set(cached.nextPage);
         marketTotal.set(cached.total);
@@ -126,7 +124,6 @@ export function createMarketplace(
 
     batch(() => {
       marketLoading.set(true);
-      queryBusyText.set(s().busy_loading_market);
       if (!keepResults) {
         marketItems.set([]);
         marketTotal.set(null);
@@ -163,10 +160,7 @@ export function createMarketplace(
       screen.notify(message, "error");
     } finally {
       if (req === marketReqSeq) {
-        batch(() => {
-          marketLoading.set(false);
-          queryBusyText.set(null);
-        });
+        marketLoading.set(false);
       }
     }
   };
@@ -253,7 +247,6 @@ export function createMarketplace(
       marketLoadMoreFailed.set(false);
       marketHasMore.set(false);
       marketTotal.set(null);
-      queryBusyText.set(busySearching(screen.locale, query));
     });
 
     try {
@@ -272,10 +265,7 @@ export function createMarketplace(
       screen.notify(message, "error");
     } finally {
       if (req === marketReqSeq) {
-        batch(() => {
-          marketLoading.set(false);
-          queryBusyText.set(null);
-        });
+        marketLoading.set(false);
       }
     }
   };
@@ -370,10 +360,6 @@ export function createMarketplace(
     installedSourceRefs,
     installedSkillNames,
     installingRefs: () => installingRefs(),
-    busyText: () => {
-      const installing = Object.keys(installingRefs())[0];
-      return installing ? busyInstalling(screen.locale, installing) : queryBusyText();
-    },
     ensureBoard,
     selectBoard: (board: MarketBoard) => loadMarketBoard(board, false),
     changeSearch,

@@ -16,9 +16,8 @@ export function LibraryListPane(props: {
   selectedSkillId: string | null;
   projectScope: boolean;
   hasProjectStatuses: boolean;
-  projectStatusLoading: boolean;
+  scopeBlocksList: boolean;
   projectStatusError: string | null;
-  agentFilter: string | null;
   isAvailableForAgent: (skill: Skill, agentKey: string) => boolean | null;
   onSelectSkill: (skillId: string) => void;
   onOpenInstall: () => void;
@@ -28,12 +27,7 @@ export function LibraryListPane(props: {
 
   return (
     <If
-      when={Boolean(
-        props.projectScope &&
-          props.agentFilter &&
-          props.skills.length > 0 &&
-          (props.projectStatusLoading || props.projectStatusError),
-      )}
+      when={props.scopeBlocksList}
       else={
         <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
           <If when={props.filteredSkills.length > 0}>

@@ -25,7 +25,6 @@ export const strings = {
     "busy_backup_pulling": "Pulling Git backup and rebuilding local index...",
     "busy_backup_pushing": "Pushing skills & stacks to Git backup...",
     "busy_checking_updates": "Checking for updates...",
-    "busy_loading_market": "Loading leaderboard...",
     "collapse_sidebar": "Collapse sidebar",
     "custom_agent_directory": "Skills directory",
     "custom_agent_name": "Agent name",
@@ -135,8 +134,7 @@ export const strings = {
     "update_start_download": "Download",
     "update_unverified_hint": "This release does not include a SHA-256 checksum file.",
     "update_verifying": "Verifying installer…",
-    "update_view_progress": "View progress",
-    "working": "Working…"
+    "update_view_progress": "View progress"
   },
   "zh-CN": {
     "badge_detected": "已检测到",
@@ -164,7 +162,6 @@ export const strings = {
     "busy_backup_pulling": "正在从 Git 备份仓库拉取并重建索引...",
     "busy_backup_pushing": "正在推送技能库到 Git 备份仓库...",
     "busy_checking_updates": "正在检查新版本...",
-    "busy_loading_market": "正在加载排行榜...",
     "collapse_sidebar": "折叠侧栏",
     "custom_agent_directory": "技能目录",
     "custom_agent_name": "Agent 名称",
@@ -274,8 +271,7 @@ export const strings = {
     "update_start_download": "开始下载",
     "update_unverified_hint": "此版本未提供 SHA-256 校验文件。",
     "update_verifying": "正在校验安装包…",
-    "update_view_progress": "查看进度",
-    "working": "正在处理…"
+    "update_view_progress": "查看进度"
   },
   "ja": {
     "badge_detected": "検出済み",
@@ -303,7 +299,6 @@ export const strings = {
     "busy_backup_pulling": "Git バックアップを取得してインデックス再構築中...",
     "busy_backup_pushing": "Git バックアップへプッシュ中...",
     "busy_checking_updates": "アップデートを確認中...",
-    "busy_loading_market": "ランキングを読み込み中...",
     "collapse_sidebar": "サイドバーを折りたたむ",
     "custom_agent_directory": "スキルディレクトリ",
     "custom_agent_name": "エージェント名",
@@ -413,7 +408,6 @@ export const strings = {
     "update_start_download": "ダウンロード",
     "update_unverified_hint": "このリリースには SHA-256 チェックサムファイルがありません。",
     "update_verifying": "インストーラーを検証中…",
-    "update_view_progress": "進捗を見る",
-    "working": "処理中…"
+    "update_view_progress": "進捗を見る"
   }
 } as const;

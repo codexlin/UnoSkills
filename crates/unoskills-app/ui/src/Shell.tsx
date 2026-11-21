@@ -7,7 +7,7 @@ import { strings } from "./i18n";
 import { Library, Discover } from "./library";
 import { Projects, Stacks } from "./projects";
 import { Settings } from "./Settings";
-import { call, errorMessage, pendingCalls, type Page, type Route, type ScreenProps, type Theme, type Tone } from "./shared";
+import { call, errorMessage, type Page, type Route, type ScreenProps, type Theme, type Tone } from "./shared";
 import { applyNativeTheme, defaults, makeTheme, type Preferences } from "./theme";
 import { createUpdates, UpdateModal } from "./Updates";
 
@@ -223,11 +223,6 @@ export function App() {
           {updates.available() ? <Action theme={theme()} variant="primary" size="badge" glyph={updates.phaseIcon()}
             label={updates.phaseLabel()} onPress={() => updates.open.set(true)} /> : null}
         </View>
-        {initialized() && pendingCalls() > 0 ?
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <Icon name="loader-circle" color={theme().muted} size={12} spinning />
-            <Label theme={theme()} muted truncate size={textSize(theme(), 12)}>{t().working}</Label>
-          </View> : null}
       </View>
       <View style={{ flex: 1, minHeight: 0, minWidth: 0, flexDirection: "row" }}>
         <View style={{ width: collapsed() ? 48 : 184, flexShrink: 0, minHeight: 0,

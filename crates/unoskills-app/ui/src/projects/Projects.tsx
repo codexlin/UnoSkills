@@ -143,7 +143,7 @@ function ProjectDetail(props: {
       <Action theme={screen.theme} label={t().openLibrary} accessibilityLabel={t().openInLibrary} glyph="arrow-left" ghost
         run={() => screen.navigate({ page: "library", ...target(), scopePath: module()?.path ?? screen.route.scopePath ?? "" })} />
       <Action theme={screen.theme} label={t().rescan} glyph="refresh-cw"
-        disabled={op.busy()} pending={projectsScan().pending} run={rescanProject} />
+        disabled={op.busy() || projectsScan().pending} run={rescanProject} />
       <ActionMenu theme={screen.theme} label={t().projectActions}>
         <MenuAction theme={screen.theme} label={t().attach} disabled={props.attaching || op.busy()} onSelect={props.attach} />
         <If when={props.canSwitch}>

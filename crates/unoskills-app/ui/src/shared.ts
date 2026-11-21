@@ -1,4 +1,4 @@
-import { host, nativeModule, signal } from "nsh";
+import { host, nativeModule } from "nsh";
 
 export type Locale = "en" | "zh-CN" | "ja";
 export type Page = "home" | "library" | "discover" | "projects" | "stacks" | "settings";
@@ -87,21 +87,13 @@ async function dialog(command: string, input: DialogRequest) {
   }
 }
 
-export const pendingCalls = signal(0);
-
 export async function call<Request, Response>(command: string, input: Request): Promise<Response> {
   if (command.startsWith("dialog.")) {
     return await dialog(command, input as DialogRequest) as Response;
   }
-  const reportBusy = command !== "update.status" && command !== "update.check";
-  if (reportBusy) pendingCalls.update((count) => count + 1);
-  try {
-    const response = await host.call("unoskills.command", { command, input }, { timeout: 0 }) as Reply<Response>;
-    if (response.ok) return response.value;
-    throw new HostError(response.code, response.message);
-  } finally {
-    if (reportBusy) pendingCalls.update((count) => count - 1);
-  }
+  const response = await host.call("unoskills.command", { command, input }, { timeout: 0 }) as Reply<Response>;
+  if (response.ok) return response.value;
+  throw new HostError(response.code, response.message);
 }
 
 export function errorMessage(error: unknown): string {

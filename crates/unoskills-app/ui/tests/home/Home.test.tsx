@@ -69,6 +69,67 @@ test("Home keeps active metric cards, recent rows, chart, and separate ranked bo
   expect(boards).toEqual(["trending", "all-time"]);
 });
 
+test("an uncached leaderboard uses skeleton rows and refresh keeps the visible ranking", async () => {
+  const ranking = (name: string) => ({ ok: true, value: [{
+    id: name, name, installs: 1200, source: "owner/repo", url: null,
+  }] });
+  let finishFirst!: (value: ReturnType<typeof ranking>) => void;
+  const first = new Promise<ReturnType<typeof ranking>>((resolve) => { finishFirst = resolve; });
+  let finishRefresh!: (value: ReturnType<typeof ranking>) => void;
+  const refresh = new Promise<ReturnType<typeof ranking>>((resolve) => { finishRefresh = resolve; });
+  let firstStarted!: () => void;
+  const firstRequest = new Promise<void>((resolve) => { firstStarted = resolve; });
+  let refreshStarted!: () => void;
+  const refreshRequest = new Promise<void>((resolve) => { refreshStarted = resolve; });
+  let allTimeRequests = 0;
+  const app = await openHome((command, input) => {
+    if (command !== "home.market") return { ok: true, value: { available: null } };
+    const { board } = input as { board: string };
+    if (board === "trending") return ranking("Trending fixture");
+    if (++allTimeRequests === 1) {
+      firstStarted();
+      return first;
+    }
+    refreshStarted();
+    return refresh;
+  });
+
+  const skeleton = "id:home-ranking-skeleton";
+  await app.waitFor("text:Trending fixture");
+  const switchBoard = app.press(`role:tab[${t.board_all_time}]`);
+  try {
+    await firstRequest;
+    await app.wait(32);
+    expect(app.shows(skeleton)).toBe(true);
+    expect(app.shows("text:Working…")).toBe(false);
+    expect(app.shows("text:Trending fixture")).toBe(false);
+    expect(app.enabled(`label:${t.home_refresh_market}`)).toBe(false);
+  } finally {
+    finishFirst(ranking("All time fixture"));
+    await switchBoard;
+  }
+
+  await app.waitFor("text:All time fixture");
+  const refreshBoard = app.press(`label:${t.home_refresh_market}`);
+  try {
+    await refreshRequest;
+    await app.wait(32);
+    const pendingRefresh = `role:button[${t.home_market_loading}]`;
+    expect(app.shows(pendingRefresh)).toBe(true);
+    expect(app.enabled(pendingRefresh)).toBe(false);
+    expect(app.shows(skeleton)).toBe(false);
+    expect(app.shows("text:All time fixture")).toBe(true);
+    expect(app.shows("text:Working…")).toBe(false);
+  } finally {
+    finishRefresh(ranking("Refreshed fixture"));
+    await refreshBoard;
+  }
+
+  await app.waitFor("text:Refreshed fixture");
+  expect(app.shows("text:All time fixture")).toBe(false);
+  expect(allTimeRequests).toBe(2);
+});
+
 test("Library search releases focus on Escape and blank clicks without clearing the query", async () => {
   const app = await openHome((command) => {
     if (command === "library.state") {

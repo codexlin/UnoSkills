@@ -1,5 +1,5 @@
 export { Action, ActionControl, type ActionVariant } from "./buttons";
-export { AlertBanner, Hint, InlineError, LoadingLine, ProgressBar } from "./feedback";
+export { AlertBanner, Hint, InlineError, LoadingLine, ProgressBar, SkeletonBlock } from "./feedback";
 export { FormText, TextInput } from "./fields";
 export { focusOutline, interactionStyles } from "./interaction";
 export { Icon, Label, PageHeader, textSize } from "./layout";

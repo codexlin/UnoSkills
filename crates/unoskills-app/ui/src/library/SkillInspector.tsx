@@ -5,7 +5,7 @@ import type { Theme } from "../shared";
 import { ActionButton, EmptyState, hintTooltip } from "./controls";
 import { isSkillDeployedTo, joinPath } from "./format";
 import { errorMessage, revealPath } from "./host";
-import { type Locale, getStrings } from "./strings";
+import { type Locale, busyUpdatingSkill, getStrings } from "./strings";
 import type {
   AgentInfo,
   ProjectSkillStatus,
@@ -113,6 +113,9 @@ export function SkillInspector(props: {
               >
                 {`${skill().source_ref ?? skill().source_type} · ~${skill().estimated_tokens} tokens`}
               </Text>
+              <If when={props.updatingSkillId === skill().id}>
+                <LoadingLine theme={props.theme} compact label={busyUpdatingSkill(props.locale, skill().name)} />
+              </If>
             </View>
 
             <If

@@ -91,6 +91,7 @@ export interface LibraryStrings {
   market_same_name: string;
   market_view_details: string;
   market_loading: string;
+  market_searching: string;
   market_loading_more: string;
   btn_load_more: string;
   empty_market_title: string;
@@ -98,6 +99,7 @@ export interface LibraryStrings {
   installs_unit: string;
   ph_adopt_search: string;
   btn_rescan: string;
+  adopt_scanning: string;
   btn_adopt: string;
   adopt_select_group: string;
   adopt_clear_selection: string;
@@ -107,7 +109,6 @@ export interface LibraryStrings {
   empty_adopt_done_desc: string;
   empty_adopt_filter_title: string;
   empty_adopt_filter_desc: string;
-  busy_loading_market: string;
 }
 
 const EN: LibraryStrings = {
@@ -198,6 +199,7 @@ const EN: LibraryStrings = {
   market_same_name: "Name in library",
   market_view_details: "View on skills.sh",
   market_loading: "Loading leaderboard from skills.sh...",
+  market_searching: "Searching skills.sh...",
   market_loading_more: "Loading next page...",
   btn_load_more: "Load More",
   empty_market_title: "No skills found",
@@ -205,6 +207,7 @@ const EN: LibraryStrings = {
   installs_unit: "installs",
   ph_adopt_search: "Filter local skills by name, agent, or path…",
   btn_rescan: "Rescan",
+  adopt_scanning: "Scanning for local skills...",
   btn_adopt: "Add to library",
   adopt_select_group: "Select this group",
   adopt_clear_selection: "Clear selection",
@@ -215,7 +218,6 @@ const EN: LibraryStrings = {
   empty_adopt_done_desc: "All detected agent skills are already in your UnoSkills library.",
   empty_adopt_filter_title: "No matching local skills",
   empty_adopt_filter_desc: "Try clearing your filter keyword.",
-  busy_loading_market: "Loading leaderboard...",
 };
 
 const ZH_CN: LibraryStrings = {
@@ -306,6 +308,7 @@ const ZH_CN: LibraryStrings = {
   market_same_name: "同名已在库",
   market_view_details: "在 skills.sh 查看",
   market_loading: "正在从 skills.sh 加载榜单...",
+  market_searching: "正在搜索 skills.sh...",
   market_loading_more: "正在加载下一页...",
   btn_load_more: "加载更多",
   empty_market_title: "暂无技能结果",
@@ -313,6 +316,7 @@ const ZH_CN: LibraryStrings = {
   installs_unit: "次安装",
   ph_adopt_search: "按名称、Agent 或路径筛选本机技能…",
   btn_rescan: "重新扫描",
+  adopt_scanning: "正在扫描本机技能...",
   btn_adopt: "纳入技能库",
   adopt_select_group: "选中此组",
   adopt_clear_selection: "清除选择",
@@ -323,7 +327,6 @@ const ZH_CN: LibraryStrings = {
   empty_adopt_done_desc: "本机已检测到的 Agent 技能都已在 UnoSkills 技能库中统一管理。",
   empty_adopt_filter_title: "没有匹配的本机技能",
   empty_adopt_filter_desc: "清空筛选词再试试。",
-  busy_loading_market: "正在加载排行榜...",
 };
 
 const JA: LibraryStrings = {
@@ -414,6 +417,7 @@ const JA: LibraryStrings = {
   market_same_name: "同名が導入済み",
   market_view_details: "skills.sh で見る",
   market_loading: "skills.sh からランキングを読み込み中...",
+  market_searching: "skills.sh を検索中...",
   market_loading_more: "次のページを読み込み中...",
   btn_load_more: "もっと読み込む",
   empty_market_title: "スキルが見つかりません",
@@ -421,6 +425,7 @@ const JA: LibraryStrings = {
   installs_unit: "導入",
   ph_adopt_search: "名前・エージェント・パスで絞り込み...",
   btn_rescan: "再スキャン",
+  adopt_scanning: "ローカルスキルをスキャン中...",
   btn_adopt: "ライブラリに追加",
   adopt_select_group: "このグループを選択",
   adopt_clear_selection: "選択を解除",
@@ -431,7 +436,6 @@ const JA: LibraryStrings = {
   empty_adopt_done_desc: "検出されたエージェントのスキルはすべて UnoSkills で管理されています。",
   empty_adopt_filter_title: "一致する未管理スキルがありません",
   empty_adopt_filter_desc: "絞り込み条件をクリアしてお試しください。",
-  busy_loading_market: "ランキングを読み込み中...",
 };
 
 export function getStrings(locale: Locale): LibraryStrings {
@@ -608,17 +612,6 @@ export function busyInstalling(locale: Locale, source: string): string {
       return `${source} をインストール中...`;
     default:
       return `Installing ${source}...`;
-  }
-}
-
-export function busySearching(locale: Locale, query: string): string {
-  switch (locale) {
-    case "zh-CN":
-      return `正在搜索「${query}」...`;
-    case "ja":
-      return `「${query}」を検索中...`;
-    default:
-      return `Searching '${query}'...`;
   }
 }
 

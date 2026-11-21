@@ -2,7 +2,7 @@ import { batch, cleanup, computed, signal } from "nsh";
 import { AlertDialog } from "nsh/base";
 import type { ScreenProps } from "../shared";
 import { adoptLocalSkills, errorMessage, loadLibraryState, scanAdoptableSkills } from "./host";
-import { adoptConfirmTitle, busyAdoptingAll, getStrings, toastAdoptedAll } from "./strings";
+import { adoptConfirmTitle, getStrings, toastAdoptedAll } from "./strings";
 import type { AdoptCandidate, Skill } from "./types";
 
 export interface AdoptGroup {
@@ -23,7 +23,6 @@ export function createAdoption(
   onInventory: (skills: Skill[]) => void,
 ) {
   const s = () => getStrings(screen.locale);
-  const busyText = signal<string | null>(null);
   const adoptCandidates = signal<AdoptCandidate[]>([]);
   const adoptSearch = signal("");
   const selectedAdoptPaths = signal<Record<string, boolean>>({});
@@ -188,10 +187,7 @@ export function createAdoption(
       return;
     }
 
-    batch(() => {
-      adopting.set(true);
-      busyText.set(busyAdoptingAll(screen.locale, chosen.length));
-    });
+    adopting.set(true);
     try {
       const result = await adoptLocalSkills(chosen);
       selectedAdoptPaths.set({});
@@ -206,10 +202,7 @@ export function createAdoption(
     } catch (error) {
       screen.notify(errorMessage(error), "error");
     } finally {
-      batch(() => {
-        adopting.set(false);
-        busyText.set(null);
-      });
+      adopting.set(false);
     }
   };
 
@@ -222,7 +215,6 @@ export function createAdoption(
     scanning: () => scanningAdopt(),
     adopting: () => adopting(),
     error: () => adoptError(),
-    busyText: () => busyText(),
     changeSearch: (value: string) => adoptSearch.set(value),
     clearSelection: () => selectedAdoptPaths.set({}),
     scan,

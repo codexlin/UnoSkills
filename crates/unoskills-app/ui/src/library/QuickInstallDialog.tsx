@@ -2,7 +2,7 @@ import { type InputRef, Text, View, effect, signal } from "nsh";
 import { Dialog } from "nsh/base";
 import type { Theme } from "../shared";
 import { ActionButton } from "./controls";
-import { AlertBanner, LoadingLine, TextInput } from "../components";
+import { AlertBanner, TextInput } from "../components";
 import { errorMessage, installFromSource, pickFolder } from "./host";
 import { type Locale, busyInstalling, getStrings, toastInstalled } from "./strings";
 import type { Skill } from "./types";
@@ -134,14 +134,6 @@ export function QuickInstallDialog(props: {
         submitBehavior="submit"
       />
 
-      <If when={installing()}>
-        <LoadingLine
-          theme={props.theme}
-          compact
-          label={busyInstalling(props.locale, source().trim())}
-        />
-      </If>
-
       <If when={Boolean(inlineError())}>
         <AlertBanner theme={props.theme} tone="error" message={inlineError() ?? ""} />
       </If>
@@ -177,6 +169,7 @@ export function QuickInstallDialog(props: {
             theme={props.theme}
             kind="primary"
             label={s().btn_install}
+            accessibilityLabel={installing() ? busyInstalling(props.locale, source().trim()) : s().btn_install}
             loading={installing()}
             onPress={() => {
               void submitInstall();

@@ -34,7 +34,6 @@ import {
   updateSkill,
 } from "./host";
 import {
-  busyUpdatingSkill,
   confirmDeleteSkillDesc,
   confirmDetachProjectDesc,
   getStrings,
@@ -66,7 +65,6 @@ export function Library(props: ScreenProps) {
 
   const inspectorTab = signal<"deployments" | "preview">("deployments");
   const updatingSkillId = signal<string | null>(null);
-  const busyLabel = signal<string | null>(null);
   const listPaneWidth = signal(408);
 
   let searchInputRef: InputRef | undefined;
@@ -86,6 +84,11 @@ export function Library(props: ScreenProps) {
     const id = selectedSkillId();
     return id ? (skills().find((skill) => skill.id === id) ?? null) : null;
   });
+
+  const scopeBlocksList = () =>
+    Boolean(scope.projectId() && agentFilter() && skills().length && (scope.loading() || scope.error()));
+  const scopeFeedbackVisible = () =>
+    scopeBlocksList() || (scope.project() && selectedSkill() && inspectorTab() === "deployments");
 
   const filteredSkills = computed(() => {
     const query = searchQuery().trim().toLowerCase();
@@ -237,10 +240,7 @@ export function Library(props: ScreenProps) {
     if (editor.editingSkill(skill.id) && !(await editor.confirmDiscardIfDirty())) {
       return;
     }
-    batch(() => {
-      updatingSkillId.set(skill.id);
-      busyLabel.set(busyUpdatingSkill(props.locale, skill.name));
-    });
+    updatingSkillId.set(skill.id);
     try {
       const outcome = await updateSkill(skill.id);
       if (outcome.updated) {
@@ -264,10 +264,7 @@ export function Library(props: ScreenProps) {
     } catch (error) {
       props.notify(errorMessage(error), "error");
     } finally {
-      batch(() => {
-        updatingSkillId.set(null);
-        busyLabel.set(null);
-      });
+      updatingSkillId.set(null);
     }
   };
 
@@ -410,7 +407,6 @@ export function Library(props: ScreenProps) {
       <PageHeader
         theme={props.theme}
         title={s().nav_library}
-        busyText={busyLabel()}
         right={
           <>
             <If when={Boolean(scope.project())}>
@@ -505,7 +501,8 @@ export function Library(props: ScreenProps) {
           theme={props.theme}
           kind="ghost"
           glyph="refresh-cw"
-          loading={loadingState()}
+          loading={loadingState() && !(scope.loading() && scopeFeedbackVisible())}
+          disabled={loadingState()}
           accessibilityLabel={s().tooltip_refresh}
           tooltip={s().tooltip_refresh}
           onPress={() => {
@@ -546,9 +543,8 @@ export function Library(props: ScreenProps) {
               selectedSkillId={selectedSkillId()}
               projectScope={scope.projectId() !== null}
               hasProjectStatuses={scope.statuses() !== null}
-              projectStatusLoading={scope.loading()}
+              scopeBlocksList={scopeBlocksList()}
               projectStatusError={scope.error()}
-              agentFilter={agentFilter()}
               isAvailableForAgent={scope.isAvailable}
               onSelectSkill={(id) => {
                 void selectSkill(id);
@@ -570,8 +566,8 @@ export function Library(props: ScreenProps) {
               activeProject={scope.project()}
               scopePath={scope.path()}
               scopeLabel={scope.label()}
-              projectStatusLoading={scope.loading()}
-              projectStatusError={scope.error()}
+              projectStatusLoading={scope.loading() && !scopeBlocksList()}
+              projectStatusError={scopeBlocksList() ? null : scope.error()}
               projectStatusFor={scope.statusFor}
               inspectorTab={inspectorTab()}
               editing={editor.editing()}

@@ -1,4 +1,4 @@
-import { View, type JSX } from "nsh";
+import { View, type DimensionValue, type JSX } from "nsh";
 import { Progress, Tooltip } from "nsh/base";
 import type { Theme } from "../shared";
 import { Label, textSize } from "./layout";
@@ -14,7 +14,7 @@ export function Hint(props: { theme: Theme; text: string; placement?: "bottom" |
 const progressWidths = { indicator: 16, compact: 40, loading: 56, full: undefined };
 
 export function ProgressBar(props: {
-  theme: Theme; label: string; value?: number | null; onPrimary?: boolean;
+  theme: Theme; label?: string; value?: number | null; onPrimary?: boolean;
   size?: keyof typeof progressWidths; children?: JSX.Element;
 }) {
   const pending = () => props.value == null;
@@ -33,6 +33,12 @@ export function LoadingLine(props: { theme: Theme; label: string; compact?: bool
   return <ProgressBar theme={props.theme} label={props.label} size={props.compact ? "compact" : "loading"}>
     <Label theme={props.theme} muted size={props.compact ? 12 : 13} truncate>{props.label}</Label>
   </ProgressBar>;
+}
+
+export function SkeletonBlock(props: { theme: Theme; width: DimensionValue; height: number }) {
+  return <View accessibilityElementsHidden class="animate-pulse motion-reduce:animate-none"
+    style={{ width: props.width, height: props.height, borderRadius: Math.min(props.theme.radius, 4),
+      backgroundColor: props.theme.border }} />;
 }
 
 type FeedbackTone = "error" | "warning" | "info" | "success";
