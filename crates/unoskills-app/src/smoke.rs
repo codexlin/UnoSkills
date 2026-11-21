@@ -205,7 +205,7 @@ fn native_folder_pick_leads_from_scoped_project_to_stack_preview_and_library() {
     open(&mut items, &scope.to_string_lossy());
     wait_for(&engine, &rx, &mut items, "2 selected", visible_text);
     open(&mut items, "Save as Stack");
-    wait_for(&engine, &rx, &mut items, "Deployment preview", visible_text);
+    wait_for(&engine, &rx, &mut items, "Deployment Folder", visible_text);
     let stack_name = format!("{} · {}", project.name, scope.display());
     wait_for(&engine, &rx, &mut items, &stack_name, visible_text);
     assert!(
