@@ -331,7 +331,8 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       });
       await savePress;
     }
-    await app.wait(50);
+    await app.waitFor("text:success:Saved Alpha Skill (~99 tokens)");
+    await app.waitFor("text:Beta Original");
 
     const screenText = app.texts().join("\n");
     expect(screenText).toContain("Beta Original");
