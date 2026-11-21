@@ -403,8 +403,9 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     let webDeployed = false;
     let conflictInjected = false;
     const olderRefresh = deferred<unknown>();
-    let delayRefresh = false;
-    let refreshRequested = false;
+    const refreshStarted = deferred<void>();
+    const refreshedLibrary = makeLibraryState([{ ...skills[0], name: "Alpha after refresh" }, skills[1]], "apps/web");
+    let holdNextRefresh = false;
 
     const app = await open("./LibraryTestHarness.tsx", {
       platform: "macos",
@@ -436,8 +437,9 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
             });
 
             if (command === "library.state") {
-              if (delayRefresh && !refreshRequested && scope === "apps/web") {
-                refreshRequested = true;
+              if (holdNextRefresh && scope === "apps/web") {
+                holdNextRefresh = false;
+                refreshStarted.resolve();
                 return olderRefresh.promise;
               }
               return makeLibraryState(
@@ -447,6 +449,8 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
               );
             }
             if (command === "library.project_statuses") {
+              // Release the old read only after the menu choice has changed the scope.
+              if (scope === "") olderRefresh.resolve(refreshedLibrary);
               const value: ProjectStatusesResponse = {
                 project_id: String(input?.project_id ?? ""),
                 scope_path: scope,
@@ -548,11 +552,11 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       scopePath: "apps/web",
     });
     await app.waitUntil(() => app.texts().includes("/tmp/demo-repo/apps/web"));
-    delayRefresh = true;
+    await app.press("label:Deployment scope");
+    holdNextRefresh = true;
     const refresh = app.host.send("test.refresh");
     try {
-      await app.waitUntil(() => refreshRequested);
-      await app.press("label:Deployment scope");
+      await refreshStarted.promise;
       await app.press("text:Demo Repo");
       await app.waitUntil(() => app.texts().includes("/tmp/demo-repo"));
 
@@ -564,7 +568,7 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
         scope_path: "",
       });
     } finally {
-      olderRefresh.resolve(makeLibraryState([{ ...skills[0], name: "Alpha after refresh" }, skills[1]], "apps/web"));
+      olderRefresh.resolve(refreshedLibrary);
       await refresh;
     }
     await app.waitFor("text:Alpha after refresh");
