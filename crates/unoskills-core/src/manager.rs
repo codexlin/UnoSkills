@@ -35,8 +35,8 @@ use crate::sync::{
 };
 use crate::updater::{
     DEFAULT_RELEASES_API_URL, DownloadedUpdate, PlatformKind, ReleaseAsset, UpdateCheckOutcome,
-    download_and_verify_update, fetch_latest_release, find_checksums_asset, is_newer_semver,
-    select_platform_asset, should_run_startup_check,
+    UpdateProgress, download_and_verify_update_with_progress, fetch_latest_release,
+    find_checksums_asset, is_newer_semver, select_platform_asset, should_run_startup_check,
 };
 
 pub struct UnoSkillsManager {
@@ -1413,16 +1413,27 @@ impl UnoSkillsManager {
         asset: &ReleaseAsset,
         checksums_asset: Option<&ReleaseAsset>,
     ) -> Result<DownloadedUpdate> {
+        self.download_app_update_with_progress(version, asset, checksums_asset, |_| {})
+    }
+
+    pub fn download_app_update_with_progress(
+        &self,
+        version: &str,
+        asset: &ReleaseAsset,
+        checksums_asset: Option<&ReleaseAsset>,
+        progress: impl FnMut(UpdateProgress),
+    ) -> Result<DownloadedUpdate> {
         let proxy = self.http_proxy();
         let token = self.github_token();
         let updates_dir = self.root_dir.join("updates");
-        download_and_verify_update(
+        download_and_verify_update_with_progress(
             version,
             asset,
             checksums_asset,
             &updates_dir,
             proxy.as_deref(),
             token.as_deref(),
+            progress,
         )
     }
 

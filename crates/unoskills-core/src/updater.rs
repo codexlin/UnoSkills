@@ -8,8 +8,15 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use reqwest::{
+    Url,
+    blocking::{Client, Response},
+    header::{ACCEPT, CONTENT_TYPE},
+};
 
 use crate::parser::sanitize_slug;
 use crate::source::build_http_client;
@@ -58,6 +65,8 @@ impl PlatformKind {
 pub struct ReleaseAsset {
     pub name: String,
     pub download_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_download_url: Option<String>,
     pub size: u64,
 }
 
@@ -85,6 +94,13 @@ pub struct DownloadedUpdate {
     pub file_path: PathBuf,
     pub sha256: String,
     pub verified: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpdateProgress {
+    Preparing,
+    Downloading(Option<u8>),
+    Verifying,
 }
 
 /// Returns `true` when enough time has elapsed since the previous startup check.
@@ -258,6 +274,8 @@ pub fn fetch_latest_release(
     struct GhAsset {
         name: String,
         browser_download_url: String,
+        #[serde(rename = "url")]
+        api_download_url: Option<String>,
         #[serde(default)]
         size: u64,
     }
@@ -285,10 +303,57 @@ pub fn fetch_latest_release(
             .map(|a| ReleaseAsset {
                 name: a.name,
                 download_url: a.browser_download_url,
+                api_download_url: a.api_download_url,
                 size: a.size,
             })
             .collect(),
     }))
+}
+
+fn download_release_asset(
+    client: &Client,
+    asset: &ReleaseAsset,
+    github_token: Option<&str>,
+    timeout: Duration,
+) -> Result<Response> {
+    let request = |url: &str, binary: bool| -> Result<Response> {
+        let url = Url::parse(url).context("Invalid release download URL")?;
+        let mut request = client.get(url.clone()).timeout(timeout);
+        if binary {
+            request = request.header(ACCEPT, "application/octet-stream");
+        }
+        if url.scheme() == "https"
+            && url.port().is_none()
+            && matches!(url.host_str(), Some("github.com" | "api.github.com"))
+            && let Some(token) = github_token
+                .map(str::trim)
+                .filter(|token| !token.is_empty())
+        {
+            request = request.bearer_auth(token);
+        }
+        let response = request
+            .send()
+            .and_then(Response::error_for_status)
+            .map_err(reqwest::Error::without_url)?;
+        if binary
+            && response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.contains("json"))
+        {
+            bail!("GitHub returned asset metadata instead of the download");
+        }
+        Ok(response)
+    };
+
+    let result = request(&asset.download_url, false).or_else(|error| {
+        let Some(url) = &asset.api_download_url else {
+            return Err(error);
+        };
+        request(url, true).with_context(|| format!("Direct download failed ({error})"))
+    });
+    result.with_context(|| format!("Failed to download {}", asset.name))
 }
 
 /// Downloads a release asset into `dest_dir` and verifies its SHA-256 checksum
@@ -301,6 +366,27 @@ pub fn download_and_verify_update(
     proxy_url: Option<&str>,
     github_token: Option<&str>,
 ) -> Result<DownloadedUpdate> {
+    download_and_verify_update_with_progress(
+        version,
+        asset,
+        checksums_asset,
+        dest_dir,
+        proxy_url,
+        github_token,
+        |_| {},
+    )
+}
+
+pub(crate) fn download_and_verify_update_with_progress(
+    version: &str,
+    asset: &ReleaseAsset,
+    checksums_asset: Option<&ReleaseAsset>,
+    dest_dir: &Path,
+    proxy_url: Option<&str>,
+    github_token: Option<&str>,
+    mut progress: impl FnMut(UpdateProgress),
+) -> Result<DownloadedUpdate> {
+    progress(UpdateProgress::Preparing);
     let safe_name = Path::new(&asset.name)
         .file_name()
         .and_then(|s| s.to_str())
@@ -310,20 +396,18 @@ pub fn download_and_verify_update(
     let target_dir = dest_dir.join(safe_ver);
     std::fs::create_dir_all(&target_dir)?;
 
-    let client = build_http_client(proxy_url, 180)?;
+    const INSTALLER_TIMEOUT_SECS: u64 = 180;
+    let client = build_http_client(proxy_url, INSTALLER_TIMEOUT_SECS)
+        .context("Failed to initialize the update downloader")?;
 
     // 1. Fetch expected SHA-256 from SHA256SUMS.txt first (fail closed if present
     //    on the release but missing an entry for this asset).
     let expected_sha = if let Some(sums_asset) = checksums_asset {
-        let mut req = client.get(&sums_asset.download_url);
-        if let Some(tok) = github_token.map(str::trim).filter(|s| !s.is_empty()) {
-            req = req.bearer_auth(tok);
-        }
-        let sums_text = req
-            .send()?
-            .error_for_status()
-            .context("Failed to download SHA256SUMS.txt")?
-            .text()?;
+        let sums_text =
+            download_release_asset(&client, sums_asset, github_token, Duration::from_secs(20))?
+                .text()
+                .map_err(reqwest::Error::without_url)
+                .context("Failed to read SHA256SUMS.txt")?;
         let parsed = parse_sha256sums(&sums_text);
         let key = safe_name.to_ascii_lowercase();
         let digest = parsed
@@ -336,37 +420,48 @@ pub fn download_and_verify_update(
     };
 
     // 2. Download installer to a `.part` temp file inside `target_dir`.
-    let part_path = target_dir.join(format!("{safe_name}.part"));
     let final_path = target_dir.join(safe_name);
-    let mut req = client.get(&asset.download_url);
-    if let Some(tok) = github_token.map(str::trim).filter(|s| !s.is_empty()) {
-        req = req.bearer_auth(tok);
-    }
-    let mut resp = req
-        .send()?
-        .error_for_status()
-        .with_context(|| format!("Failed to download {safe_name}"))?;
-    {
-        let mut out = std::fs::File::create(&part_path)?;
-        std::io::copy(&mut resp, &mut out)?;
+    let mut resp = download_release_asset(
+        &client,
+        asset,
+        github_token,
+        Duration::from_secs(INSTALLER_TIMEOUT_SECS),
+    )?;
+    let mut part = tempfile::Builder::new()
+        .suffix(".part")
+        .tempfile_in(&target_dir)?;
+    let total = resp.content_length().unwrap_or(asset.size);
+    let mut percent = (total > 0).then_some(0);
+    progress(UpdateProgress::Downloading(percent));
+    let mut received = 0u64;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let len = resp
+            .read(&mut buffer)
+            .with_context(|| format!("Failed to read {safe_name}"))?;
+        if len == 0 {
+            break;
+        }
+        part.write_all(&buffer[..len])
+            .with_context(|| format!("Failed to save {safe_name}"))?;
+        received += len as u64;
+        let next = (total > 0).then(|| (received.saturating_mul(100) / total).min(100) as u8);
+        if next != percent {
+            percent = next;
+            progress(UpdateProgress::Downloading(percent));
+        }
     }
 
     // 3. Verify SHA-256 before moving into place.
     let (sha256, verified) = match expected_sha {
-        Some(expected) => match verify_file_sha256(&part_path, &expected) {
-            Ok(actual) => (actual, true),
-            Err(err) => {
-                let _ = std::fs::remove_file(&part_path);
-                return Err(err);
-            }
-        },
-        None => (compute_file_sha256(&part_path)?, false),
+        Some(expected) => {
+            progress(UpdateProgress::Verifying);
+            (verify_file_sha256(part.path(), &expected)?, true)
+        }
+        None => (compute_file_sha256(part.path())?, false),
     };
 
-    if final_path.exists() {
-        let _ = std::fs::remove_file(&final_path);
-    }
-    std::fs::rename(&part_path, &final_path)?;
+    part.persist(&final_path)?;
 
     Ok(DownloadedUpdate {
         version: version.to_string(),
@@ -376,9 +471,7 @@ pub fn download_and_verify_update(
     })
 }
 
-/// Launches the verified platform installer (Windows Inno `.exe` or macOS `.dmg`).
-/// On Linux `.deb` packages require elevated package-manager install, so callers
-/// should reveal the downloaded `.deb` or open the release page instead.
+/// Opens the downloaded package with the platform installer.
 pub fn launch_platform_installer(path: &Path) -> Result<()> {
     if !path.is_file() {
         bail!("Installer file not found: {}", path.display());
@@ -398,10 +491,23 @@ pub fn launch_platform_installer(path: &Path) -> Result<()> {
             .with_context(|| format!("Failed to open macOS DMG {}", path.display()))?;
         Ok(())
     }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(target_os = "linux")]
     {
-        let _ = path;
-        bail!("Direct installer launch is handled via package manager on Linux")
+        if path.extension().and_then(|extension| extension.to_str()) != Some("deb") {
+            bail!("A Debian package is required");
+        }
+        if !std::process::Command::new("xdg-open")
+            .arg(path)
+            .status()?
+            .success()
+        {
+            bail!("Could not open the Debian package");
+        }
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        bail!("No installer launch is available for this platform")
     }
 }
 
@@ -442,36 +548,43 @@ mod tests {
             ReleaseAsset {
                 name: "unoskills-macos-arm64.tar.gz".into(),
                 download_url: "https://example/macos.tar.gz".into(),
+                api_download_url: None,
                 size: 10,
             },
             ReleaseAsset {
                 name: "unoskills-macos-arm64.dmg".into(),
                 download_url: "https://example/macos.dmg".into(),
+                api_download_url: None,
                 size: 20,
             },
             ReleaseAsset {
                 name: "unoskills-windows-x64.zip".into(),
                 download_url: "https://example/win.zip".into(),
+                api_download_url: None,
                 size: 10,
             },
             ReleaseAsset {
                 name: "unoskills-setup-0.4.0-windows-x64.exe".into(),
                 download_url: "https://example/setup.exe".into(),
+                api_download_url: None,
                 size: 30,
             },
             ReleaseAsset {
                 name: "unoskills-linux-x64.tar.gz".into(),
                 download_url: "https://example/linux.tar.gz".into(),
+                api_download_url: None,
                 size: 10,
             },
             ReleaseAsset {
                 name: "unoskills_0.4.0_amd64.deb".into(),
                 download_url: "https://example/linux.deb".into(),
+                api_download_url: None,
                 size: 25,
             },
             ReleaseAsset {
                 name: "SHA256SUMS.txt".into(),
                 download_url: "https://example/SHA256SUMS.txt".into(),
+                api_download_url: None,
                 size: 1,
             },
         ];
@@ -541,11 +654,24 @@ mod tests {
         let good_sums_c = good_sums.clone();
         let bad_sums_c = bad_sums.clone();
         let handle = std::thread::spawn(move || {
-            for _ in 0..4 {
+            for _ in 0..7 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut req_buf = [0u8; 1024];
                 let n = stream.read(&mut req_buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&req_buf[..n]);
+                assert!(!req.to_ascii_lowercase().contains("authorization:"));
+                if req.starts_with("GET /blocked-") {
+                    stream
+                        .write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        .unwrap();
+                    continue;
+                }
+                if !req.starts_with("GET /bad-sums") {
+                    assert!(
+                        req.to_ascii_lowercase()
+                            .contains("accept: application/octet-stream")
+                    );
+                }
                 let body: &[u8] = if req.starts_with("GET /good-sums") {
                     good_sums_c.as_bytes()
                 } else if req.starts_with("GET /bad-sums") {
@@ -565,33 +691,47 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let asset = ReleaseAsset {
             name: "unoskills_0.4.0_amd64.deb".into(),
-            download_url: format!("http://{addr}/installer.deb"),
+            download_url: format!("http://{addr}/blocked-installer"),
+            api_download_url: Some(format!("http://{addr}/installer.deb")),
             size: payload.len() as u64,
         };
         let good_sums_asset = ReleaseAsset {
             name: "SHA256SUMS.txt".into(),
-            download_url: format!("http://{addr}/good-sums"),
+            download_url: format!("http://{addr}/blocked-sums"),
+            api_download_url: Some(format!("http://{addr}/good-sums")),
             size: good_sums.len() as u64,
         };
         let bad_sums_asset = ReleaseAsset {
             name: "SHA256SUMS.txt".into(),
             download_url: format!("http://{addr}/bad-sums"),
+            api_download_url: None,
             size: bad_sums.len() as u64,
         };
 
         // 1. Matching SHA256SUMS succeeds and writes verified file.
-        let ok = download_and_verify_update(
+        let mut progress = Vec::new();
+        let ok = download_and_verify_update_with_progress(
             "v0.4.0",
             &asset,
             Some(&good_sums_asset),
             &tmp.path().join("ok"),
             None,
-            None,
+            Some("fixture-token"),
+            |event| progress.push(event),
         )
         .unwrap();
         assert!(ok.verified);
         assert_eq!(ok.sha256, good_sha);
         assert!(ok.file_path.is_file());
+        assert_eq!(
+            progress,
+            [
+                UpdateProgress::Preparing,
+                UpdateProgress::Downloading(Some(0)),
+                UpdateProgress::Downloading(Some(100)),
+                UpdateProgress::Verifying,
+            ]
+        );
 
         // 2. Mismatched SHA256SUMS fails AND deletes the unverified `.part` file.
         let bad_dir = tmp.path().join("bad");
@@ -605,11 +745,9 @@ mod tests {
         )
         .expect_err("tampered download must fail checksum verification");
         assert!(err.to_string().contains("SHA-256 checksum mismatch"));
-        assert!(!bad_dir.join("v0.4.0/unoskills_0.4.0_amd64.deb").exists());
-        assert!(
-            !bad_dir
-                .join("v0.4.0/unoskills_0.4.0_amd64.deb.part")
-                .exists()
+        assert_eq!(
+            std::fs::read_dir(bad_dir.join("v0.4.0")).unwrap().count(),
+            0
         );
 
         handle.join().unwrap();

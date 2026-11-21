@@ -20,10 +20,10 @@ use gpui_kit::{
 };
 use unoskills_core::{AgentInfo, DeployMode};
 
-use crate::components::badges::StatusBadge;
 use crate::components::segmented::SegmentedControl;
+use crate::components::{app_update, badges::StatusBadge};
 use crate::fonts::{AccentPalette, AppearancePreference, FONT_SIZE_CHOICES, RADIUS_CHOICES};
-use crate::state::WorkspaceState;
+use crate::state::{UpdateDownload, WorkspaceState};
 
 use super::SettingsView;
 
@@ -442,7 +442,9 @@ impl SettingsView {
         let checking_updates = ws.checking_updates();
         let downloading_update = ws.downloading_update();
         let available_update = ws.available_update().cloned();
-        let downloaded_update = ws.downloaded_update().cloned();
+        let download = ws.update_download();
+        let update_status = app_update::status_label(download, s);
+        let ready = matches!(download, UpdateDownload::Ready(_));
 
         card_group_box(s.settings_updates, theme.group_box, theme.radius_lg).child(
             v_flex()
@@ -485,6 +487,7 @@ impl SettingsView {
                                     .outline()
                                     .icon(IconName::RefreshCw)
                                     .loading(checking_updates)
+                                    .disabled(downloading_update)
                                     .label(s.btn_check_updates)
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.workspace.update(cx, |ws, cx| {
@@ -495,22 +498,14 @@ impl SettingsView {
                         ),
                 )
                 .when_some(
-                    available_update.and_then(|u| {
-                        u.latest
-                            .map(|r| (r, u.recommended_asset, u.checksums_asset.is_some()))
-                    }),
-                    |pane, (release, asset, _has_sums)| {
+                    available_update.and_then(|u| u.latest.map(|r| (r, u.recommended_asset))),
+                    |pane, (release, asset)| {
                         let release_url = release.html_url.clone();
                         let asset_label = asset
                             .as_ref()
                             .map(|a| a.name.clone())
                             .unwrap_or_else(|| release.tag_name.clone());
                         let install_btn_label = crate::state::platform_install_button_label(s);
-                        let verified_download = downloaded_update
-                            .as_ref()
-                            .filter(|d| d.version == release.tag_name)
-                            .cloned();
-
                         pane.child(Separator::horizontal()).child(
                             h_flex()
                                 .w_full()
@@ -528,21 +523,14 @@ impl SettingsView {
                                         .flex_1()
                                         .min_w_0()
                                         .gap_1()
-                                        .child(
-                                            h_flex()
-                                                .items_center()
-                                                .gap_2()
-                                                .child(StatusBadge::success(format!(
+                                        .child(StatusBadge::info(update_status.unwrap_or_else(
+                                            || {
+                                                format!(
                                                     "{} {}",
                                                     s.badge_update_available, release.tag_name
-                                                )))
-                                                .when(verified_download.is_some(), |row| {
-                                                    row.child(
-                                                        StatusBadge::info(s.badge_sha256_verified)
-                                                            .outline(),
-                                                    )
-                                                }),
-                                        )
+                                                )
+                                            },
+                                        )))
                                         .child(
                                             div()
                                                 .text_xs()
@@ -567,7 +555,7 @@ impl SettingsView {
                                                     }),
                                             )
                                         })
-                                        .child(if verified_download.is_some() {
+                                        .child(if ready {
                                             Button::new("apply-downloaded-update-btn")
                                                 .primary()
                                                 .icon(IconName::Check)
@@ -581,8 +569,11 @@ impl SettingsView {
                                             Button::new("download-verify-update-btn")
                                                 .primary()
                                                 .icon(IconName::ArrowDown)
-                                                .loading(downloading_update)
-                                                .label(s.btn_download_update)
+                                                .label(if downloading_update {
+                                                    s.update_view_progress
+                                                } else {
+                                                    s.update_action
+                                                })
                                                 .on_click(cx.listener(|this, _, window, cx| {
                                                     this.workspace.update(cx, |ws, cx| {
                                                         ws.prompt_download_update(window, cx);

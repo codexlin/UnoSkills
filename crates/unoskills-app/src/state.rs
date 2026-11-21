@@ -8,7 +8,9 @@ use gpui_kit::component::{Theme, WindowExt};
 use gpui_kit::{
     App, ClipboardItem, Context, EventEmitter, PathPromptOptions, SharedString, Window,
 };
-use unoskills_core::updater::{DownloadedUpdate, UpdateCheckOutcome, launch_platform_installer};
+use unoskills_core::updater::{
+    DownloadedUpdate, UpdateCheckOutcome, UpdateProgress, launch_platform_installer,
+};
 use unoskills_core::{
     AdoptCandidate, AgentCategory, AgentInfo, CustomAgentRecord, DeployMode, MarketplacePage,
     MarketplaceSkill, ProjectWorkspace, Skill, StackManifest, StackSkillRef, UnoSkillsManager,
@@ -118,6 +120,15 @@ pub enum MarketInstallStatus {
     SameName,
 }
 
+#[derive(Default)]
+pub enum UpdateDownload {
+    #[default]
+    Idle,
+    InProgress(UpdateProgress),
+    Ready(DownloadedUpdate),
+    Failed(String),
+}
+
 /// Shared application state: owns the `UnoSkillsManager` facade, preferences,
 /// cached domain snapshots, and the concurrent busy task stack. Feature views
 /// subscribe to [`WorkspaceEvent`] and stay thin.
@@ -141,9 +152,8 @@ pub struct WorkspaceState {
     deploy_mode: DeployMode,
     font_settings: FontSettings,
     checking_updates: bool,
-    downloading_update: bool,
     available_update: Option<UpdateCheckOutcome>,
-    downloaded_update: Option<DownloadedUpdate>,
+    update_download: UpdateDownload,
     updating_skill_id: Option<String>,
     adopting_all: bool,
     backup_busy: bool,
@@ -232,9 +242,8 @@ impl WorkspaceState {
                 corner_radius,
             },
             checking_updates: false,
-            downloading_update: false,
             available_update: None,
-            downloaded_update: None,
+            update_download: UpdateDownload::Idle,
             updating_skill_id: None,
             adopting_all: false,
             backup_busy: false,
@@ -325,15 +334,15 @@ impl WorkspaceState {
     }
 
     pub fn downloading_update(&self) -> bool {
-        self.downloading_update
+        matches!(self.update_download, UpdateDownload::InProgress(_))
     }
 
     pub fn available_update(&self) -> Option<&UpdateCheckOutcome> {
         self.available_update.as_ref()
     }
 
-    pub fn downloaded_update(&self) -> Option<&DownloadedUpdate> {
-        self.downloaded_update.as_ref()
+    pub fn update_download(&self) -> &UpdateDownload {
+        &self.update_download
     }
 
     pub fn updating_skill_id(&self) -> Option<&str> {
@@ -534,7 +543,7 @@ impl WorkspaceState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.checking_updates {
+        if self.checking_updates || self.downloading_update() {
             return;
         }
         self.checking_updates = true;
@@ -564,11 +573,22 @@ impl WorkspaceState {
                             && let Some(release) = &outcome.latest
                         {
                             let tag = release.tag_name.clone();
+                            if this
+                                .available_update
+                                .as_ref()
+                                .and_then(|update| update.latest.as_ref())
+                                .is_none_or(|previous| previous.tag_name != tag)
+                            {
+                                this.update_download = UpdateDownload::Idle;
+                            }
                             this.available_update = Some(outcome);
-                            let msg = this.lang.toast_update_available(&tag);
-                            this.notify_toast(false, msg, window, cx);
+                            if !silent {
+                                let msg = this.lang.toast_update_available(&tag);
+                                this.notify_toast(false, msg, window, cx);
+                            }
                         } else {
                             this.available_update = None;
+                            this.update_download = UpdateDownload::Idle;
                             if !silent {
                                 let msg = this.lang.toast_up_to_date(env!("CARGO_PKG_VERSION"));
                                 this.notify_toast(false, msg, window, cx);
@@ -586,151 +606,83 @@ impl WorkspaceState {
         .detach();
     }
 
-    /// Prompts for explicit user consent via an `AlertDialog` before downloading
-    /// and SHA-256 verifying the platform installer.
-    pub fn prompt_download_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(outcome) = self.available_update.clone() else {
-            return;
-        };
-        let Some(release) = outcome.latest.clone() else {
-            return;
-        };
-        let Some(asset) = outcome.recommended_asset.clone() else {
-            if !release.html_url.is_empty() {
-                cx.open_url(&release.html_url);
-            }
-            return;
-        };
-        let has_checksums = outcome.checksums_asset.is_some();
-        let ws_entity = cx.entity().clone();
-        let s = self.t();
-        let title = s.confirm_download_update_title;
-        let desc =
-            self.lang
-                .confirm_download_update_desc(&release.tag_name, &asset.name, has_checksums);
-        let ok_label = s.btn_download_update;
-        let cancel_label = s.btn_cancel;
-
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let ws_entity = ws_entity.clone();
-            alert
-                .confirm()
-                .centered()
-                .title(title)
-                .description(desc.clone())
-                .ok_text(ok_label)
-                .ok_variant(ButtonVariant::Primary)
-                .cancel_text(cancel_label)
-                .on_ok(move |_, window, cx| {
-                    ws_entity.update(cx, |ws, cx| {
-                        ws.download_update_async(window, cx);
-                    });
-                    true
-                })
-        });
+    pub fn prompt_download_update(&self, window: &mut Window, cx: &mut Context<Self>) {
+        crate::components::app_update::open_dialog(cx.entity(), window, cx);
     }
 
-    fn download_update_async(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.downloading_update {
+    pub fn download_update_async(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.checking_updates
+            || !matches!(
+                self.update_download,
+                UpdateDownload::Idle | UpdateDownload::Failed(_)
+            )
+        {
             return;
         }
-        let Some(outcome) = self.available_update.clone() else {
+        let Some(outcome) = self.available_update.as_ref() else {
             return;
         };
-        let Some(release) = outcome.latest else {
+        let (Some(release), Some(asset)) = (&outcome.latest, &outcome.recommended_asset) else {
             return;
         };
-        let Some(asset) = outcome.recommended_asset else {
-            return;
-        };
-        let checksums = outcome.checksums_asset;
+        let tag = release.tag_name.clone();
+        let asset = asset.clone();
+        let checksums = outcome.checksums_asset.clone();
 
-        self.downloading_update = true;
-        let busy_token = self.begin_busy(self.lang.busy_downloading_update(&release.tag_name), cx);
+        self.update_download = UpdateDownload::InProgress(UpdateProgress::Preparing);
         cx.emit(WorkspaceEvent::SettingsChanged);
+        window.refresh();
 
         let mgr = self.manager.clone();
-        let tag = release.tag_name.clone();
         let bg = cx.background_executor().clone();
+        let (sender, receiver) = async_channel::unbounded();
         cx.spawn_in(window, async move |this, cx| {
-            let res = bg
-                .spawn(async move { mgr.download_app_update(&tag, &asset, checksums.as_ref()) })
-                .await;
+            let download = bg.spawn(async move {
+                mgr.download_app_update_with_progress(
+                    &tag,
+                    &asset,
+                    checksums.as_ref(),
+                    |progress| {
+                        let _ = sender.try_send(progress);
+                    },
+                )
+            });
+            while let Ok(progress) = receiver.recv().await {
+                let _ = this.update_in(cx, |state, window, cx| {
+                    state.update_download = UpdateDownload::InProgress(progress);
+                    cx.emit(WorkspaceEvent::SettingsChanged);
+                    window.refresh();
+                });
+            }
+            let result = download.await;
             let _ = this.update_in(cx, |state, window, cx| {
-                state.downloading_update = false;
-                state.end_busy(busy_token, cx);
-                match res {
-                    Ok(downloaded) => {
-                        let version = downloaded.version.clone();
-                        state.downloaded_update = Some(downloaded.clone());
-                        let msg = state.lang.toast_update_verified(&version);
-                        state.notify_toast(false, msg, window, cx);
-                        state.prompt_install_downloaded_update(&downloaded, window, cx);
-                    }
-                    Err(e) => {
-                        state.notify_toast(true, format!("{e}"), window, cx);
-                    }
-                }
+                state.update_download = match result {
+                    Ok(downloaded) => UpdateDownload::Ready(downloaded),
+                    Err(error) => UpdateDownload::Failed(error.to_string()),
+                };
                 cx.emit(WorkspaceEvent::SettingsChanged);
+                window.refresh();
             });
         })
         .detach();
     }
 
-    fn prompt_install_downloaded_update(
-        &self,
-        downloaded: &DownloadedUpdate,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let ws_entity = cx.entity().clone();
-        let s = self.t();
-        let title = s.confirm_install_update_title;
-        let sha_short = downloaded.sha256.get(..12).unwrap_or(&downloaded.sha256);
-        let desc = self.lang.confirm_install_update_desc(
-            &downloaded.version,
-            &downloaded.file_path.to_string_lossy(),
-            sha_short,
-        );
-        let ok_label = platform_install_button_label(s);
-        let cancel_label = s.btn_cancel;
-
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let ws_entity = ws_entity.clone();
-            alert
-                .confirm()
-                .centered()
-                .title(title)
-                .description(desc.clone())
-                .ok_text(ok_label)
-                .ok_variant(ButtonVariant::Primary)
-                .cancel_text(cancel_label)
-                .on_ok(move |_, window, cx| {
-                    ws_entity.update(cx, |ws, cx| {
-                        ws.apply_downloaded_update(window, cx);
-                    });
-                    true
-                })
-        });
-    }
-
-    /// Executes the platform-appropriate install guidance for a verified download:
-    /// Windows launches Inno Setup `.exe`, macOS mounts `.dmg`, Linux reveals `.deb`.
     pub fn apply_downloaded_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(downloaded) = self.downloaded_update.clone() else {
+        let UpdateDownload::Ready(downloaded) = &self.update_download else {
             return;
         };
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
-        {
-            if let Err(e) = launch_platform_installer(&downloaded.file_path) {
-                self.notify_toast(true, format!("{e}"), window, cx);
+        let path = downloaded.file_path.clone();
+        let background = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let installer = path.clone();
+            let opened = background
+                .spawn(async move { launch_platform_installer(&installer) })
+                .await;
+            if opened.is_err() {
+                let _ = this.update_in(cx, |_, _, cx| cx.reveal_path(&path));
             }
-        }
-        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-        {
-            let _ = (window, launch_platform_installer);
-            cx.reveal_path(&downloaded.file_path);
-        }
+        })
+        .detach();
     }
 
     pub fn navigate(&mut self, tab: NavTab, cx: &mut Context<Self>) {
