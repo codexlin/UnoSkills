@@ -1,4 +1,4 @@
-import { View, type InputRef } from "nsh";
+import { View, cleanup, effect, keymap, signal, type InputRef } from "nsh";
 import { Input, type InputProps } from "nsh/base";
 import type { Theme } from "../shared";
 import { Label } from "./layout";
@@ -13,13 +13,26 @@ type TextInputProps = Pick<InputProps, "value" | "placeholder" | "accessibilityL
   inputRef?: (ref: InputRef) => void;
   onChange: (value: string) => void;
   onSubmit?: (value: string) => void;
+  onEscape?: () => void;
 };
 
 export function TextInput(props: TextInputProps) {
   const embedded = () => props.variant === "embedded";
-  return <Input ref={(input) => props.inputRef?.(input)} value={props.value} placeholder={props.placeholder} accessibilityLabel={props.accessibilityLabel}
+  const focused = signal(false);
+  let input: InputRef | undefined;
+  effect(() => {
+    if (focused()) {
+      cleanup(keymap.bind("escape", () => {
+        if (props.onEscape) props.onEscape();
+        else input?.blur();
+      }, { when: "always", forFocus: true }));
+    }
+  });
+  return <Input ref={(ref) => { input = ref; props.inputRef?.(ref); }}
+    value={props.value} placeholder={props.placeholder} accessibilityLabel={props.accessibilityLabel}
     multiline={props.multiline} masked={props.masked} autoFocus={props.autoFocus} disabled={props.disabled}
     autoCorrect={props.autoCorrect} returnKeyType={props.returnKeyType} submitBehavior={props.submitBehavior}
+    onFocus={() => focused.set(true)} onBlur={() => focused.set(false)}
     onChange={({ value }) => props.onChange(value)}
     onSubmit={props.onSubmit ? ({ text }) => props.onSubmit?.(text) : undefined}
     focusStyle={embedded() ? undefined : { borderColor: props.theme.primary }}

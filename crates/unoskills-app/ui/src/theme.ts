@@ -1,4 +1,5 @@
 import { colorScheme, setTheme } from "nsh";
+import { Scrollbar } from "nsh/base";
 import type { Locale, Theme } from "./shared";
 
 export interface Preferences {
@@ -180,4 +181,15 @@ export function applyNativeTheme(theme: Theme) {
     "font-sans": theme.fontFamily ?? "sans-serif",
     "font-mono": theme.monoFamily ?? "monospace",
   } } });
+  Scrollbar.setTheme({
+    mode: "hover",
+    vertical: {
+      class: "absolute inset-y-0 right-0 w-4 items-end p-1",
+      thumbClass: "w-1.5 rounded-full bg-muted-foreground opacity-60 hover:w-2 hover:opacity-100",
+    },
+    horizontal: {
+      class: "absolute inset-x-0 bottom-0 h-4 items-end p-1",
+      thumbClass: "h-1.5 rounded-full bg-muted-foreground opacity-60 hover:h-2 hover:opacity-100",
+    },
+  });
 }

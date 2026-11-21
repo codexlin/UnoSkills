@@ -125,6 +125,7 @@ export function QuickInstallDialog(props: {
         onSubmit={() => {
           void submitInstall();
         }}
+        onEscape={() => { if (!installing()) props.onOpenChange(false); }}
         placeholder={s().ph_install_source}
         accessibilityLabel={s().quick_install_title}
         disabled={installing()}

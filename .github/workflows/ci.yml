@@ -87,4 +87,11 @@ jobs:
       - name: Bundle TSX
         run: nsh build crates/unoskills-app/ui --release
       - name: Test TSX headlessly
-        run: nsh test crates/unoskills-app/ui
+        run: nsh test crates/unoskills-app/ui --junit "$RUNNER_TEMP/nsh-results.xml"
+      - name: Upload NSH test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsh-test-results
+          path: ${{ runner.temp }}/nsh-results.xml
+          if-no-files-found: ignore

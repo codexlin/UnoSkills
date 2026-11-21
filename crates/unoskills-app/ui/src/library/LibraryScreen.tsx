@@ -380,28 +380,22 @@ export function Library(props: ScreenProps) {
     if (!isActive()) {
       return;
     }
-    const unbindSearch = keymap.bind("mod+k", () => {
+    cleanup(keymap.bind("mod+k", () => {
       searchInputRef?.focus();
-    });
-    const unbindEdit = keymap.bind(
+    }));
+  });
+
+  effect(() => {
+    if (!isActive() || !editor.editing()) {
+      return;
+    }
+    cleanup(keymap.bind(
       {
-        "mod+s": () => {
-          if (editor.editing()) {
-            void editor.save();
-          }
-        },
-        escape: () => {
-          if (editor.editing()) {
-            void editor.cancel();
-          }
-        },
+        "mod+s": () => void editor.save(),
+        escape: () => void editor.cancel(),
       },
       { when: "always" },
-    );
-    cleanup(() => {
-      unbindSearch();
-      unbindEdit();
-    });
+    ));
   });
 
   return (

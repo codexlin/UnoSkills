@@ -645,6 +645,12 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     // Switch to Quick Install route and submit a source.
     await app.host.send("test.navigate", { page: "discover", tab: "install" });
     await app.waitFor("label:Quick Install");
+    await app.type("label:Quick Install", "unfinished");
+    await app.keyboard.press("escape");
+    expect(app.shows("label:Quick Install")).toBe(false);
+    await app.press("Install from Link");
+    await app.waitFor("label:Quick Install");
+    await app.clear("label:Quick Install");
     await app.press("Install");
     await app.waitFor("text:Enter a local path, Git URL, or owner/repo@skill first.");
     expect(app.texts()).not.toContain("error:Enter a local path, Git URL, or owner/repo@skill first.");

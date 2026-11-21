@@ -1,5 +1,6 @@
 import { expect, open, test } from "nsh/test";
 import { strings } from "../../src/i18n";
+import { getStrings } from "../../src/library/strings";
 import { defaults } from "../../src/theme";
 
 const t = strings.en;
@@ -66,6 +67,27 @@ test("Home keeps active metric cards, recent rows, chart, and separate ranked bo
   await app.press(trending);
   await app.waitFor("text:Trending fixture");
   expect(boards).toEqual(["trending", "all-time"]);
+});
+
+test("Library search releases focus on Escape and blank clicks without clearing the query", async () => {
+  const app = await openHome((command) => {
+    if (command === "library.state") {
+      return { ok: true, value: { skills: [], agents: [], projects: [], scope_path: "" } };
+    }
+    return { ok: true, value: command === "home.market" ? [] : { available: null } };
+  });
+  const library = getStrings("en");
+  const search = `label:${library.ph_search_skills}`;
+  await app.press(`label:${t.nav_library}`);
+  await app.type(search, "fixture");
+  await app.keyboard.press("escape");
+  await app.keyboard.press("x");
+  expect(app.value(search)).toBe("fixture");
+
+  await app.type(search, " two");
+  await app.press("id:desktop-shell");
+  await app.keyboard.press("y");
+  expect(app.value(search)).toBe("fixture two");
 });
 
 test("the title bar opens real update states with an accessible progress value", async () => {

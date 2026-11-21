@@ -1,4 +1,4 @@
-import { Image, View, announce, cleanup, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
+import { Image, Keyboard, View, announce, cleanup, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
 import { titleBar } from "nsh/desktop";
 import { setLocale } from "nsh/i18n";
 import { Action, ActionControl, Hint, Icon, InlineError, Label, textSize } from "./components";
@@ -206,7 +206,8 @@ export function App() {
       onPress={() => openFromNavigation(item.page)} />;
 
   return (
-    <View style={{ flex: 1, minHeight: 0, backgroundColor: theme().background }}>
+    <View testID="desktop-shell" accessible={false} focusable={false} onPress={() => Keyboard.dismiss()}
+      style={{ flex: 1, minHeight: 0, backgroundColor: theme().background }}>
       <View desktop={{ windowDrag: true }} style={{ height: 36, flexShrink: 0,
         paddingLeft: titleBarInset(titleBar().left) + 12, paddingRight: titleBarInset(titleBar().right) + 8,
         flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8,
