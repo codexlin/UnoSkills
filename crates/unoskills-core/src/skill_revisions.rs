@@ -205,9 +205,11 @@ impl UnoSkillsManager {
         let staging = tempfile::Builder::new()
             .prefix(".prepared-")
             .tempdir_in(self.revisions_dir())?;
-        copy_dir_recursive(source, &staging.path().join("candidate"))?;
+        let candidate = staging.path().join("candidate");
+        ensure_dst_not_overlapping_src(source, &candidate)?;
+        copy_dir_recursive(source, &candidate)?;
         ensure!(
-            is_valid_skill_dir(&staging.path().join("candidate")),
+            is_valid_skill_dir(&candidate),
             "The staged skill has no SKILL.md"
         );
         Ok(staging)
@@ -606,4 +608,19 @@ fn planned_targets(skill: &Skill, base_hash: &str, candidate_hash: &str) -> Vec<
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn revision_staging_rejects_a_source_containing_the_library() {
+        let source = tempfile::tempdir().unwrap();
+        fs::write(source.path().join("SKILL.md"), "# Local source").unwrap();
+        let manager = UnoSkillsManager::open_at(source.path().join("library")).unwrap();
+
+        let error = manager.stage_revision(source.path()).unwrap_err();
+        assert!(error.to_string().contains("refusing to avoid recursion"));
+    }
 }
