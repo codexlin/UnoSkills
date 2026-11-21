@@ -1,6 +1,27 @@
-import { Text, View, type JSX } from "nsh";
-import { Button, Dialog, Input, Select } from "nsh/base";
+import { Image, Text, View, type JSX } from "nsh";
+import { Button, Dialog, Input, Select, Tooltip } from "nsh/base";
+import { iconSource, type IconName } from "./icons";
 import type { Theme } from "./shared";
+
+export function Icon(props: { name: IconName; color: string; size?: number; spinning?: boolean }) {
+  return <Image accessibilityElementsHidden src={iconSource(props.name)}
+    class={props.spinning ? "animate-spin motion-reduce:animate-none" : undefined}
+    style={{ width: props.size ?? 16, height: props.size ?? 16, flexShrink: 0, tintColor: props.color }} />;
+}
+
+export function textSize(theme: Theme, points: number) {
+  return Math.round(theme.fontSize / 0.875) * points / 16;
+}
+
+export function PageHeader(props: { theme: Theme; title: string; children?: JSX.Element }) {
+  return <View style={{ flexDirection: "row", alignItems: "center", minHeight: 56, paddingHorizontal: 20,
+    paddingVertical: 8, gap: 12, borderBottomWidth: 1, borderColor: props.theme.border }}>
+    <View style={{ flex: 1, minWidth: 0 }}>
+      <Label theme={props.theme} heading truncate size={textSize(props.theme, 20)}>{props.title}</Label>
+    </View>
+    {props.children ? <View style={{ flexShrink: 0 }}>{props.children}</View> : null}
+  </View>;
+}
 
 export function Label(props: {
   theme: Theme;
@@ -11,6 +32,7 @@ export function Label(props: {
   size?: number;
   color?: string;
   truncate?: boolean;
+  weight?: "400" | "500" | "600";
 }) {
   return (
     <Text
@@ -21,7 +43,7 @@ export function Label(props: {
         color: props.color ?? (props.muted ? props.theme.muted : props.theme.foreground),
         fontFamily: props.mono ? props.theme.monoFamily : props.theme.fontFamily,
         fontSize: props.size ?? props.theme.fontSize,
-        fontWeight: props.heading ? "600" : "400",
+        fontWeight: props.weight ?? (props.heading ? "600" : "400"),
       }}
     >{props.children}</Text>
   );
@@ -37,8 +59,17 @@ export function Action(props: {
   disabled?: boolean;
   compact?: boolean;
   icon?: string;
+  glyph?: IconName;
+  iconOnly?: boolean;
+  tooltip?: string;
+  variant?: "primary" | "outline" | "ghost";
+  height?: number;
   role?: "button" | "link";
 }) {
+  const primary = () => props.variant === "primary" || props.onPrimary;
+  const ghost = () => props.variant === "ghost";
+  const height = () => props.height ?? (props.compact ? 30 : 36);
+  const ink = () => primary() ? props.theme.onPrimary : props.danger ? props.theme.danger : props.theme.foreground;
   return (
     <Button
       role={props.role}
@@ -46,24 +77,33 @@ export function Action(props: {
       onPress={() => props.onPress()}
       disabled={props.disabled}
       selected={props.selected}
+      tooltip={props.tooltip ? <Tooltip style={{
+        backgroundColor: props.theme.surface, borderColor: props.theme.border, borderWidth: 1,
+        borderRadius: props.theme.radius, paddingHorizontal: 8, paddingVertical: 4,
+      }}><Label theme={props.theme} size={textSize(props.theme, 12)}>{props.tooltip}</Label></Tooltip> : undefined}
       style={{
         alignSelf: "flex-start",
+        flexDirection: "row",
+        alignItems: "center",
         justifyContent: "center",
-        minHeight: props.compact ? 30 : 36,
-        paddingHorizontal: props.compact ? 8 : 12,
+        minWidth: props.iconOnly ? height() : undefined,
+        minHeight: height(),
+        gap: height() <= 24 ? 4 : 8,
+        paddingHorizontal: props.iconOnly ? 0 : height() <= 20 ? 4 : height() <= 30 ? 8 : 10,
         borderRadius: props.theme.radius,
-        backgroundColor: props.onPrimary ? props.theme.primary : props.selected ? props.theme.accent : props.theme.surface,
-        borderColor: props.onPrimary ? props.theme.primary : props.theme.border,
+        backgroundColor: primary() ? props.theme.primary : props.selected ? props.theme.accent : ghost() ? "transparent" : props.theme.surface,
+        borderColor: primary() ? props.theme.primary : ghost() ? "transparent" : props.theme.border,
         borderWidth: 1,
       }}
       focusVisibleStyle={{ borderColor: props.theme.primary }}
-      hoverStyle={{ opacity: 0.86 }}
-      activeStyle={{ opacity: 0.72 }}
+      hoverStyle={{ backgroundColor: primary() ? props.theme.chrome?.primaryHover ?? props.theme.primary : props.theme.chrome?.hover ?? props.theme.accent }}
+      activeStyle={{ backgroundColor: primary() ? props.theme.chrome?.primaryActive ?? props.theme.primary : props.theme.accent }}
       disabledStyle={{ opacity: 0.5 }}
     >
-      <Label theme={props.theme} color={props.onPrimary ? props.theme.onPrimary : props.danger ? props.theme.danger : undefined}>
+      {props.glyph ? <Icon name={props.glyph} color={ink()} size={height() <= 20 ? 12 : height() <= 24 ? 14 : 16} /> : null}
+      {!props.iconOnly ? <Label theme={props.theme} color={ink()} weight="500" size={height() <= 20 ? textSize(props.theme, 12) : undefined}>
         {props.icon ?? props.label}
-      </Label>
+      </Label> : null}
     </Button>
   );
 }
@@ -94,13 +134,14 @@ export function FormText(props: {
   placeholder?: string;
   masked?: boolean;
   autoFocus?: boolean;
+  inline?: boolean;
   onChange: (text: string) => void;
   onSubmit?: () => void;
 }) {
   return (
     <View style={{ gap: 4, minWidth: 0 }}>
-      <Label theme={props.theme}>{props.title}</Label>
-      {props.detail ? <Label theme={props.theme} muted>{props.detail}</Label> : null}
+      {!props.inline ? <Label theme={props.theme}>{props.title}</Label> : null}
+      {!props.inline && props.detail ? <Label theme={props.theme} muted>{props.detail}</Label> : null}
       <Input
         value={props.value}
         accessibilityLabel={props.title}
@@ -112,8 +153,8 @@ export function FormText(props: {
         style={{
           color: props.theme.foreground, backgroundColor: props.theme.background, placeholderColor: props.theme.muted,
           fontFamily: props.theme.fontFamily, fontSize: props.theme.fontSize,
-          borderColor: props.theme.border, borderWidth: 1, borderRadius: props.theme.radius,
-          minHeight: 36, paddingHorizontal: 10, paddingVertical: 6,
+          borderColor: props.theme.chrome?.inputBorder ?? props.theme.border, borderWidth: 1, borderRadius: props.theme.radius,
+          minHeight: 32, paddingHorizontal: 10, paddingVertical: 4,
         }}
         focusStyle={{ borderColor: props.theme.primary }}
       />
@@ -127,14 +168,15 @@ export function Choice(props: {
   detail?: string;
   value: string;
   items: { value: string; title: string }[];
+  inline?: boolean;
   searchable?: boolean;
   searchLabel?: string;
   onChange: (value: string) => void;
 }) {
   return (
     <View style={{ gap: 4, minWidth: 0 }}>
-      <Label theme={props.theme}>{props.title}</Label>
-      {props.detail ? <Label theme={props.theme} muted>{props.detail}</Label> : null}
+      {!props.inline ? <Label theme={props.theme}>{props.title}</Label> : null}
+      {!props.inline && props.detail ? <Label theme={props.theme} muted>{props.detail}</Label> : null}
       <Select
         items={props.items}
         value={props.value}
@@ -149,7 +191,7 @@ export function Choice(props: {
           borderWidth: 1, borderRadius: props.theme.radius }}
         renderItem={(item) => <Label theme={props.theme}>{item.title}</Label>}
         trigger={
-          <View style={{ minHeight: 36, paddingHorizontal: 10, borderRadius: props.theme.radius,
+          <View style={{ minHeight: props.inline ? 28 : 36, paddingHorizontal: 10, borderRadius: props.theme.radius,
             borderColor: props.theme.border, borderWidth: 1, backgroundColor: props.theme.background,
             flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <Label theme={props.theme} truncate>{props.items.find((item) => item.value === props.value)?.title ?? props.value}</Label>
@@ -165,6 +207,7 @@ export function Modal(props: {
   theme: Theme;
   label: string;
   open: boolean;
+  width?: number;
   onClose: () => void;
   children?: JSX.Element;
 }) {
@@ -173,7 +216,7 @@ export function Modal(props: {
       onOpenChange={({ open }) => { if (!open) props.onClose(); }}
       backdropStyle={{ backgroundColor: props.theme.modalBackdrop }}
       style={{ alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <View style={{ width: 440, maxWidth: "100%", gap: 16, padding: 20,
+      <View style={{ width: props.width ?? 440, maxWidth: "100%", gap: 16, padding: 20,
         backgroundColor: props.theme.background, borderColor: props.theme.border, borderWidth: 1,
         borderRadius: props.theme.radius }}>
         <Label theme={props.theme} heading size={20}>{props.label}</Label>

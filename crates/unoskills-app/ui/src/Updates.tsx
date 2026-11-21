@@ -1,6 +1,7 @@
 import { openUrl, signal, View, type Accessor } from "nsh";
 import { Progress } from "nsh/base";
-import { Action, InlineError, Label, Modal, Section } from "./controls";
+import { Action, InlineError, Label, Modal, textSize } from "./controls";
+import type { IconName } from "./icons";
 import { strings } from "./i18n";
 import { call, errorMessage, type Locale, type Tone, type Theme } from "./shared";
 
@@ -120,8 +121,16 @@ export function createUpdates(locale: Accessor<Locale>, notify: (message: string
       case "failed": return t().update_failed;
     }
   };
+  const phaseIcon = (): IconName => {
+    switch (downloadState().phase) {
+      case "idle": return "arrow-up";
+      case "ready": return "check";
+      case "failed": return "refresh-cw";
+      default: return "arrow-down";
+    }
+  };
   return { status, checking, downloading, open, installBusy, available, downloadState,
-    installLabel, phaseLabel, check, download, openRelease, install };
+    installLabel, phaseLabel, phaseIcon, check, download, openRelease, install };
 }
 
 export type Updates = ReturnType<typeof createUpdates>;
@@ -131,31 +140,50 @@ type Props = { theme: Theme; updates: Updates; locale: Locale };
 export function UpdatePanel(props: Props & { version: string }) {
   const t = () => strings[props.locale];
   const update = props.updates;
+  const release = () => update.available()?.latest;
   return (
-    <Section theme={props.theme} title={t().settings_updates}>
-      <Label theme={props.theme} mono>{`${t().settings_current_version} · v${props.version}`}</Label>
-      <Label theme={props.theme} muted>{t().settings_updates_desc}</Label>
-      <Action theme={props.theme} label={update.checking() ? t().busy_checking_updates : t().btn_check_updates}
-        disabled={update.checking() || update.downloading()} onPress={() => void update.check()} />
-      {update.available() ? (
-        <View style={{ gap: 8 }}>
-          <Label theme={props.theme} heading>{update.phaseLabel()}</Label>
-          <Label theme={props.theme} muted>{update.available()!.recommended_asset?.name ?? t().update_release_only}</Label>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            <Action theme={props.theme} role="link" label={t().btn_open_release}
-              onPress={() => void update.openRelease(update.available()!.latest.html_url)} />
-            {update.downloadState().phase === "ready" ? (
-              <Action theme={props.theme} onPrimary disabled={update.installBusy()}
-                label={update.installLabel()} onPress={() => void update.install()} />
-            ) : update.available()!.recommended_asset ? (
-              <Action theme={props.theme} onPrimary
-                label={update.downloading() ? t().update_view_progress : t().update_action}
-                onPress={() => update.open.set(true)} />
-            ) : null}
+    <View style={{ gap: 8 }}>
+      <Label theme={props.theme} muted heading>{t().settings_updates}</Label>
+      <View style={{ gap: 12, borderWidth: 1, borderColor: props.theme.border, padding: 16,
+        borderRadius: props.theme.radius === 0 ? 0 : Math.min(16, props.theme.radius + 2), backgroundColor: props.theme.surface }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <View style={{ flexGrow: 1, flexBasis: 220, minWidth: 0, gap: 4 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+              <Label theme={props.theme} weight="500">{t().settings_current_version}</Label>
+              <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: Math.min(props.theme.radius, 4),
+                backgroundColor: props.theme.chrome?.hover ?? props.theme.accent }}>
+                <Label theme={props.theme} size={textSize(props.theme, 12)}>{`v${props.version}`}</Label>
+              </View>
+            </View>
+            <Label theme={props.theme} muted size={textSize(props.theme, 12)}>{t().settings_updates_desc}</Label>
           </View>
+          <Action theme={props.theme} variant="outline" height={32} glyph="refresh-cw"
+            label={update.checking() ? t().busy_checking_updates : t().btn_check_updates}
+            disabled={update.checking() || update.downloading()} onPress={() => void update.check()} />
         </View>
-      ) : null}
-    </Section>
+        {release() ? <>
+          <View style={{ height: 1, backgroundColor: props.theme.border }} />
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap",
+            gap: 12, padding: 12, borderWidth: 1, borderColor: props.theme.border, borderRadius: props.theme.radius,
+            backgroundColor: `color-mix(in srgb, ${props.theme.chrome?.hover ?? props.theme.accent} 40%, transparent)` }}>
+            <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+              <Label theme={props.theme} color={props.theme.primary} weight="600">{update.phaseLabel()}</Label>
+              <Label theme={props.theme} muted truncate size={textSize(props.theme, 12)}>
+                {update.available()?.recommended_asset?.name ?? release()!.tag_name}
+              </Label>
+            </View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {release()!.html_url ? <Action theme={props.theme} variant="outline" role="link" height={32} glyph="external-link"
+                label={t().btn_open_release} onPress={() => void update.openRelease(release()!.html_url)} /> : null}
+              {update.downloadState().phase === "ready" ? <Action theme={props.theme} variant="primary" height={32} glyph="check"
+                label={update.installLabel()} disabled={update.installBusy()} onPress={() => void update.install()} />
+                : update.available()?.recommended_asset ? <Action theme={props.theme} variant="primary" height={32} glyph="arrow-down"
+                  label={update.downloading() ? t().update_view_progress : t().update_action} onPress={() => update.open.set(true)} /> : null}
+            </View>
+          </View>
+        </> : null}
+      </View>
+    </View>
   );
 }
 
@@ -168,16 +196,24 @@ export function UpdateModal(props: Props) {
   const checkFile = () => update.available()?.checksums_asset;
   const readyVerified = () => { const current = state(); return current.phase === "ready" && current.verified; };
   const failure = () => { const current = state(); return current.phase === "failed" ? current.error : ""; };
+  const release = () => update.available()?.latest;
+  const dismiss = () => update.open.set(false);
   return (
-    <Modal theme={props.theme} label={t().settings_updates} open={update.open()} onClose={() => update.open.set(false)}>
-      <Label theme={props.theme} heading>{update.available()?.latest.tag_name ?? ""}</Label>
-      {asset() ? <Label theme={props.theme} muted mono>{`${asset()!.name} · ${(asset()!.size / 1048576).toFixed(1)} MiB`}</Label> : null}
+    <Modal theme={props.theme} label={t().settings_updates} width={420} open={update.open()} onClose={dismiss}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <Label theme={props.theme} weight="600" size={textSize(props.theme, 18)}>{release()?.tag_name ?? ""}</Label>
+        {asset() && asset()!.size > 0 ? <Label theme={props.theme} muted>
+          {`${(asset()!.size / 1048576).toLocaleString(props.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MiB`}
+        </Label> : null}
+      </View>
       {update.downloading() ? (
-        <Progress value={progress() ?? 0} indeterminate={progress() === null} accessibilityLabel={update.phaseLabel()}
-          trackStyle={{ height: 6, borderRadius: 3, backgroundColor: props.theme.border }}
-          indicatorStyle={{ height: 6, borderRadius: 3, backgroundColor: props.theme.primary }}>
-          <Label theme={props.theme} muted>{update.phaseLabel()}</Label>
-        </Progress>
+        <View style={{ gap: 8 }}>
+          <Label theme={props.theme}>{update.phaseLabel()}</Label>
+          <Progress value={progress() ?? 0} indeterminate={progress() === null} accessibilityLabel={update.phaseLabel()}
+            trackStyle={{ height: 4, borderRadius: 2, overflow: "hidden", backgroundColor: props.theme.border }}
+            indicatorClass={progress() === null ? "h-full w-1/3 animate-pulse motion-reduce:animate-none" : "h-full"}
+            indicatorStyle={{ borderRadius: 2, backgroundColor: props.theme.primary }} />
+        </View>
       ) : state().phase === "failed" ? (
         <InlineError theme={props.theme} message={`${t().update_download_failed}\n${failure()}`} />
       ) : (
@@ -187,17 +223,20 @@ export function UpdateModal(props: Props) {
         </Label>
       )}
       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}>
-        <Action theme={props.theme} label={update.downloading() ? t().update_background : t().btn_close}
-          onPress={() => update.open.set(false)} />
-        {!update.downloading() && update.available() ? (
-          <Action theme={props.theme} role="link" label={t().btn_open_release}
-            onPress={() => void update.openRelease(update.available()!.latest.html_url)} />
+        {update.downloading() || state().phase === "ready" || (state().phase === "idle" && asset()) ? (
+          <Action theme={props.theme} variant="outline" height={32}
+            label={update.downloading() ? t().update_background : state().phase === "ready" ? t().btn_close : t().btn_cancel}
+            onPress={dismiss} />
+        ) : null}
+        {!update.downloading() && release() && (!asset() || state().phase === "failed") ? (
+          <Action theme={props.theme} variant="ghost" role="link" height={32} label={t().btn_open_release}
+            disabled={!release()!.html_url} onPress={() => void update.openRelease(release()!.html_url)} />
         ) : null}
         {state().phase === "ready" ? (
-          <Action theme={props.theme} onPrimary label={update.installLabel()}
+          <Action theme={props.theme} variant="primary" height={32} label={update.installLabel()}
             disabled={update.installBusy()} onPress={() => void update.install()} />
         ) : !update.downloading() && asset() ? (
-          <Action theme={props.theme} onPrimary disabled={update.checking()}
+          <Action theme={props.theme} variant="primary" height={32} glyph="arrow-down" disabled={update.checking()}
             label={state().phase === "failed" ? t().update_retry : checkFile() ? t().btn_download_update : t().update_start_download}
             onPress={() => void update.download()} />
         ) : null}

@@ -33,6 +33,15 @@ export interface Theme {
   monoFamily?: string;
   fontSize: number;
   radius: number;
+  chrome?: {
+    rail: string;
+    railSelection: string;
+    hover: string;
+    segmented: string;
+    primaryHover: string;
+    primaryActive: string;
+    inputBorder: string;
+  };
 }
 
 export interface ScreenProps {

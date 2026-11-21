@@ -1,5 +1,7 @@
-import { Scroll, View, cleanup, computed, effect, openUrl, signal, windowSize } from "nsh";
-import { Action, InlineError, Label, Section } from "./controls";
+import { Scroll, View, cleanup, computed, effect, openUrl, reduceMotion, signal, windowSize } from "nsh";
+import { Button, Tab, Tabs } from "nsh/base";
+import { Bar, Grid, Plot, PlotAxis } from "nsh/base/plot";
+import { Action, Icon, InlineError, Label, PageHeader, textSize } from "./controls";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps } from "./shared";
 import { request } from "./projects/host";
@@ -22,7 +24,8 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
   const marketError = signal("");
   const marketLoading = signal(false);
   const attaching = signal(false);
-  const medium = () => windowSize().width >= 1120;
+  const wide = () => windowSize().width >= 900;
+  const compact = () => windowSize().height < 680;
   const activeRows = computed(() => cache()[board()]);
 
   effect(() => {
@@ -81,81 +84,164 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
   }
 
   const metrics = computed(() => [
-    { label: t().nav_library, total: summary()?.skill_count, route: { page: "library" } },
-    { label: t().home_deployed, total: summary()?.deployed_count, route: { page: "library" } },
-    { label: t().home_agents, total: summary()?.agent_count, route: { page: "settings", tab: "agents" } },
-    { label: t().discover_adopt_tab, total: summary()?.adoptable_count, route: { page: "discover", tab: "adopt" } },
+    { label: t().nav_library, count: summary()?.skill_count, icon: "book-open", route: { page: "library" } },
+    { label: t().home_deployed, count: summary()?.deployed_count, icon: "network", route: { page: "library" } },
+    { label: t().home_agents, count: summary()?.agent_count, icon: "bot", route: { page: "settings", tab: "agents" } },
+    { label: t().discover_adopt_tab, count: summary()?.adoptable_count, icon: "archive-restore", route: { page: "discover", tab: "adopt" } },
   ] as const);
+  const theme = () => props.theme;
+  const radius = () => theme().radius === 0 ? 0 : Math.min(16, theme().radius + 2);
+  const boardItems = ["trending", "all-time"] as const;
+
+  function countLabel(label: string, count: number | undefined) {
+    if (count === undefined) return label;
+    return props.locale === "en" ? `${label} (${count})` : `${label}（${count}）`;
+  }
+
+  function metric(index: number) {
+    const item = () => metrics()[index];
+    return <View style={{ flex: 1, minWidth: 0, padding: 4, borderLeftWidth: index % 2, borderColor: theme().border }}>
+      <Button accessibilityLabel={countLabel(item().label, item().count)}
+        onPress={() => props.navigate(item().route)}
+        style={{ ...row, height: 44, minWidth: 0, paddingHorizontal: 10, gap: 8, borderRadius: theme().radius,
+          borderWidth: 1, borderColor: "transparent" }}
+        focusVisibleStyle={{ borderColor: theme().primary }}
+        hoverStyle={{ backgroundColor: theme().chrome?.hover ?? theme().accent }}
+        activeStyle={{ backgroundColor: theme().accent }}>
+        <Icon name={item().icon} color={theme().muted} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label theme={theme()} truncate>{item().label}</Label>
+        </View>
+        <Label theme={theme()} weight="600" size={textSize(theme(), 20)}>{String(item().count ?? "—")}</Label>
+        <Icon name="chevron-right" color={theme().muted} size={12} />
+      </Button>
+    </View>;
+  }
 
   return (
-    <View style={{ flex: 1, minHeight: 0, gap: 0 }}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20 }}>
-        <Label theme={props.theme} heading size={24}>{t().nav_home}</Label>
-        <Action theme={props.theme} onPrimary label={t().btn_install_from_link}
+    <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+      <PageHeader theme={theme()} title={t().nav_home}>
+        <Action theme={theme()} variant="primary" height={32} glyph="plus" label={t().btn_install_from_link}
           onPress={() => props.navigate({ page: "discover", tab: "install" })} />
-      </View>
+      </PageHeader>
       <Scroll style={{ flex: 1, minHeight: 0 }}>
-        <View style={{ padding: 20, paddingTop: 0, gap: 20, flexDirection: medium() ? "row" : "column" }}>
-          <View style={{ flex: 1, minWidth: 0, gap: 16 }}>
-            {summaryError() ? <InlineError theme={props.theme} message={summaryError()} /> : null}
-            <Section theme={props.theme} title={t().home_workspace}>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                <Each of={metrics()}>{(metric) =>
-                  <Action theme={props.theme} label={`${metric().label} · ${metric().total ?? "—"}`}
-                    onPress={() => props.navigate(metric().route)} />
+        <View style={{ width: "100%", maxWidth: 1380, padding: 20 }}>
+          <View style={{ flexDirection: wide() ? "row" : "column", alignItems: "flex-start", gap: wide() ? 24 : 20 }}>
+            <View style={{ flexGrow: 1, flexBasis: 0, width: wide() ? undefined : "100%", minWidth: 0, gap: compact() ? 16 : 20 }}>
+              {summaryError() ? <InlineError theme={theme()} message={summaryError()} /> : null}
+              <View style={{ gap: 8 }}>
+                <View style={sectionHeading}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Label theme={theme()} heading size={textSize(theme(), 18)}>{t().home_workspace}</Label>
+                  </View>
+                  <Action theme={theme()} variant="outline" height={24} glyph="layers" label={t().tab_my_stacks}
+                    onPress={() => props.navigate({ page: "stacks", source: "Local" })} />
+                </View>
+                <View style={{ padding: 4, borderWidth: 1, borderColor: theme().border, borderRadius: radius() }}>
+                  <View style={row}>{metric(0)}{metric(1)}</View>
+                  <View style={{ ...row, borderTopWidth: 1, borderColor: theme().border }}>{metric(2)}{metric(3)}</View>
+                </View>
+              </View>
+              <View style={{ ...row, flexWrap: "wrap", gap: 8 }}>
+                <Label theme={theme()} weight="600">{t().home_projects}</Label>
+                <Each of={summary()?.projects ?? []} key={(project) => project.id}>{(project) =>
+                  <View style={{ maxWidth: 188, minWidth: 0 }}>
+                    <Action theme={theme()} variant="outline" height={24} glyph="folder-open" label={project().name} tooltip={project().path}
+                      onPress={() => props.navigate({ page: "projects", projectId: project().id, scopePath: "" })} />
+                  </View>
+                }</Each>
+                <Action theme={theme()} variant="ghost" height={24} glyph="plus" label={t().btn_add_project}
+                  disabled={attaching()} onPress={() => void attachProject()} />
+              </View>
+              <View>
+                <View style={{ paddingBottom: 8 }}>
+                  <Label theme={theme()} heading size={textSize(theme(), 16)}>{t().home_recent}</Label>
+                </View>
+                {summary() && !summary()!.recent.length ?
+                  <Label theme={theme()} muted>{t().empty_library_desc}</Label> : null}
+                <Each of={summary()?.recent ?? []} key={(skill) => skill.id}>{(skill) =>
+                  <View style={{ borderTopWidth: 1, borderColor: theme().border }}>
+                    <Button accessibilityLabel={skill().name}
+                      onPress={() => props.navigate({ page: "library", skillId: skill().id })}
+                      style={{ ...row, gap: 8, height: 32, paddingHorizontal: 10, borderRadius: theme().radius,
+                        borderColor: "transparent", borderWidth: 1 }}
+                      focusVisibleStyle={{ borderColor: theme().primary }}
+                      hoverStyle={{ backgroundColor: theme().chrome?.hover ?? theme().accent }}
+                      activeStyle={{ backgroundColor: theme().accent }}>
+                      <Icon name="file-text" color={theme().muted} />
+                      <View style={{ flex: 1, minWidth: 0 }}><Label theme={theme()} truncate>{skill().name}</Label></View>
+                      {skill().date ? <Label theme={theme()} muted size={textSize(theme(), 12)}>{skill().date}</Label> : null}
+                      <Icon name="chevron-right" color={theme().muted} size={12} />
+                    </Button>
+                  </View>
                 }</Each>
               </View>
-              <Action theme={props.theme} label={t().tab_my_stacks}
-                onPress={() => props.navigate({ page: "stacks", source: "Local" })} />
-            </Section>
-            <Section theme={props.theme} title={t().home_projects}>
-              <Each of={summary()?.projects ?? []} key={(project) => project.id}>{(project) =>
-                <View style={{ gap: 3, minWidth: 0 }}>
-                  <Action theme={props.theme} compact label={project().name}
-                    onPress={() => props.navigate({ page: "projects", projectId: project().id, scopePath: "" })} />
-                  <Label theme={props.theme} muted mono truncate>{project().path}</Label>
+              {summary() ? <Activity theme={theme()} days={summary()!.activity} locale={props.locale} compact={compact()} /> : null}
+            </View>
+            <View style={{ width: wide() ? "40%" : "100%", minWidth: 0, flexShrink: 0, gap: 8 }}>
+              <View style={sectionHeading}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Label theme={theme()} heading size={textSize(theme(), 18)}>{t().home_market_rank}</Label>
                 </View>
-              }</Each>
-              <Action theme={props.theme} label={t().btn_add_project} disabled={attaching()} onPress={() => void attachProject()} />
-            </Section>
-            <Section theme={props.theme} title={t().home_recent}>
-              {summary() && !summary()!.recent.length ? <Label theme={props.theme} muted>{t().empty_library_desc}</Label> : null}
-              <Each of={summary()?.recent ?? []} key={(skill) => skill.id}>{(skill) =>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, minWidth: 0 }}>
-                  <Action theme={props.theme} compact label={skill().name}
-                    onPress={() => props.navigate({ page: "library", skillId: skill().id })} />
-                  <Label theme={props.theme} muted>{skill().date ?? ""}</Label>
-                </View>
-              }</Each>
-            </Section>
-            <Section theme={props.theme} title={t().home_intake}>
-              {summary() ? <Activity theme={props.theme} days={summary()!.activity} locale={props.locale} /> : null}
-            </Section>
-          </View>
-          <View style={{ width: medium() ? 360 : "100%", flexShrink: 0, minWidth: 0 }}>
-            <Section theme={props.theme} title={t().home_market_rank}>
-              <View style={{ gap: 6, flexDirection: "row", flexWrap: "wrap" }}>
-                <Action theme={props.theme} compact selected={board() === "trending"}
-                  label={t().board_trending} onPress={() => { board.set("trending"); void loadBoard("trending"); }} />
-                <Action theme={props.theme} compact selected={board() === "all-time"}
-                  label={t().board_all_time} onPress={() => { board.set("all-time"); void loadBoard("all-time"); }} />
-                <Action theme={props.theme} compact label={t().home_refresh_market} icon="↻"
+                <Action theme={theme()} variant="ghost" height={24} glyph={marketLoading() ? "loader-circle" : "refresh-cw"}
+                  iconOnly tooltip={t().home_refresh_market} label={t().home_refresh_market}
                   disabled={marketLoading()} onPress={() => void loadBoard(board(), true)} />
               </View>
-              {marketLoading() ? <Label theme={props.theme} muted>{t().busy_loading_market}</Label> : null}
-              {marketError() ? <InlineError theme={props.theme} message={marketError()} /> : null}
-              {activeRows()?.length === 0 ? <Label theme={props.theme} muted>{t().home_market_empty}</Label> : null}
-              <Each of={activeRows() ?? []} key={(row) => row.id}>{(row) =>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Action theme={props.theme} compact role="link" label={row().name} onPress={() => void openSkill(row())} />
-                  </View>
-                  <Label theme={props.theme} muted>{row().installs.toLocaleString(props.locale)}</Label>
+              <View style={{ borderWidth: 1, borderColor: theme().border, borderRadius: radius(),
+                backgroundColor: theme().surface, padding: 12 }}>
+                <View style={{ ...row, flexWrap: "wrap", justifyContent: "space-between", gap: 8, paddingBottom: 12 }}>
+                  <Tabs accessibilityLabel={t().home_market_rank}
+                    style={{ ...row, alignSelf: "flex-start", padding: 2, borderRadius: radius(),
+                      backgroundColor: theme().chrome?.segmented ?? theme().background }}>
+                    {boardItems.map((entry) => <Tab selected={board() === entry}
+                      onPress={() => { board.set(entry); void loadBoard(entry); }}
+                      style={{ minHeight: 28, alignItems: "center", justifyContent: "center", paddingHorizontal: 12,
+                        borderWidth: 1, borderColor: "transparent", borderRadius: theme().radius }}
+                      hoverStyle={{ backgroundColor: theme().chrome?.hover ?? theme().accent }}
+                      focusStyle={{ borderColor: theme().primary }}>
+                      <Label theme={theme()} muted={board() !== entry}>
+                        {entry === "trending" ? t().board_trending : t().board_all_time}
+                      </Label>
+                    </Tab>)}
+                  </Tabs>
+                  {activeRows()?.length ? <View style={{ paddingRight: 40 }}>
+                    <Label theme={theme()} muted size={textSize(theme(), 12)}>{t().home_market_installs}</Label>
+                  </View> : null}
                 </View>
-              }</Each>
-              <Action theme={props.theme} label={t().home_view_market}
-                onPress={() => props.navigate({ page: "discover", tab: board() })} />
-            </Section>
+                {marketLoading() ? <View style={{ ...row, gap: 8, paddingVertical: 16 }}>
+                  <Icon name="loader-circle" color={theme().muted} size={14} spinning />
+                  <Label theme={theme()} muted>{t().home_market_loading}</Label>
+                </View> : null}
+                {marketError() ? <InlineError theme={theme()} message={marketError()} /> : null}
+                {activeRows()?.length === 0 ? <View style={{ paddingVertical: 16 }}>
+                  <Label theme={theme()} muted>{t().home_market_empty}</Label>
+                </View> : null}
+                <Each of={activeRows() ?? []} key={(entry) => entry.id}>{(entry, index) =>
+                  <View style={{ ...row, minHeight: 48, gap: 12, paddingHorizontal: 8, borderTopWidth: 1,
+                    borderColor: theme().border,
+                    backgroundColor: index() === 0 ? `color-mix(in srgb, ${theme().primary} 6%, transparent)` : undefined }}>
+                    <View style={{ width: 24, alignItems: "center", flexShrink: 0 }}>
+                      <Label theme={theme()} muted={index() !== 0} weight={index() === 0 ? "600" : "400"}
+                        size={textSize(theme(), 12)}>{String(index() + 1)}</Label>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Label theme={theme()} truncate weight="500">{entry().name}</Label>
+                      <Label theme={theme()} truncate muted size={textSize(theme(), 12)}>{entry().source}</Label>
+                    </View>
+                    <Label theme={theme()} weight="500">{formatInstalls(entry().installs, props.locale)}</Label>
+                    <View style={{ width: 24, flexShrink: 0 }}>
+                      {entry().url ? <Action theme={theme()} variant="ghost" height={20} glyph="external-link" iconOnly role="link"
+                        label={`${t().home_market_details} · ${entry().name} · ${entry().source}`} tooltip={t().home_market_details}
+                        onPress={() => void openSkill(entry())} /> : null}
+                    </View>
+                  </View>
+                }</Each>
+                <View style={{ alignItems: "flex-end", borderTopWidth: 1, borderColor: theme().border, paddingTop: 8 }}>
+                  <Action theme={theme()} variant="ghost" height={24} glyph="arrow-right" label={t().home_view_market}
+                    onPress={() => props.navigate({ page: "discover", tab: board() })} />
+                </View>
+              </View>
+            </View>
           </View>
         </View>
       </Scroll>
@@ -163,26 +249,64 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
   );
 }
 
-function Activity(props: { theme: ScreenProps["theme"]; days: Day[]; locale: ScreenProps["locale"] }) {
-  const max = () => Math.max(1, ...props.days.map((day) => day.count));
+const row = { flexDirection: "row", alignItems: "center" } as const;
+const sectionHeading = { ...row, minHeight: 32, gap: 8 } as const;
+
+function formatInstalls(count: number, locale: ScreenProps["locale"]) {
+  if (count < 1000) return count.toLocaleString(locale);
+  const [divisor, suffix] = count >= 1_000_000 ? [1_000_000, "M"] : [1000, "k"];
+  const number = (count / divisor).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return `${number}${suffix}`;
+}
+
+function Activity(props: { theme: ScreenProps["theme"]; days: Day[]; locale: ScreenProps["locale"]; compact: boolean }) {
+  const maximum = () => Math.max(0, ...props.days.map((day) => day.count));
   const total = () => props.days.reduce((sum, day) => sum + day.count, 0);
   const t = () => strings[props.locale];
+  const ticks = computed(() => {
+    const max = maximum();
+    const roughStep = max / 4;
+    const magnitude = 10 ** Math.max(0, Math.floor(Math.log10(roughStep)));
+    const step = ([1, 2, 5, 10].find((unit) => unit * magnitude >= roughStep) ?? 10) * magnitude;
+    return Array.from({ length: Math.floor(max / step) + 1 }, (_, index) => index * step);
+  });
+  const hovered = signal<number | null>(null);
+  const selected = () => hovered() === null ? undefined : props.days[hovered()!];
+  const axisStyle = () => ({ fontFamily: props.theme.fontFamily, fontSize: textSize(props.theme, 12), color: props.theme.muted });
   return (
-    <View style={{ gap: 8 }}>
-      <Label theme={props.theme} muted>{t().home_intake_scope}</Label>
-      {total() === 0 ? <Label theme={props.theme} muted>{t().home_intake_empty}</Label> : (
-        <View style={{ flexDirection: "row", gap: 6 }}>
-          <Each of={props.days} key={(day) => day.label}>{(day) =>
-            <View style={{ flex: 1, gap: 3, alignItems: "center", justifyContent: "flex-end" }}>
-              <Label theme={props.theme} size={12}>{day().count}</Label>
-              <View accessibilityElementsHidden style={{ width: "70%", height: Math.max(1, 58 * day().count / max()),
-                borderRadius: 2, backgroundColor: props.theme.primary }} />
-              <Label theme={props.theme} muted size={12}>{day().label}</Label>
+    <View style={{ gap: props.compact ? 4 : 8 }}>
+      <View style={{ ...row, justifyContent: "space-between", gap: 8 }}>
+        <Label theme={props.theme} heading size={textSize(props.theme, 16)}>{t().home_intake}</Label>
+        {total() > 0 ? <Label theme={props.theme} weight="600">
+          {`${t().home_intake_total} ${total().toLocaleString(props.locale)}`}
+        </Label> : null}
+      </View>
+      <If when={maximum() > 0} else={<Label theme={props.theme} muted>{t().home_intake_empty}</Label>}>
+        <Plot data={props.days} y="count" xScale={{ type: "band", paddingInner: 0.2, paddingOuter: 0.1, maxBandWidth: 24 }}
+          yScale={{ type: "linear", domain: [0, maximum()] }}
+          accessibilityLabel={t().home_intake}
+          accessibilityValue={selected() ? { text: `${selected()!.label} · ${selected()!.count.toLocaleString(props.locale)}` } : undefined}
+          onHoverChange={({ index }) => hovered.set(index)}
+          style={{ height: props.compact ? 84 : 108, marginLeft: 36, marginBottom: 20 }}
+          focusVisibleStyle={{ outlineColor: props.theme.primary, outlineWidth: 1 }}
+          crossLineStyle={{ width: 24, height: "100%", backgroundColor: `color-mix(in srgb, ${props.theme.primary} 6%, transparent)` }}
+          motion={reduceMotion() ? undefined : { enter: { duration: 100 }, exit: { duration: 100 } }}
+          tooltipContent={selected() ? <View style={{ minWidth: 132, gap: 4, padding: 8, borderRadius: props.theme.radius,
+            backgroundColor: props.theme.surface, borderWidth: 1, borderColor: props.theme.border }}>
+            <Label theme={props.theme} weight="600" size={textSize(props.theme, 12)}>{selected()!.label}</Label>
+            <View style={{ ...row, justifyContent: "space-between", gap: 8 }}>
+              <Label theme={props.theme} muted size={textSize(props.theme, 12)}>{t().nav_library}</Label>
+              <Label theme={props.theme} size={textSize(props.theme, 12)}>{selected()!.count.toLocaleString(props.locale)}</Label>
             </View>
-          }</Each>
-        </View>
-      )}
-      <Label theme={props.theme} muted>{`${t().home_intake_total} · ${total()}`}</Label>
+          </View> : undefined}>
+          <Grid y={ticks().filter((value) => value > 0)} style={{ stroke: props.theme.border, strokeWidth: 1, strokeDasharray: "2 2" }} />
+          <Bar style={{ fill: props.theme.primary }} />
+          <PlotAxis placement="left" tickValues={ticks()} labelStyle={{ ...axisStyle(), paddingRight: 6 }} />
+          <PlotAxis labelStyle={axisStyle()} format={(value) => props.days[value]?.label ?? ""}
+            lineStyle={{ height: 1, backgroundColor: props.theme.border }} />
+        </Plot>
+        <Label theme={props.theme} muted size={textSize(props.theme, 12)}>{t().home_intake_scope}</Label>
+      </If>
     </View>
   );
 }

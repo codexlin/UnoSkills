@@ -1,24 +1,65 @@
 import { Image, View, announce, cleanup, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
+import { Button, Tooltip } from "nsh/base";
+import { titleBar } from "nsh/desktop";
 import { setLocale } from "nsh/i18n";
-import { Action, InlineError, Label } from "./controls";
+import { Action, Icon, InlineError, Label, textSize } from "./controls";
 import { Home } from "./Home";
 import { strings } from "./i18n";
 import { Library, Discover } from "./library";
 import { Projects, Stacks } from "./projects";
 import { Settings } from "./Settings";
-import { call, errorMessage, pendingCalls, type Page, type Route, type ScreenProps, type Tone } from "./shared";
+import { call, errorMessage, pendingCalls, type Page, type Route, type ScreenProps, type Theme, type Tone } from "./shared";
 import { defaults, makeTheme, type Preferences } from "./theme";
 import { createUpdates, UpdateModal } from "./Updates";
 
 const nav = [
-  { page: "home", label: "nav_home", icon: "⌂" },
-  { page: "library", label: "nav_library", icon: "▤" },
-  { page: "stacks", label: "nav_stacks", icon: "▱" },
-  { page: "discover", label: "nav_discover", icon: "◇" },
-  { page: "settings", label: "nav_settings", icon: "⚙" },
+  { page: "home", label: "nav_home", icon: "house" },
+  { page: "library", label: "nav_library", icon: "book-open" },
+  { page: "stacks", label: "nav_stacks", icon: "layout-dashboard" },
+  { page: "discover", label: "nav_discover", icon: "globe" },
+  { page: "settings", label: "nav_settings", icon: "settings" },
 ] as const;
 const logo = typeof host.params.brand_mark === "string" ? host.params.brand_mark : "";
 type Notice = { message: string; tone: Tone };
+
+function NavigationItem(props: {
+  theme: Theme; item: typeof nav[number]; label: string; selected: boolean; collapsed: boolean;
+  count: number; onPress: () => void;
+}) {
+  const footer = () => props.item.page === "settings";
+  const selection = () => footer()
+    ? `color-mix(in srgb, ${props.theme.primary} 12%, transparent)`
+    : props.theme.chrome?.railSelection ?? props.theme.accent;
+  const color = () => footer() && props.selected ? props.theme.primary : props.theme.foreground;
+  const count = () => props.count > 0 ? `+${props.count}` : undefined;
+  return <Button
+    accessibilityLabel={count() ? `${props.label} ${count()}` : props.label}
+    selected={props.selected}
+    onPress={props.onPress}
+    tooltip={props.collapsed ? <Tooltip placement="right" style={{ paddingHorizontal: 8, paddingVertical: 4,
+      backgroundColor: props.theme.surface, borderColor: props.theme.border, borderWidth: 1, borderRadius: props.theme.radius }}>
+      <Label theme={props.theme}>{props.label}</Label>
+    </Tooltip> : undefined}
+    style={{ width: "100%", minWidth: 0, height: props.collapsed ? 32 : textSize(props.theme, 28),
+      flexDirection: "row", alignItems: "center", justifyContent: props.collapsed ? "center" : "flex-start",
+      paddingHorizontal: props.collapsed ? 0 : 8, gap: 8, borderRadius: props.theme.radius,
+      borderWidth: 1, borderColor: "transparent", backgroundColor: props.selected ? selection() : "transparent" }}
+    focusVisibleStyle={{ borderColor: props.theme.primary }}
+    hoverStyle={{ backgroundColor: props.selected ? selection() : props.theme.chrome?.railSelection ?? props.theme.accent }}
+    activeStyle={{ backgroundColor: props.theme.accent }}
+  >
+    <Icon name={props.item.icon} color={color()} size={textSize(props.theme, footer() ? 16 : 14)} />
+    {!props.collapsed ? <>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Label theme={props.theme} truncate color={color()} weight={props.selected ? "500" : "400"}>{props.label}</Label>
+      </View>
+      {count() ? <View style={{ borderColor: props.theme.warning, borderWidth: 1, paddingHorizontal: 4,
+        borderRadius: Math.min(4, props.theme.radius), flexShrink: 0 }}>
+        <Label theme={props.theme} size={textSize(props.theme, 12)} color={props.theme.warning}>{count()}</Label>
+      </View> : null}
+    </> : null}
+  </Button>;
+}
 
 export function App() {
   const page = signal<Page>("home");
@@ -34,7 +75,8 @@ export function App() {
   const locale = () => preferences().language;
   const t = () => strings[locale()];
   const theme = computed(() => makeTheme(preferences()));
-  const collapsed = () => windowSize().width < 1080 || preferences().sidebar_collapsed === "true";
+  const narrow = () => windowSize().width < 1080;
+  const collapsed = () => narrow() || preferences().sidebar_collapsed === "true";
   const adoptable = signal(0);
   let disposed = false;
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -154,42 +196,45 @@ export function App() {
   }
   const messageColor = () => notice()?.tone === "error" ? theme().danger
     : notice()?.tone === "success" ? theme().success : theme().foreground;
+  const rail = () => theme().chrome?.rail ?? theme().surface;
+  const collapseLabel = () => collapsed() ? t().expand_sidebar : t().collapse_sidebar;
+  const navItem = (item: typeof nav[number]) =>
+    <NavigationItem theme={theme()} item={item} label={t()[item.label]} selected={selectedNav() === item.page}
+      collapsed={collapsed()} count={item.page === "discover" ? adoptable() : 0}
+      onPress={() => openFromNavigation(item.page)} />;
 
   return (
     <View style={{ flex: 1, minHeight: 0, backgroundColor: theme().background }}>
-      <View style={{ minHeight: 52, paddingHorizontal: 12, gap: 8,
-        flexDirection: "row", alignItems: "center", backgroundColor: theme().surface,
-        borderBottomWidth: 1, borderColor: theme().border }}>
-        {logo ? (
-          <View accessibilityElementsHidden style={{ width: 29, height: 29, alignItems: "center",
-            justifyContent: "center", borderRadius: theme().radius, backgroundColor: theme().primary }}>
-            <Image src={logo} style={{ width: 23, height: 23, tintColor: theme().onPrimary }} />
-          </View>
-        ) : null}
-        <Label theme={theme()} heading>{"UnoSkills"}</Label>
-        {windowSize().width >= 1080 ? (
-          <Action theme={theme()} compact label={collapsed() ? t().expand_sidebar : t().collapse_sidebar}
-            icon="◫" onPress={() => void setPreference("sidebar_collapsed", String(!collapsed()))} />
-        ) : null}
-        <View style={{ flex: 1, minWidth: 0 }}>
-          {initialized() && pendingCalls() > 0 ? <Label theme={theme()} muted size={12}>{t().working}</Label> : null}
+      <View desktop={{ windowDrag: true }} style={{ height: 36, flexShrink: 0,
+        paddingLeft: titleBar().left + 12, paddingRight: titleBar().right + 8,
+        flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8,
+        backgroundColor: rail(), borderBottomWidth: 1, borderColor: theme().border,
+        backgroundImage: `linear-gradient(180deg, color-mix(in srgb, ${rail()} 55%, ${theme().background}), ${rail()})` }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
+          {logo ? <Image accessibilityElementsHidden src={logo} style={{ width: 16, height: 16,
+            tintColor: theme().foreground, flexShrink: 0 }} /> : null}
+          <Label theme={theme()} weight="600">{"UnoSkills"}</Label>
+          {!narrow() ? <Action theme={theme()} variant="ghost" height={24} glyph="panel-left" iconOnly
+            label={collapseLabel()} tooltip={collapseLabel()}
+            onPress={() => void setPreference("sidebar_collapsed", String(!collapsed()))} /> : null}
+          {updates.available() ? <Action theme={theme()} variant="primary" height={20} glyph={updates.phaseIcon()}
+            label={updates.phaseLabel()} onPress={() => updates.open.set(true)} /> : null}
         </View>
-        {updates.available() ? (
-          <Action theme={theme()} compact onPrimary label={updates.phaseLabel()} onPress={() => updates.open.set(true)} />
-        ) : null}
-        <Action theme={theme()} compact label={t().tooltip_refresh} icon="↻" onPress={refresh} />
+        {initialized() && pendingCalls() > 0 ?
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <Icon name="loader-circle" color={theme().muted} size={12} spinning />
+            <Label theme={theme()} muted truncate size={textSize(theme(), 12)}>{t().working}</Label>
+          </View> : null}
       </View>
       <View style={{ flex: 1, minHeight: 0, minWidth: 0, flexDirection: "row" }}>
-        <View style={{ width: collapsed() ? 52 : 160, flexShrink: 0, padding: 8, gap: 6,
-          backgroundColor: theme().surface, borderRightWidth: 1, borderColor: theme().border }}>
-          {nav.map(({ page: target, label, icon }) => (
-            <View style={target === "settings" ? { flexGrow: 1, justifyContent: "flex-end" } : {}}>
-              <Action theme={theme()} selected={selectedNav() === target}
-                label={target === "discover" && adoptable() > 0 ? `${t()[label]} +${adoptable()}` : t()[label]} compact
-                icon={collapsed() ? icon : undefined}
-                onPress={() => openFromNavigation(target)} />
-            </View>
-          ))}
+        <View style={{ width: collapsed() ? 48 : 184, flexShrink: 0, minHeight: 0,
+          paddingHorizontal: collapsed() ? 8 : 12, paddingTop: collapsed() ? 20 : 12 + textSize(theme(), 32),
+          paddingBottom: 12, justifyContent: "space-between", overflow: "hidden",
+          backgroundColor: rail(), borderRightWidth: 1, borderColor: theme().border }}>
+          <View style={{ gap: 8 }}>
+            {nav.slice(0, 4).map(navItem)}
+          </View>
+          {navItem(nav[4])}
         </View>
         <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
           {initializationError() ? (
@@ -204,12 +249,13 @@ export function App() {
       </View>
       {notice() ? (
         <View role={notice()!.tone === "error" ? "alert" : undefined}
-          style={{ flexDirection: "row", alignItems: "center", minHeight: 38, gap: 8, paddingHorizontal: 12,
-            paddingVertical: 6, backgroundColor: theme().surface, borderTopWidth: 1, borderColor: theme().border }}>
+          style={{ position: "absolute", right: 16, bottom: 16, maxWidth: "60%", flexDirection: "row",
+            alignItems: "center", minHeight: 38, gap: 8, paddingHorizontal: 12, paddingVertical: 6,
+            backgroundColor: theme().surface, borderWidth: 1, borderColor: theme().border, borderRadius: theme().radius }}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Label theme={theme()} color={messageColor()}>{notice()!.message}</Label>
           </View>
-          <Action theme={theme()} compact label={t().btn_close} icon="×" onPress={dismissNotice} />
+          <Action theme={theme()} variant="ghost" height={24} label={t().btn_close} glyph="x" iconOnly onPress={dismissNotice} />
         </View>
       ) : null}
       {updates.available() ? <UpdateModal theme={theme()} locale={locale()} updates={updates} /> : null}
