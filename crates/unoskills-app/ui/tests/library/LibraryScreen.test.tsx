@@ -653,6 +653,58 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     expect(installCall?.input).toMatchObject({ source_ref: "owner/repo" });
   });
 
+  test("a delayed local skill scan cannot replace a newer list or its selection", async () => {
+    const candidate: AdoptCandidate = {
+      agent_key: "claude-code",
+      agent_name: "Claude Code",
+      name: "Current Local Skill",
+      description: null,
+      path: "/tmp/home/.claude/skills/current",
+      estimated_tokens: 10,
+    };
+    const oldScan = deferred<{ ok: true; value: ScanAdoptableResponse }>();
+    let scans = 0;
+    const app = await open("./LibraryTestHarness.tsx", {
+      platform: "macos",
+      width: 1200,
+      height: 800,
+      host: {
+        params: { initialRoute: { page: "discover", tab: "adopt" } },
+        handlers: {
+          "unoskills.command": (raw: unknown) => {
+            const { command } = raw as CommandPayload;
+            if (command === "library.state") return makeLibraryState(makeSkills());
+            if (command === "discover.scan_adoptable") {
+              scans += 1;
+              if (scans === 2) return oldScan.promise;
+              return { ok: true, value: { candidates: scans === 1 ? [] : [candidate] } };
+            }
+            return { ok: false, code: "UNKNOWN", message: command };
+          },
+        },
+      },
+    });
+
+    const refresh = app.host.send("test.refresh");
+    try {
+      await app.waitUntil(() => scans === 2);
+      await app.host.send("test.refresh");
+      await app.waitFor("text:Current Local Skill");
+      await app.press("Current Local Skill");
+      expect(app.enabled("Add to library (1)")).toBe(true);
+    } finally {
+      oldScan.resolve({ ok: true, value: {
+        candidates: [{ ...candidate, name: "Stale Local Skill", path: "/tmp/home/.claude/skills/stale" }],
+      } });
+      await refresh;
+    }
+
+    await app.wait(50);
+    expect(app.texts()).toContain("Current Local Skill");
+    expect(app.texts()).not.toContain("Stale Local Skill");
+    expect(app.enabled("Add to library (1)")).toBe(true);
+  });
+
   test("Marketplace renders legacy rank tiers, official badge, responsive columns, and board changes", async () => {
     const skills = makeSkills();
     skills[0].source_ref = "acme/skills@second-skill";

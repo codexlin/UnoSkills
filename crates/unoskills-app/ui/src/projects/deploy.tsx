@@ -3,7 +3,7 @@ import { Dialog } from "nsh/base";
 import type { ScreenProps } from "../shared";
 import { Action, Banner, Check, Choice, Feedback, Heading, Label, actions, row } from "./controls";
 import { load, operation } from "./state";
-import { request, stackRef, type DeployResult, type InstallResult, type ProjectScope, type Stack } from "./host";
+import { attachProjectFromPicker, request, stackRef, type DeployResult, type InstallResult, type ProjectScope, type Stack } from "./host";
 import { Failures, InstallReport } from "./reports";
 import { deploymentConflicts, deploymentProgress, deploymentResult, deploymentUnavailable, strings } from "./strings";
 
@@ -71,10 +71,7 @@ export function StackDeploy(props: { screen: ScreenProps; stack: Stack; back: ()
   }
 
   function attach() {
-    return op.run(async () => {
-      const path = await request("dialog.folder", { title: t().chooseFolder });
-      return path ? request("project.attach", { path }) : null;
-    }, (project) => {
+    return op.run(() => attachProjectFromPicker(t().chooseFolder), (project) => {
       if (!project) return;
       destination(project.id, "", agent()?.key);
       screen.refresh();

@@ -13,18 +13,13 @@ import { ActionControl, ActionMenu, AlertBanner, Label, LoadingLine, MenuAction,
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, hintTooltip } from "./controls";
 import { formatInstallCount, marketInstallStatus } from "./format";
+import { ALL_SOURCES_VALUE, type RankedMarketEntry } from "./marketplace";
 import { type Locale, boardLabel, getStrings } from "./strings";
 import type { MarketBoard, MarketplaceSkillItem } from "./types";
 
-export const ALL_SOURCES_VALUE = "__all_sources__";
 export const MARKET_BOARDS: MarketBoard[] = ["trending", "hot", "all-time"];
 
 const SKELETON_ROWS = [0, 1, 2, 3];
-
-export interface RankedMarketEntry {
-  item: MarketplaceSkillItem;
-  rankIndex: number;
-}
 
 export function MarketplaceTab(props: {
   locale: Locale;

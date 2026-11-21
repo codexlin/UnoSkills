@@ -23,15 +23,14 @@ import { SkillInspector } from "./SkillInspector";
 import { ActionButton, PageHeader, SearchField } from "./controls";
 import { createProjectScope } from "./scope";
 import { createDeployments } from "./deployments";
+import { createMarkdownEditor } from "./markdownEditor";
 import {
   attachProject,
   detachProject,
   errorMessage,
-  getSkillMarkdown,
   loadLibraryState,
   pickFolder,
   removeSkill,
-  saveSkillMarkdown,
   updateSkill,
 } from "./host";
 import {
@@ -40,7 +39,6 @@ import {
   confirmDetachProjectDesc,
   getStrings,
   toastProjectAttached,
-  toastSavedSkill,
   toastSkillUpToDate,
   toastSkillUpdated,
 } from "./strings";
@@ -48,7 +46,6 @@ import type {
   AgentInfo,
   ProjectWorkspace,
   Skill,
-  SkillLintReport,
 } from "./types";
 
 const ALL_AGENTS_VALUE = "__all_agents__";
@@ -58,6 +55,9 @@ export function Library(props: ScreenProps) {
   const skills = signal<Skill[]>([]);
   const agents = signal<AgentInfo[]>([]);
   const selectedSkillId = signal<string | null>(null);
+  const editor = createMarkdownEditor(props, selectedSkillId, (saved) => {
+    skills.update((items) => items.map((item) => item.id === saved.id ? saved : item));
+  });
   const agentFilter = signal<string | null>(null);
   const searchQuery = signal("");
 
@@ -65,23 +65,12 @@ export function Library(props: ScreenProps) {
   const loadError = signal<string | null>(null);
 
   const inspectorTab = signal<"deployments" | "preview">("deployments");
-  const loadedMarkdownSkillId = signal<string | null>(null);
-  const editingSkillId = signal<string | null>(null);
-  const loadedMarkdown = signal("");
-  const draftMarkdown = signal("");
-  const previewMarkdown = signal("");
-  const markdownLoading = signal(false);
-  const markdownError = signal<string | null>(null);
-  const savingSkillId = signal<string | null>(null);
-  const selectedLint = signal<SkillLintReport | null>(null);
-
   const updatingSkillId = signal<string | null>(null);
   const busyLabel = signal<string | null>(null);
   const listPaneWidth = signal(408);
 
   let searchInputRef: InputRef | undefined;
   let stateReqSeq = 0;
-  let markdownReqSeq = 0;
   let lastRouteSignature = "";
   let wasActive = false;
 
@@ -97,21 +86,6 @@ export function Library(props: ScreenProps) {
     const id = selectedSkillId();
     return id ? (skills().find((skill) => skill.id === id) ?? null) : null;
   });
-
-  const isEditingCurrent = () =>
-    editingSkillId() !== null && editingSkillId() === selectedSkillId();
-
-  const canEditCurrent = () =>
-    !markdownLoading() &&
-    savingSkillId() === null &&
-    selectedSkillId() !== null &&
-    loadedMarkdownSkillId() === selectedSkillId() &&
-    markdownError() === null;
-
-  const isDirty = () =>
-    editingSkillId() !== null &&
-    loadedMarkdownSkillId() === editingSkillId() &&
-    draftMarkdown() !== loadedMarkdown();
 
   const filteredSkills = computed(() => {
     const query = searchQuery().trim().toLowerCase();
@@ -144,91 +118,6 @@ export function Library(props: ScreenProps) {
       return s().library_all_agents;
     }
     return activeAgents().find((agent) => agent.key === key)?.display_name ?? s().library_all_agents;
-  };
-
-  const clearMarkdownState = () => {
-    batch(() => {
-      loadedMarkdownSkillId.set(null);
-      editingSkillId.set(null);
-      loadedMarkdown.set("");
-      draftMarkdown.set("");
-      previewMarkdown.set("");
-      selectedLint.set(null);
-      markdownError.set(null);
-    });
-  };
-
-  const confirmDiscardIfDirty = async (): Promise<boolean> => {
-    if (!isDirty()) {
-      return true;
-    }
-    const { action } = await AlertDialog.show({
-      title: s().library_discard_title,
-      actions: [
-        { id: "cancel", label: s().btn_cancel, role: "cancel" },
-        { id: "discard", label: s().library_discard_action, role: "destructive" },
-      ],
-    });
-    return action === "discard";
-  };
-
-  const loadSelectedMarkdown = async (skillId: string | null, preserveEditor: boolean) => {
-    const req = ++markdownReqSeq;
-    if (!skillId) {
-      markdownLoading.set(false);
-      clearMarkdownState();
-      return;
-    }
-
-    const keepingSameDraft =
-      preserveEditor &&
-      loadedMarkdownSkillId() === skillId &&
-      editingSkillId() === skillId;
-
-    if (!keepingSameDraft) {
-      clearMarkdownState();
-    } else {
-      markdownError.set(null);
-    }
-    markdownLoading.set(true);
-
-    try {
-      const data = await getSkillMarkdown(skillId);
-      if (req !== markdownReqSeq || selectedSkillId() !== skillId) {
-        return;
-      }
-      batch(() => {
-        loadedMarkdownSkillId.set(skillId);
-        previewMarkdown.set(data.preview_markdown);
-        selectedLint.set(data.lint);
-        markdownError.set(null);
-        if (!keepingSameDraft) {
-          loadedMarkdown.set(data.raw_markdown);
-          draftMarkdown.set(data.raw_markdown);
-        }
-      });
-    } catch (error) {
-      if (req !== markdownReqSeq || selectedSkillId() !== skillId) {
-        return;
-      }
-      const message = errorMessage(error);
-      batch(() => {
-        previewMarkdown.set("");
-        selectedLint.set(null);
-        markdownError.set(message);
-        if (!keepingSameDraft) {
-          loadedMarkdownSkillId.set(null);
-          editingSkillId.set(null);
-          loadedMarkdown.set("");
-          draftMarkdown.set("");
-        }
-      });
-      props.notify(message, "error");
-    } finally {
-      if (req === markdownReqSeq) {
-        markdownLoading.set(false);
-      }
-    }
   };
 
   const fetchState = async (options?: {
@@ -267,9 +156,9 @@ export function Library(props: ScreenProps) {
         desiredSkillId &&
         desiredSkillId !== prevSelected &&
         data.skills.some((skill) => skill.id === desiredSkillId) &&
-        isDirty()
+        editor.dirty()
       ) {
-        const allowDiscard = await confirmDiscardIfDirty();
+        const allowDiscard = await editor.confirmDiscardIfDirty();
         if (req !== stateReqSeq) {
           return;
         }
@@ -295,8 +184,7 @@ export function Library(props: ScreenProps) {
       const preserveEditor =
         nextSkillId !== null &&
         prevSelected === nextSkillId &&
-        editingSkillId() === nextSkillId &&
-        loadedMarkdownSkillId() === nextSkillId;
+        editor.hasDraftFor(nextSkillId);
 
       batch(() => {
         skills.set(data.skills);
@@ -305,11 +193,11 @@ export function Library(props: ScreenProps) {
         selectedSkillId.set(nextSkillId);
         agentFilter.set(validAgentFilter);
         if (!preserveEditor) {
-          editingSkillId.set(null);
+          editor.endEditing();
         }
       });
 
-      await loadSelectedMarkdown(nextSkillId, preserveEditor);
+      await editor.load(nextSkillId, preserveEditor);
 
       if (options?.notifyRefreshed) {
         props.notify(s().toast_refreshed, "success");
@@ -335,86 +223,18 @@ export function Library(props: ScreenProps) {
     if (selectedSkillId() === skillId) {
       return;
     }
-    if (!(await confirmDiscardIfDirty())) {
+    if (!(await editor.confirmDiscardIfDirty())) {
       return;
     }
     selectedSkillId.set(skillId);
-    await loadSelectedMarkdown(skillId, false);
-  };
-
-  const startEditMarkdown = () => {
-    const skillId = selectedSkillId();
-    if (!skillId || !canEditCurrent()) {
-      return;
-    }
-    batch(() => {
-      draftMarkdown.set(loadedMarkdown());
-      editingSkillId.set(skillId);
-    });
-  };
-
-  const saveMarkdown = async () => {
-    const targetSkillId = editingSkillId();
-    if (
-      !targetSkillId ||
-      savingSkillId() !== null ||
-      loadedMarkdownSkillId() !== targetSkillId
-    ) {
-      return;
-    }
-    const contentToSave = draftMarkdown();
-    savingSkillId.set(targetSkillId);
-    try {
-      const result = await saveSkillMarkdown(targetSkillId, contentToSave);
-      batch(() => {
-        skills.update((items) =>
-          items.map((item) => (item.id === result.skill.id ? result.skill : item)),
-        );
-        if (selectedSkillId() === targetSkillId) {
-          markdownReqSeq += 1;
-          loadedMarkdownSkillId.set(targetSkillId);
-          loadedMarkdown.set(result.raw_markdown);
-          draftMarkdown.set(result.raw_markdown);
-          previewMarkdown.set(result.preview_markdown);
-          selectedLint.set(result.lint);
-          markdownError.set(null);
-          if (editingSkillId() === targetSkillId) {
-            editingSkillId.set(null);
-          }
-        }
-      });
-      props.notify(
-        toastSavedSkill(props.locale, result.skill.name, result.skill.estimated_tokens),
-        "success",
-      );
-      props.refresh();
-    } catch (error) {
-      props.notify(errorMessage(error), "error");
-    } finally {
-      if (savingSkillId() === targetSkillId) {
-        savingSkillId.set(null);
-      }
-    }
-  };
-
-  const requestCancelEdit = async () => {
-    if (!isEditingCurrent()) {
-      return;
-    }
-    if (!(await confirmDiscardIfDirty())) {
-      return;
-    }
-    batch(() => {
-      draftMarkdown.set(loadedMarkdown());
-      editingSkillId.set(null);
-    });
+    await editor.load(skillId, false);
   };
 
   const handleUpdateSkill = async (skill: Skill) => {
     if (updatingSkillId()) {
       return;
     }
-    if (editingSkillId() === skill.id && !(await confirmDiscardIfDirty())) {
+    if (editor.editingSkill(skill.id) && !(await editor.confirmDiscardIfDirty())) {
       return;
     }
     batch(() => {
@@ -424,8 +244,8 @@ export function Library(props: ScreenProps) {
     try {
       const outcome = await updateSkill(skill.id);
       if (outcome.updated) {
-        if (editingSkillId() === outcome.skill.id) {
-          editingSkillId.set(null);
+        if (editor.editingSkill(outcome.skill.id)) {
+          editor.endEditing();
         }
         props.notify(
           toastSkillUpdated(
@@ -566,13 +386,13 @@ export function Library(props: ScreenProps) {
     const unbindEdit = keymap.bind(
       {
         "mod+s": () => {
-          if (isEditingCurrent()) {
-            void saveMarkdown();
+          if (editor.editing()) {
+            void editor.save();
           }
         },
         escape: () => {
-          if (isEditingCurrent()) {
-            void requestCancelEdit();
+          if (editor.editing()) {
+            void editor.cancel();
           }
         },
       },
@@ -760,25 +580,25 @@ export function Library(props: ScreenProps) {
               projectStatusError={scope.error()}
               projectStatusFor={scope.statusFor}
               inspectorTab={inspectorTab()}
-              editing={isEditingCurrent()}
-              canEdit={canEditCurrent()}
-              markdownLoading={markdownLoading()}
-              markdownError={markdownError()}
-              savingMarkdown={savingSkillId() !== null}
-              draftMarkdown={draftMarkdown()}
-              previewMarkdown={previewMarkdown()}
-              selectedLint={selectedLint()}
+              editing={editor.editing()}
+              canEdit={editor.canEdit()}
+              markdownLoading={editor.loading()}
+              markdownError={editor.error()}
+              savingMarkdown={editor.saving()}
+              draftMarkdown={editor.draft()}
+              previewMarkdown={editor.preview()}
+              selectedLint={editor.lint()}
               updatingSkillId={updatingSkillId()}
               deploying={deployments.pending()}
               onTabChange={(tab) => inspectorTab.set(tab)}
-              onStartEdit={startEditMarkdown}
+              onStartEdit={editor.start}
               onCancelEdit={() => {
-                void requestCancelEdit();
+                void editor.cancel();
               }}
               onSaveEdit={() => {
-                void saveMarkdown();
+                void editor.save();
               }}
-              onDraftChange={(value) => draftMarkdown.set(value)}
+              onDraftChange={editor.changeDraft}
               onUpdateSkill={(skill) => {
                 void handleUpdateSkill(skill);
               }}

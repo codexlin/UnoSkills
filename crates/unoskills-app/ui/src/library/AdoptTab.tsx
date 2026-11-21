@@ -5,17 +5,7 @@ import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, TokenBadge, hintTooltip } from "./controls";
 import { type Locale, adoptSelectedCount, getStrings, labelWithCount } from "./strings";
 import type { AdoptCandidate } from "./types";
-
-export interface AdoptGroup {
-  key: string;
-  name: string;
-  candidates: AdoptCandidate[];
-  expanded: boolean;
-}
-
-export type AdoptRow =
-  | { kind: "group"; id: string; group: AdoptGroup }
-  | { kind: "candidate"; id: string; candidate: AdoptCandidate };
+import type { AdoptGroup, AdoptRow } from "./adoption";
 
 export function AdoptTab(props: {
   locale: Locale;

@@ -83,6 +83,11 @@ export function request<K extends keyof Commands>(command: K, args: Commands[K][
   return call<Commands[K][0], Commands[K][1]>(command, args);
 }
 
+export async function attachProjectFromPicker(title: string): Promise<Project | null> {
+  const path = await request("dialog.folder", { title });
+  return path ? request("project.attach", { path }) : null;
+}
+
 export function stackRef(stack: Stack): StackRef {
   return { stack_id: stack.id, source: stack.source };
 }

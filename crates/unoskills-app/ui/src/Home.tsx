@@ -3,7 +3,7 @@ import { Bar, Grid, Plot, PlotAxis } from "nsh/base/plot";
 import { Action, ActionControl, Icon, InlineError, Label, PageHeader, TabList, textSize } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps } from "./shared";
-import { request } from "./projects/host";
+import { attachProjectFromPicker } from "./projects";
 
 type Board = "trending" | "all-time";
 type RecentSkill = { id: string; name: string; date: string | null };
@@ -70,9 +70,8 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
     if (attaching()) return;
     attaching.set(true);
     try {
-      const path = await call<{ title: string }, string | null>("dialog.folder", { title: t().btn_add_project });
-      if (!path) return;
-      const project = await request("project.attach", { path });
+      const project = await attachProjectFromPicker(t().btn_add_project);
+      if (!project) return;
       props.navigate({ page: "projects", projectId: project.id, scopePath: "" });
       props.refresh();
     } catch (error) {

@@ -3,7 +3,7 @@ import type { ScreenProps } from "../shared";
 import { ActionMenu, MenuAction } from "../components";
 import { Action, Check, Choice, Feedback, Footer, Header, Heading, Label, actions, confirm, row, viewport } from "./controls";
 import { load, operation, toggle } from "./state";
-import { request, type Agent, type Project } from "./host";
+import { attachProjectFromPicker, request, type Agent, type Project } from "./host";
 import { projectRecommendationReason, projectSelectionCount, strings } from "./strings";
 
 export function Projects(props: ScreenProps) {
@@ -17,10 +17,7 @@ export function Projects(props: ScreenProps) {
   const selected = () => projects().find((project) => project.id === props.route.projectId) ?? projects()[0];
 
   function attach() {
-    return op.run(async () => {
-      const path = await request("dialog.folder", { title: t().chooseFolder });
-      return path ? request("project.attach", { path }) : null;
-    }, (project) => {
+    return op.run(() => attachProjectFromPicker(t().chooseFolder), (project) => {
       if (!project) return;
       props.navigate({ page: "projects", projectId: project.id, scopePath: "" });
       props.refresh();
