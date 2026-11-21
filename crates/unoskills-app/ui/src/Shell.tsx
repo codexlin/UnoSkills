@@ -139,11 +139,12 @@ export function App() {
   void initialize();
 
   const themeMode = computed(() => preferences().theme);
+  const controlsInset = Number(host.params.native_window_controls_inset) || 0;
   effect(() => setColorScheme(themeMode()));
   effect(() => setLocale(locale()));
   effect(() => applyNativeTheme(theme()));
   effect(() => {
-    if (!host.params.native_window_controls) return;
+    if (!controlsInset) return;
     const { foreground, chrome, accent } = theme();
     host.post("unoskills.command", {
       command: "window.titlebar_colors",
@@ -204,6 +205,8 @@ export function App() {
   const messageColor = () => notice()?.tone === "error" ? theme().danger
     : notice()?.tone === "success" ? theme().success : theme().foreground;
   const rail = () => theme().chrome?.rail ?? theme().surface;
+  // The first titleBar measurement can precede the GTK controls' custom style.
+  const titleBarInset = (edge: number) => edge > 0 ? Math.max(controlsInset, edge) : edge;
   const collapseLabel = () => collapsed() ? t().expand_sidebar : t().collapse_sidebar;
   const navItem = (item: typeof nav[number]) =>
     <NavigationItem theme={theme()} item={item} label={t()[item.label]} selected={selectedNav() === item.page}
@@ -213,7 +216,7 @@ export function App() {
   return (
     <View style={{ flex: 1, minHeight: 0, backgroundColor: theme().background }}>
       <View desktop={{ windowDrag: true }} style={{ height: 36, flexShrink: 0,
-        paddingLeft: titleBar().left + 12, paddingRight: titleBar().right + 8,
+        paddingLeft: titleBarInset(titleBar().left) + 12, paddingRight: titleBarInset(titleBar().right) + 8,
         flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8,
         backgroundColor: rail(), borderBottomWidth: 1, borderColor: theme().border,
         backgroundImage: `linear-gradient(180deg, color-mix(in srgb, ${rail()} 55%, ${theme().background}), ${rail()})` }}>

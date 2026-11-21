@@ -36,16 +36,20 @@ pub(super) fn channel_for(
     let open_manager = Arc::new(open_manager);
     let host = HostChannel::new();
     let mark = STANDARD.encode(include_bytes!("../../assets/icons/uno-mark.svg"));
-    host.set_params(serde_json::Map::from_iter([
-        (
-            "brand_mark".to_owned(),
-            json!(format!("data:image/svg+xml;base64,{mark}")),
-        ),
-        (
-            "native_window_controls".to_owned(),
-            json!(cfg!(target_os = "linux")),
-        ),
-    ]));
+    let params = serde_json::Map::from_iter([(
+        "brand_mark".to_owned(),
+        json!(format!("data:image/svg+xml;base64,{mark}")),
+    )]);
+    #[cfg(target_os = "linux")]
+    let params = {
+        let mut params = params;
+        params.insert(
+            "native_window_controls_inset".to_owned(),
+            json!(window_colors::CONTROLS_INSET),
+        );
+        params
+    };
+    host.set_params(params);
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(4)
         .thread_name(|worker| format!("unoskills-host-{worker}"))
