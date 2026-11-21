@@ -105,7 +105,7 @@ fn get_markdown(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
     if skill_id.is_empty() {
         bail!("Field 'skill_id' must not be empty");
     }
-    let (entry_file, raw_markdown) = manager.read_skill_markdown(skill_id)?;
+    let (entry_file, raw_markdown) = manager.read_skill_markdown_checked(skill_id)?;
     let preview_markdown = parser::strip_frontmatter(&raw_markdown).to_string();
     let lint = manager.lint_skill(skill_id).ok();
 
@@ -125,7 +125,7 @@ fn save_markdown(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
     }
     let content = required_str(input, "content")?;
     let skill = manager.save_skill_markdown(skill_id, content)?;
-    let (entry_file, raw_markdown) = manager.read_skill_markdown(&skill.id)?;
+    let (entry_file, raw_markdown) = manager.read_skill_markdown_checked(&skill.id)?;
     let preview_markdown = parser::strip_frontmatter(&raw_markdown).to_string();
     let lint = manager.lint_skill(&skill.id).ok();
 

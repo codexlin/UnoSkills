@@ -369,13 +369,26 @@ impl UnoSkillsManager {
     }
 
     pub fn read_skill_markdown(&self, skill_id: &str) -> Result<(String, String)> {
+        let (entry, path) = self.skill_markdown_path(skill_id)?;
+        Ok((entry, std::fs::read_to_string(path).unwrap_or_default()))
+    }
+
+    /// Reads the editable file and propagates failures to the caller.
+    pub fn read_skill_markdown_checked(&self, skill_id: &str) -> Result<(String, String)> {
+        let (entry, path) = self.skill_markdown_path(skill_id)?;
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("Could not read {}", path.display()))?;
+        Ok((entry, content))
+    }
+
+    fn skill_markdown_path(&self, skill_id: &str) -> Result<(String, PathBuf)> {
         let skill = self
             .store
             .find_skill(skill_id)?
             .context("Skill not found")?;
         let entry = find_skill_entry(&skill.central_path).unwrap_or_else(|| "SKILL.md".to_string());
-        let content = std::fs::read_to_string(skill.central_path.join(&entry)).unwrap_or_default();
-        Ok((entry, content))
+        let path = skill.central_path.join(&entry);
+        Ok((entry, path))
     }
 
     pub fn save_skill_markdown(&self, skill_id: &str, new_content: &str) -> Result<Skill> {
