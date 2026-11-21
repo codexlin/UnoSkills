@@ -209,7 +209,7 @@ pub static STRINGS: Strings = Strings {
     font_auto_mono: "Auto (System Mono)",
     settings_updates: "Software Updates",
     settings_current_version: "Current Version",
-    settings_updates_desc: "Check GitHub Releases manually — nothing installs silently.",
+    settings_updates_desc: "Checks for updates at startup. Download and installation require confirmation.",
     btn_check_updates: "Check for Updates",
     settings_network: "Network & backup",
     settings_http_proxy: "HTTP / SOCKS Proxy",

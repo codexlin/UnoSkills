@@ -37,7 +37,7 @@ use crate::sync::{
 use crate::updater::{
     DEFAULT_RELEASES_API_URL, DownloadedUpdate, PlatformKind, ReleaseAsset, UpdateCheckOutcome,
     UpdateProgress, download_and_verify_update_with_progress, fetch_latest_release,
-    find_checksums_asset, is_newer_semver, select_platform_asset, should_run_startup_check,
+    find_checksums_asset, is_newer_semver, select_platform_asset,
 };
 
 pub struct UnoSkillsManager {
@@ -1478,30 +1478,11 @@ impl UnoSkillsManager {
 
     // ── Guided App Updater (v1) ──
 
-    pub fn should_auto_check_updates(&self) -> bool {
-        let last = self
-            .store
-            .get_setting("last_update_check_at")
-            .ok()
-            .flatten()
-            .and_then(|s| s.parse::<i64>().ok());
-        should_run_startup_check(last, Utc::now().timestamp())
-    }
-
-    pub fn check_app_update(
-        &self,
-        current_version: &str,
-        record_timestamp: bool,
-    ) -> Result<UpdateCheckOutcome> {
+    pub fn check_app_update(&self, current_version: &str) -> Result<UpdateCheckOutcome> {
         let proxy = self.http_proxy();
         let token = self.github_token();
         let latest =
             fetch_latest_release(DEFAULT_RELEASES_API_URL, proxy.as_deref(), token.as_deref())?;
-        if record_timestamp {
-            let _ = self
-                .store
-                .set_setting("last_update_check_at", &Utc::now().timestamp().to_string());
-        }
         let Some(release) = latest else {
             return Ok(UpdateCheckOutcome {
                 current_version: current_version.to_string(),

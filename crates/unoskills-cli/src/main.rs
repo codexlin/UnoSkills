@@ -572,7 +572,7 @@ fn run(cli: Cli) -> Result<()> {
             }
         },
         Commands::CheckUpdate => {
-            let outcome = mgr.check_app_update(env!("CARGO_PKG_VERSION"), false)?;
+            let outcome = mgr.check_app_update(env!("CARGO_PKG_VERSION"))?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&outcome)?);
             } else if outcome.update_available

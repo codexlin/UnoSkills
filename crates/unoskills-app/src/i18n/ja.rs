@@ -209,7 +209,7 @@ pub static STRINGS: Strings = Strings {
     font_auto_mono: "自動（システム等幅）",
     settings_updates: "ソフトウェア更新",
     settings_current_version: "現在のバージョン",
-    settings_updates_desc: "GitHub Releases の最新バージョンを手動確認します（自動強制更新は行いません）。",
+    settings_updates_desc: "起動時に新しいバージョンを確認します。ダウンロードとインストールは確認後に行います。",
     btn_check_updates: "アップデートを確認",
     settings_network: "ネットワークとバックアップ",
     settings_http_proxy: "HTTP / SOCKS プロキシ",
