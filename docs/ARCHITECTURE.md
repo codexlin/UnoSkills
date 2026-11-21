@@ -73,6 +73,27 @@ Installer names, application identity and the Rust updater remain compatible wit
 `Home.tsx`, `Settings.tsx`, `Updates.tsx`, `library/`, and `projects/` own screen state and layout.
 Links carry opaque IDs and an optional relative `scopePath`. An empty scope path selects the project root.
 
+### Choosing TSX or Rust
+
+Use TSX for ordinary desktop pages and Rust for durable domain behavior. Either language can use NSH's native renderer. Choose the owner by asking who needs the behavior and what state or platform capability it needs.
+
+| Responsibility | Owner in UnoSkills | Example |
+| --- | --- | --- |
+| Window-wide state and navigation | `ui/src/Shell.tsx` and the shared route contract | Switch from a project to its scoped Library view |
+| User interaction and transient state | The TSX feature under `ui/src/` | Hold a Markdown draft, show a read failure, enable Save |
+| Reusable presentation | Shared TSX controls over `nsh/base` and semantic roles in `ui/src/theme.ts` | Give dialogs the same focus behavior and backdrop across themes |
+| Desktop integration | Rust host under `src/nsh/` | Open a native folder picker, validate a command payload, run blocking work on a worker |
+| Persistent rules and data | `unoskills-core`, exposed through `UnoSkillsManager` | Decide whether a deployment would overwrite an unmanaged directory, for both CLI and desktop |
+
+A Rust UI component is also appropriate when it wraps a native capability or profiling identifies expensive application code in a frequently used control. Keep its props and events typed so the surrounding page can stay in TSX. If filtering a large library is slow, measure filtering, host data transfer, and list rendering separately before choosing which part to change.
+
+### Feature structure and coding conventions
+
+- Keep a feature's screens, private components, strings and typed host functions together. Split a module when two parts own independent behavior, such as an editor draft and a marketplace query. Promote a control to the shared layer when multiple features need the same interaction. Cross-feature navigation uses `Route` and the feature's public entry point.
+- Name components for what users see (`SkillInspector`) and handlers for what users do (`saveSkillMarkdown`). Follow the existing TypeScript camelCase and Rust snake_case conventions. At the wire boundary, spell fields exactly as the serialized Rust contract expects.
+- NSH builds a component once. Read changing props and signals in bindings or computed values. Give subscriptions, shortcuts and timers a component owner and release them on deactivation or disposal as appropriate. A retained background screen may keep its draft. Only the active screen may handle its page shortcuts.
+- Use the existing semantic controls for focus, disabled state and keyboard activation. Keep raw palette values in the theme source and provide localized accessible labels. A virtualized row's key must follow the record through refresh or reorder. Preserve distinguishable occurrences when the data format allows duplicates.
+
 ### TSX to Rust
 
 `ui/src/shared.ts` calls `unoskills.command` over NSH's host channel. The request carries an explicit command name and
@@ -80,9 +101,24 @@ JSON input. The response contains the typed result or an error message and code.
 `src/nsh/`. Blocking calls run on host worker threads and reach the same `UnoSkillsManager` as the CLI.
 NSH's Rust file-dialog services supply the picker and reveal actions through `src/nsh/dialogs.rs`.
 
-After a successful mutation, a screen calls `refresh()` to advance the shared revision. Subscribers use the revision
-to update their own snapshots. The shell keeps visited screens mounted and exposes whether each screen is active. Bind shortcuts only while the screen is active. Retain draft text while refreshing data and discard obsolete async replies when the
-target changes. Give scrollable regions a constrained viewport and use NSH's virtualized `List` for growing datasets.
+Expose each new command through the feature's typed TS function or command map. The Rust handler validates the input before calling the domain operation. Keep error codes intact across the boundary so pages can distinguish a conflict from a read failure. Persisted formats, CLI JSON and legacy skill layouts are compatibility surfaces for changes to the shared core.
+
+**Example — saving a skill.** Library enables editing after a successful read for the selected skill ID. It captures that ID and the raw draft when calling `library.save_markdown`. The host passes both to the manager. On success the screen can advance `revision` to refresh subscribers. A late response for skill A may complete A's write, but it must never replace skill B's visible draft. A failed read keeps Save unavailable and displays the error. The preview can strip frontmatter while the editor retains the raw file.
+
+Apply the same identity rule to deployment. Carry the selected project ID, relative scope path and agent through preview, confirmation and mutation. The Rust core owns conflict detection and the replacement decision. The page requests explicit confirmation for the precise target reported to the user.
+
+### Review and evidence
+
+Choose evidence at the layer that owns the changed behavior.
+
+| Change | Evidence expected in review |
+| --- | --- |
+| Domain policy, storage or CLI compatibility | A Rust test exercising the real manager with a temporary store or filesystem fixture. Include affected legacy data and conflict paths. |
+| Host command | Check its request, success value and relevant error code through the dispatcher. For a scoped mutation, verify the target on disk. |
+| TSX behavior | Exercise user actions in the NSH headless runner. For async selection or retained pages, include a switch away and return, or a delayed response. |
+| Native desktop interaction | Exercise the affected focus, keyboard, picker or persistence flow on the built app with disposable data. Record the tested commit, OS, observed result and any platform or external service still unverified. |
+
+For the NSH migration, run the repository checks first, then use `agent-desktop` on the same integrated commit. Give the launched app its own home and data/config/cache directories. Report native interaction separately from headless tests and cross-platform CI.
 
 ### Desktop development
 

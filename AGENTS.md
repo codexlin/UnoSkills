@@ -45,6 +45,7 @@ unoskills-app (NSH TSX + Rust host)   unoskills-cli (clap + --json)
 - `unoskills-core` **must never** depend on NSH, UI types, or windowing crates.
 - `unoskills-app` and `unoskills-cli` **must** share the same `UnoSkillsManager` facade and `~/.unoskills/unoskills.db` (SQLite WAL + `busy_timeout`).
 - Community registry access **must** stay behind the `unoskills_core::stacks::StackRegistry` trait so Stage 1 (built-in + GitHub static `index.json`) can evolve to Stage 2 (lightweight API Hub) without rewriting UI views.
+- **Should** compose pages and own transient interaction state in TSX. **Must** keep shared persistence and deployment rules in the Rust core. The desktop host adapts native capabilities and typed commands. See the [placement rules and worked example](docs/ARCHITECTURE.md#choosing-tsx-or-rust).
 
 ---
 
@@ -62,6 +63,7 @@ unoskills-app (NSH TSX + Rust host)   unoskills-cli (clap + --json)
 - Keep blocking filesystem, database, Git and HTTP work in the Rust host off the UI and script threads. Use `UnoSkillsManager` for domain operations and preserve core error codes in host replies.
 - Preserve raw frontmatter when editing. Pass `unoskills_core::parser::strip_frontmatter` content to the Markdown preview when the selection or file changes.
 - Use compound navigation data for project scope. IDs are strings, and the empty scope path selects the project root.
+- **Must** bind page shortcuts to the active screen and async editor results to the record that initiated the operation. Cover regressions through user actions such as switching pages during a pending read or save.
 
 ## 5. Localization and Assets
 
@@ -110,7 +112,7 @@ These safety invariants are non-negotiable (informed by real-world production in
 Before reporting any task complete:
 1. Run `cargo test --workspace` — all unit & integration tests **must** pass. Any new core behavior or bug fix **should** include a focused test.
 2. Run `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets -- -D warnings` — **must** finish with **0 errors and 0 warnings** (fix unused imports/dead fields immediately).
-3. When UI code changes, run `cargo build -p unoskills-app --locked`, `nsh check crates/unoskills-app/ui`, and `nsh build crates/unoskills-app/ui --release`.
+3. When UI code changes, run `cargo build -p unoskills-app --locked`, `nsh check crates/unoskills-app/ui`, `nsh build crates/unoskills-app/ui --release`, and `nsh test crates/unoskills-app/ui`. Match the evidence to the [layer changed](docs/ARCHITECTURE.md#review-and-evidence).
 
 ### Desktop GUI Verification (`agent-desktop`)
 Use `agent-desktop` to see and operate desktop apps. Before the first use, run
