@@ -25,6 +25,7 @@ export interface Theme {
   primary: string;
   onPrimary: string;
   accent: string;
+  modalBackdrop: string;
   danger: string;
   warning: string;
   success: string;

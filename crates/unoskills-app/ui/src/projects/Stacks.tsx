@@ -8,6 +8,7 @@ import { StackDeploy } from "./deploy";
 import { StackEditor, StackImport } from "./editor";
 import { InstallReport } from "./reports";
 import { request, stackRef, type InstallResult, type Stack, type StackSource } from "./host";
+import { stackMemberRows } from "./members";
 import { strings } from "./strings";
 
 const sources = ["all", "Local", "Featured", "Community"] as const;
@@ -164,6 +165,7 @@ function StackDetail(props: {
     void screen.revision;
     return request("stack.members", stackRef(props.stack));
   });
+  const memberRows = computed(() => stackMemberRows(members().data ?? [], (status) => status.member));
   const outcome = signal<{ id: string; source: StackSource; result: InstallResult } | undefined>(undefined);
   const installedResult = () => {
     const last = outcome();
@@ -256,25 +258,30 @@ function StackDetail(props: {
       pending={members().pending || op.busy()} error={op.error() ?? members().error} />
     <If when={installedResult()}>{(result) => <InstallReport screen={screen} result={result()} />}</If>
     <Heading theme={screen.theme} label={`${t().includedSkills} (${props.stack.skills.length})`} />
-    <List each={members().data ?? []} viewport="parent" estimatedItemSize={58}>
-      {(status) => <View style={{ ...actions, flexWrap: "nowrap", borderTopWidth: 1, borderColor: screen.theme.border, paddingVertical: 8 }}>
-        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-          <Label theme={screen.theme} label={status().member.name} />
-          <Label theme={screen.theme} label={status().member.source} muted />
-          <If when={status().member.note}><Label theme={screen.theme} label={status().member.note} muted /></If>
-        </View>
-        <If when={status().installed} else={<Action theme={screen.theme} label={t().install}
-          disabled={op.busy()} run={() => op.run(() => request("stack.install_member", {
-            ...stackRef(props.stack), member_name: status().member.name, member_source: status().member.source,
-          }), () => {
-            outcome.set(undefined);
-            screen.refresh();
-            screen.notify(t().installed, "success");
-          })} />}>
-          {(skill) => <Action theme={screen.theme} label={status().source_conflict ? t().sourceConflict : t().inLibrary}
-            danger={status().source_conflict} run={() => screen.navigate({ page: "library", skillId: skill().id })} />}
-        </If>
-      </View>}
+    <List each={memberRows()} keyExtractor={(row) => row.key} viewport="parent" estimatedItemSize={58}>
+      {(row) => {
+        const status = () => row().item;
+        return (
+          <View style={{ ...actions, flexWrap: "nowrap", borderTopWidth: 1, borderColor: screen.theme.border, paddingVertical: 8 }}>
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+              <Label theme={screen.theme} label={status().member.name} />
+              <Label theme={screen.theme} label={status().member.source} muted />
+              <If when={status().member.note}><Label theme={screen.theme} label={status().member.note} muted /></If>
+            </View>
+            <If when={status().installed} else={<Action theme={screen.theme} label={t().install}
+              disabled={op.busy()} run={() => op.run(() => request("stack.install_member", {
+                ...stackRef(props.stack), member_name: status().member.name, member_source: status().member.source,
+              }), () => {
+                outcome.set(undefined);
+                screen.refresh();
+                screen.notify(t().installed, "success");
+              })} />}>
+              {(skill) => <Action theme={screen.theme} label={status().source_conflict ? t().sourceConflict : t().inLibrary}
+                danger={status().source_conflict} run={() => screen.navigate({ page: "library", skillId: skill().id })} />}
+            </If>
+          </View>
+        );
+      }}
     </List>
   </Scroll>;
 }

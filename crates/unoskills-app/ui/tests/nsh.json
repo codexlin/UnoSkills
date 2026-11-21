@@ -1,5 +1,5 @@
 {
-  "id": "dev.unoskills.UnoSkills.LibraryTests",
+  "id": "dev.unoskills.UnoSkills.DesktopTests",
   "capabilities": {
     "application": true,
     "statusBar": true,

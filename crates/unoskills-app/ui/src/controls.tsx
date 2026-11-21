@@ -171,7 +171,7 @@ export function Modal(props: {
   return (
     <Dialog open={props.open} accessibilityLabel={props.label}
       onOpenChange={({ open }) => { if (!open) props.onClose(); }}
-      backdropStyle={{ backgroundColor: "#00000072" }}
+      backdropStyle={{ backgroundColor: props.theme.modalBackdrop }}
       style={{ alignItems: "center", justifyContent: "center", padding: 24 }}>
       <View style={{ width: 440, maxWidth: "100%", gap: 16, padding: 20,
         backgroundColor: props.theme.background, borderColor: props.theme.border, borderWidth: 1,

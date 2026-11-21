@@ -91,6 +91,7 @@ The standalone CLI `nsh` v0.6.1 is used for TSX type checks and independent bund
 the bundle with the Rust bundler, so developers and packaging jobs can build the desktop executable directly.
 
 - [NSH v0.6.1 guide](https://github.com/longbridge/nsh/tree/v0.6.1/website/docs)
+- [NSH v0.6.1 coding guide](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/coding-guides.md)
 - [NSH v0.6.1 controls](https://github.com/longbridge/nsh/tree/v0.6.1/website/elements)
 - [NSH v0.6.1 base API](https://github.com/longbridge/nsh/blob/v0.6.1/website/modules/nsh-base.md)
 

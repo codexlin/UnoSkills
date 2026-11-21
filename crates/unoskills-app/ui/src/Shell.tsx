@@ -1,4 +1,4 @@
-import { Image, View, announce, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
+import { Image, View, announce, cleanup, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
 import { setLocale } from "nsh/i18n";
 import { Action, InlineError, Label } from "./controls";
 import { Home } from "./Home";
@@ -36,13 +36,30 @@ export function App() {
   const theme = computed(() => makeTheme(preferences()));
   const collapsed = () => windowSize().width < 1080 || preferences().sidebar_collapsed === "true";
   const adoptable = signal(0);
+  let disposed = false;
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
-  function notify(message: string, tone: Tone = "info") {
+  function clearNoticeTimer() {
     if (noticeTimer !== undefined) clearTimeout(noticeTimer);
+    noticeTimer = undefined;
+  }
+
+  function dismissNotice() {
+    clearNoticeTimer();
+    notice.set(null);
+  }
+
+  cleanup(() => {
+    disposed = true;
+    clearNoticeTimer();
+  });
+
+  function notify(message: string, tone: Tone = "info") {
+    if (disposed) return;
+    clearNoticeTimer();
     announce(message);
     notice.set({ message, tone });
-    noticeTimer = setTimeout(() => notice.set(null), tone === "error" ? 10000 : 4700);
+    noticeTimer = setTimeout(dismissNotice, tone === "error" ? 10000 : 4700);
   }
 
   function navigate(next: Route) {
@@ -192,7 +209,7 @@ export function App() {
           <View style={{ flex: 1, minWidth: 0 }}>
             <Label theme={theme()} color={messageColor()}>{notice()!.message}</Label>
           </View>
-          <Action theme={theme()} compact label={t().btn_close} icon="×" onPress={() => notice.set(null)} />
+          <Action theme={theme()} compact label={t().btn_close} icon="×" onPress={dismissNotice} />
         </View>
       ) : null}
       {updates.available() ? <UpdateModal theme={theme()} locale={locale()} updates={updates} /> : null}

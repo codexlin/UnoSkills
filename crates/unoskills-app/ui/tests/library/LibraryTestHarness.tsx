@@ -12,6 +12,7 @@ const TEST_THEME: Theme = {
   primary: "#2563eb",
   onPrimary: "#ffffff",
   accent: "#eef2ff",
+  modalBackdrop: "#00000072",
   danger: "#dc2626",
   warning: "#d97706",
   success: "#16a34a",

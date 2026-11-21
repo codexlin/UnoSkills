@@ -1,7 +1,8 @@
-import { keymap, List, Scroll, signal, View } from "nsh";
+import { computed, effect, keymap, List, Scroll, signal, View } from "nsh";
 import type { ScreenProps } from "../shared";
 import { Action, Check, Feedback, Field, Heading, Label, actions, confirm, load, operation, padding, toggle, viewport } from "./controls";
 import { request, type Stack, type StackFormData } from "./host";
+import { stackMemberRows } from "./members";
 import { strings } from "./strings";
 
 type FormProps = { screen: ScreenProps; saved: (stack: Stack) => void };
@@ -10,6 +11,7 @@ export function StackEditor(props: FormProps & { stack?: Stack }) {
   const screen = props.screen;
   const t = () => strings(screen.locale);
   const original = props.stack;
+  const originalRows = stackMemberRows(original?.skills ?? [], (member) => member);
   const op = operation(screen);
   const library = load(() => request("stack.library", null));
   const name = signal(original?.name ?? "");
@@ -50,8 +52,15 @@ export function StackEditor(props: FormProps & { stack?: Stack }) {
     });
   }
 
-  keymap.bind("mod+s", () => { void save(); }, { when: "always" });
-  keymap.bind("escape", cancel, { when: "notEditing" });
+  effect(() => {
+    if (!screen.active) return;
+    const unbindSave = keymap.bind("mod+s", () => { void save(); }, { when: "always" });
+    const unbindCancel = keymap.bind("escape", cancel, { when: "notEditing" });
+    return () => {
+      unbindSave();
+      unbindCancel();
+    };
+  });
 
   return <Scroll style={viewport} contentStyle={padding}>
     <Heading theme={screen.theme} label={original ? t().edit : t().create} level={1} />
@@ -61,11 +70,11 @@ export function StackEditor(props: FormProps & { stack?: Stack }) {
     <Field theme={screen.theme} label={t().tags} value={tags()} update={tags.set} />
     <If when={original?.skills.length}>
       <Heading theme={screen.theme} label={t().keepMembers} />
-      <List each={original?.skills ?? []} viewport="parent" estimatedItemSize={46}>
-        {(member, index) => <View style={{ gap: 2, paddingVertical: 4 }}>
-          <Check theme={screen.theme} label={member().name} checked={!removed().has(index())}
-            disabled={op.busy()} update={(checked) => removed.set(toggle(removed(), index(), !checked))} />
-          <Label theme={screen.theme} label={member().source} muted />
+      <List each={originalRows} keyExtractor={(row) => row.key} viewport="parent" estimatedItemSize={46}>
+        {(row) => <View style={{ gap: 2, paddingVertical: 4 }}>
+          <Check theme={screen.theme} label={row().item.name} checked={!removed().has(row().originalIndex)}
+            disabled={op.busy()} update={(checked) => removed.set(toggle(removed(), row().originalIndex, !checked))} />
+          <Label theme={screen.theme} label={row().item.source} muted />
         </View>}
       </List>
     </If>
@@ -93,6 +102,7 @@ export function StackImport(props: FormProps) {
   const op = operation(screen);
   const toml = signal("");
   const staged = signal<{ stack: Stack; previous: string | null; raw: string } | undefined>(undefined);
+  const stagedRows = computed(() => stackMemberRows(staged()?.stack.skills ?? [], (member) => member));
 
   function update(text: string) {
     toml.set(text);
@@ -142,8 +152,8 @@ export function StackImport(props: FormProps) {
       {(preview) => <View style={{ gap: 8, borderTopWidth: 1, borderColor: screen.theme.border, paddingTop: 12 }}>
         <Heading theme={screen.theme} label={preview().stack.name} />
         <Label theme={screen.theme} label={`${t().includedSkills} (${preview().stack.skills.length})`} />
-        <List each={preview().stack.skills} viewport="parent" estimatedItemSize={24}>
-          {(member) => <Label theme={screen.theme} label={member().name} />}
+        <List each={stagedRows()} keyExtractor={(row) => row.key} viewport="parent" estimatedItemSize={24}>
+          {(row) => <Label theme={screen.theme} label={row().item.name} />}
         </List>
         <If when={preview().previous}><Label theme={screen.theme} label={t().replaceImport} danger /></If>
         <View style={actions}>

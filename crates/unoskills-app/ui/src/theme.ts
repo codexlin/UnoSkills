@@ -78,6 +78,7 @@ export function makeTheme(prefs: Preferences): Theme {
   const radius = Number(prefs.corner_radius);
   return {
     ...palette,
+    modalBackdrop: "#00000072",
     danger: scheme === "dark" ? "#fda4af" : "#a32136",
     warning: scheme === "dark" ? "#fbc879" : "#844a04",
     success: scheme === "dark" ? "#8adcb9" : "#176147",

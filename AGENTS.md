@@ -57,6 +57,7 @@ unoskills-app (NSH TSX + Rust host)   unoskills-cli (clap + --json)
 
 ## 4. Desktop State and Host Calls
 
+- Follow the [NSH v0.6.1 coding guide](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/coding-guides.md) for reactive ownership, shortcuts, and stable list keys.
 - Keep screen state in NSH signals, computed values and event handlers. Use effects for async requests or platform services and discard outdated responses.
 - Keep blocking filesystem, database, Git and HTTP work in the Rust host off the UI and script threads. Use `UnoSkillsManager` for domain operations and preserve core error codes in host replies.
 - Preserve raw frontmatter when editing. Pass `unoskills_core::parser::strip_frontmatter` content to the Markdown preview when the selection or file changes.
