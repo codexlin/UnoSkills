@@ -1,8 +1,5 @@
 import {
-  Clipboard,
   type InputRef,
-  List,
-  Scroll,
   Text,
   View,
   batch,
@@ -10,12 +7,10 @@ import {
   computed,
   effect,
   keymap,
-  openUrl,
   signal,
 } from "nsh";
 import {
   AlertDialog,
-  Button,
   Input,
   Menu,
   MenuItem,
@@ -23,19 +18,13 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
   Select,
-  Switch,
-  Tab,
-  Tabs,
-  TextView,
 } from "nsh/base";
+import { Label } from "../controls";
 import type { ScreenProps } from "../shared";
-import { ActionButton, AlertBanner, EmptyState, PageHeader, TokenBadge, hintTooltip } from "./controls";
-import {
-  compactSource,
-  isProjectSkillAvailable,
-  isSkillDeployedTo,
-  joinPath,
-} from "./format";
+import { LibraryListPane } from "./LibraryListPane";
+import { SkillInspector } from "./SkillInspector";
+import { ActionButton, AlertBanner, PageHeader, hintTooltip } from "./controls";
+import { isProjectSkillAvailable, isSkillDeployedTo, joinPath } from "./format";
 import {
   attachProject,
   deployProjectSkill,
@@ -48,7 +37,6 @@ import {
   loadProjectStatuses,
   pickFolder,
   removeSkill,
-  revealPath,
   saveSkillMarkdown,
   undeployProjectSkill,
   undeploySkill,
@@ -97,12 +85,14 @@ export function Library(props: ScreenProps) {
   const projectStatusError = signal<string | null>(null);
 
   const inspectorTab = signal<"deployments" | "preview">("deployments");
-  const editingMarkdown = signal(false);
+  const loadedMarkdownSkillId = signal<string | null>(null);
+  const editingSkillId = signal<string | null>(null);
   const loadedMarkdown = signal("");
   const draftMarkdown = signal("");
   const previewMarkdown = signal("");
   const markdownLoading = signal(false);
-  const savingMarkdown = signal(false);
+  const markdownError = signal<string | null>(null);
+  const savingSkillId = signal<string | null>(null);
   const selectedLint = signal<SkillLintReport | null>(null);
 
   const updatingSkillId = signal<string | null>(null);
@@ -127,21 +117,28 @@ export function Library(props: ScreenProps) {
 
   const activeProject = computed(() => {
     const id = selectedProjectId();
-    if (!id) {
-      return null;
-    }
-    return projects().find((project) => project.id === id) ?? null;
+    return id ? (projects().find((project) => project.id === id) ?? null) : null;
   });
 
   const selectedSkill = computed(() => {
     const id = selectedSkillId();
-    if (!id) {
-      return null;
-    }
-    return skills().find((skill) => skill.id === id) ?? null;
+    return id ? (skills().find((skill) => skill.id === id) ?? null) : null;
   });
 
-  const isDirty = () => editingMarkdown() && draftMarkdown() !== loadedMarkdown();
+  const isEditingCurrent = () =>
+    editingSkillId() !== null && editingSkillId() === selectedSkillId();
+
+  const canEditCurrent = () =>
+    !markdownLoading() &&
+    savingSkillId() === null &&
+    selectedSkillId() !== null &&
+    loadedMarkdownSkillId() === selectedSkillId() &&
+    markdownError() === null;
+
+  const isDirty = () =>
+    editingSkillId() !== null &&
+    loadedMarkdownSkillId() === editingSkillId() &&
+    draftMarkdown() !== loadedMarkdown();
 
   const projectStatusFor = (skillId: string, agentKey: string): ProjectSkillStatus | undefined =>
     projectStatuses()?.[agentKey]?.[skillId];
@@ -166,10 +163,7 @@ export function Library(props: ScreenProps) {
       if (!matchesSearch) {
         return false;
       }
-      if (!filterAgent) {
-        return true;
-      }
-      return isAvailableForAgent(skill, filterAgent) === true;
+      return filterAgent ? isAvailableForAgent(skill, filterAgent) === true : true;
     });
   });
 
@@ -180,6 +174,35 @@ export function Library(props: ScreenProps) {
       title: agent.display_name,
     })),
   ]);
+
+  const scopeLabel = () => {
+    const project = activeProject();
+    if (!project) {
+      return s().scope_global;
+    }
+    const scope = selectedScopePath();
+    return scope ? `${project.name} · ${scope}` : project.name;
+  };
+
+  const selectedAgentLabel = () => {
+    const key = agentFilter();
+    if (!key) {
+      return s().library_all_agents;
+    }
+    return activeAgents().find((agent) => agent.key === key)?.display_name ?? s().library_all_agents;
+  };
+
+  const clearMarkdownState = () => {
+    batch(() => {
+      loadedMarkdownSkillId.set(null);
+      editingSkillId.set(null);
+      loadedMarkdown.set("");
+      draftMarkdown.set("");
+      previewMarkdown.set("");
+      selectedLint.set(null);
+      markdownError.set(null);
+    });
+  };
 
   const confirmDiscardIfDirty = async (): Promise<boolean> => {
     if (!isDirty()) {
@@ -198,42 +221,55 @@ export function Library(props: ScreenProps) {
   const loadSelectedMarkdown = async (skillId: string | null, preserveEditor: boolean) => {
     const req = ++markdownReqSeq;
     if (!skillId) {
-      batch(() => {
-        markdownLoading.set(false);
-        selectedLint.set(null);
-        previewMarkdown.set("");
-        if (!preserveEditor) {
-          loadedMarkdown.set("");
-          draftMarkdown.set("");
-          editingMarkdown.set(false);
-        }
-      });
+      markdownLoading.set(false);
+      clearMarkdownState();
       return;
     }
 
+    const keepingSameDraft =
+      preserveEditor &&
+      loadedMarkdownSkillId() === skillId &&
+      editingSkillId() === skillId;
+
+    if (!keepingSameDraft) {
+      clearMarkdownState();
+    } else {
+      markdownError.set(null);
+    }
     markdownLoading.set(true);
+
     try {
       const data = await getSkillMarkdown(skillId);
-      if (req !== markdownReqSeq) {
+      if (req !== markdownReqSeq || selectedSkillId() !== skillId) {
         return;
       }
       batch(() => {
+        loadedMarkdownSkillId.set(skillId);
         previewMarkdown.set(data.preview_markdown);
         selectedLint.set(data.lint);
-        if (!preserveEditor) {
+        markdownError.set(null);
+        if (!keepingSameDraft) {
           loadedMarkdown.set(data.raw_markdown);
           draftMarkdown.set(data.raw_markdown);
         }
       });
     } catch (error) {
-      if (req !== markdownReqSeq) {
+      if (req !== markdownReqSeq || selectedSkillId() !== skillId) {
         return;
       }
+      const message = errorMessage(error);
       batch(() => {
         previewMarkdown.set("");
         selectedLint.set(null);
+        markdownError.set(message);
+        if (!keepingSameDraft) {
+          loadedMarkdownSkillId.set(null);
+          editingSkillId.set(null);
+          loadedMarkdown.set("");
+          draftMarkdown.set("");
+        }
       });
-      props.notify(errorMessage(error), "error");
+      props.notify(message, "error");
     } finally {
       if (req === markdownReqSeq) {
         markdownLoading.set(false);
@@ -241,7 +277,7 @@ export function Library(props: ScreenProps) {
     }
   };
 
-  const refreshProjectStatusesOnly = async (projectId: string | null) => {
+  const refreshProjectStatusesOnly = async (projectId: string | null, scopePath: string) => {
     const req = ++projectReqSeq;
     if (!projectId) {
       batch(() => {
@@ -258,7 +294,7 @@ export function Library(props: ScreenProps) {
       projectStatusError.set(null);
     });
     try {
-      const data = await loadProjectStatuses(projectId);
+      const data = await loadProjectStatuses(projectId, scopePath);
       if (req !== projectReqSeq) {
         return;
       }
@@ -284,11 +320,20 @@ export function Library(props: ScreenProps) {
   const fetchState = async (options?: {
     preferredSkillId?: string | null;
     projectIdOverride?: string | null;
+    scopePathOverride?: string;
     notifyRefreshed?: boolean;
+    confirmRouteSkillSwitch?: boolean;
   }) => {
     const req = ++stateReqSeq;
     const requestedProject =
       options?.projectIdOverride !== undefined ? options.projectIdOverride : selectedProjectId();
+    const requestedScope =
+      options?.scopePathOverride !== undefined
+        ? options.scopePathOverride
+        : requestedProject
+          ? selectedScopePath()
+          : "";
+
     loadingState.set(true);
     loadError.set(null);
     if (requestedProject) {
@@ -296,21 +341,41 @@ export function Library(props: ScreenProps) {
     }
 
     try {
-      const data = await loadLibraryState(requestedProject);
+      const data = await loadLibraryState(requestedProject, requestedScope);
       if (req !== stateReqSeq) {
         return;
       }
+
       const prevSelected = selectedSkillId();
-      const targetSkillId = options?.preferredSkillId ?? prevSelected;
+      let desiredSkillId = options?.preferredSkillId ?? prevSelected;
+
+      // Guard route-driven skill changes against silently discarding unsaved edits.
+      if (
+        options?.confirmRouteSkillSwitch &&
+        desiredSkillId &&
+        desiredSkillId !== prevSelected &&
+        data.skills.some((skill) => skill.id === desiredSkillId) &&
+        isDirty()
+      ) {
+        const allowDiscard = await confirmDiscardIfDirty();
+        if (req !== stateReqSeq) {
+          return;
+        }
+        if (!allowDiscard) {
+          desiredSkillId = prevSelected;
+        }
+      }
+
       const nextSkillId =
-        targetSkillId && data.skills.some((skill) => skill.id === targetSkillId)
-          ? targetSkillId
+        desiredSkillId && data.skills.some((skill) => skill.id === desiredSkillId)
+          ? desiredSkillId
           : (data.skills[0]?.id ?? null);
 
       const validProjectId =
         requestedProject && data.projects.some((project) => project.id === requestedProject)
           ? requestedProject
           : null;
+      const validScopePath = validProjectId ? requestedScope : "";
 
       const currentAgentFilter = agentFilter();
       const validAgentFilter =
@@ -321,7 +386,11 @@ export function Library(props: ScreenProps) {
           ? currentAgentFilter
           : null;
 
-      const preserveEditor = editingMarkdown() && prevSelected !== null && prevSelected === nextSkillId;
+      const preserveEditor =
+        nextSkillId !== null &&
+        prevSelected === nextSkillId &&
+        editingSkillId() === nextSkillId &&
+        loadedMarkdownSkillId() === nextSkillId;
 
       batch(() => {
         skills.set(data.skills);
@@ -329,15 +398,13 @@ export function Library(props: ScreenProps) {
         projects.set(data.projects);
         selectedSkillId.set(nextSkillId);
         selectedProjectId.set(validProjectId);
-        if (!validProjectId) {
-          selectedScopePath.set("");
-        }
+        selectedScopePath.set(validScopePath);
         agentFilter.set(validAgentFilter);
         projectStatuses.set(validProjectId ? data.project_statuses : null);
         projectStatusError.set(validProjectId ? data.project_status_error : null);
         projectStatusLoading.set(false);
         if (!preserveEditor) {
-          editingMarkdown.set(false);
+          editingSkillId.set(null);
         }
       });
 
@@ -368,10 +435,7 @@ export function Library(props: ScreenProps) {
     if (!(await confirmDiscardIfDirty())) {
       return;
     }
-    batch(() => {
-      selectedSkillId.set(skillId);
-      editingMarkdown.set(false);
-    });
+    selectedSkillId.set(skillId);
     await loadSelectedMarkdown(skillId, false);
   };
 
@@ -380,26 +444,49 @@ export function Library(props: ScreenProps) {
       selectedProjectId.set(projectId);
       selectedScopePath.set(projectId ? scopePath : "");
     });
-    await refreshProjectStatusesOnly(projectId);
+    await refreshProjectStatusesOnly(projectId, projectId ? scopePath : "");
+  };
+
+  const startEditMarkdown = () => {
+    const skillId = selectedSkillId();
+    if (!skillId || !canEditCurrent()) {
+      return;
+    }
+    batch(() => {
+      draftMarkdown.set(loadedMarkdown());
+      editingSkillId.set(skillId);
+    });
   };
 
   const saveMarkdown = async () => {
-    const skill = selectedSkill();
-    if (!skill || savingMarkdown()) {
+    const targetSkillId = editingSkillId();
+    if (
+      !targetSkillId ||
+      savingSkillId() !== null ||
+      loadedMarkdownSkillId() !== targetSkillId
+    ) {
       return;
     }
-    savingMarkdown.set(true);
+    const contentToSave = draftMarkdown();
+    savingSkillId.set(targetSkillId);
     try {
-      const result = await saveSkillMarkdown(skill.id, draftMarkdown());
+      const result = await saveSkillMarkdown(targetSkillId, contentToSave);
       batch(() => {
-        loadedMarkdown.set(result.raw_markdown);
-        draftMarkdown.set(result.raw_markdown);
-        previewMarkdown.set(result.preview_markdown);
-        selectedLint.set(result.lint);
-        editingMarkdown.set(false);
         skills.update((items) =>
           items.map((item) => (item.id === result.skill.id ? result.skill : item)),
         );
+        if (selectedSkillId() === targetSkillId) {
+          markdownReqSeq += 1;
+          loadedMarkdownSkillId.set(targetSkillId);
+          loadedMarkdown.set(result.raw_markdown);
+          draftMarkdown.set(result.raw_markdown);
+          previewMarkdown.set(result.preview_markdown);
+          selectedLint.set(result.lint);
+          markdownError.set(null);
+          if (editingSkillId() === targetSkillId) {
+            editingSkillId.set(null);
+          }
+        }
       });
       props.notify(
         toastSavedSkill(props.locale, result.skill.name, result.skill.estimated_tokens),
@@ -409,12 +496,14 @@ export function Library(props: ScreenProps) {
     } catch (error) {
       props.notify(errorMessage(error), "error");
     } finally {
-      savingMarkdown.set(false);
+      if (savingSkillId() === targetSkillId) {
+        savingSkillId.set(null);
+      }
     }
   };
 
   const requestCancelEdit = async () => {
-    if (!editingMarkdown()) {
+    if (!isEditingCurrent()) {
       return;
     }
     if (!(await confirmDiscardIfDirty())) {
@@ -422,12 +511,15 @@ export function Library(props: ScreenProps) {
     }
     batch(() => {
       draftMarkdown.set(loadedMarkdown());
-      editingMarkdown.set(false);
+      editingSkillId.set(null);
     });
   };
 
   const handleUpdateSkill = async (skill: Skill) => {
     if (updatingSkillId()) {
+      return;
+    }
+    if (editingSkillId() === skill.id && !(await confirmDiscardIfDirty())) {
       return;
     }
     batch(() => {
@@ -437,6 +529,9 @@ export function Library(props: ScreenProps) {
     try {
       const outcome = await updateSkill(skill.id);
       if (outcome.updated) {
+        if (editingSkillId() === outcome.skill.id) {
+          editingSkillId.set(null);
+        }
         props.notify(
           toastSkillUpdated(
             props.locale,
@@ -493,8 +588,7 @@ export function Library(props: ScreenProps) {
       const project = await attachProject(chosen);
       props.notify(toastProjectAttached(props.locale, project.name), "success");
       props.refresh();
-      selectedScopePath.set("");
-      await fetchState({ projectIdOverride: project.id });
+      await fetchState({ projectIdOverride: project.id, scopePathOverride: "" });
     } catch (error) {
       props.notify(errorMessage(error), "error");
     }
@@ -516,13 +610,17 @@ export function Library(props: ScreenProps) {
       await detachProject(project.id);
       props.notify(s().toast_project_detached, "success");
       props.refresh();
-      await fetchState({ projectIdOverride: null });
+      await fetchState({ projectIdOverride: null, scopePathOverride: "" });
     } catch (error) {
       props.notify(errorMessage(error), "error");
     }
   };
 
-  const handleGlobalDeployToggle = async (skill: Skill, agent: AgentInfo, currentlyDeployed: boolean) => {
+  const handleGlobalDeployToggle = async (
+    skill: Skill,
+    agent: AgentInfo,
+    currentlyDeployed: boolean,
+  ) => {
     const key = `global:${skill.id}:${agent.key}`;
     if (deployingKey()) {
       return;
@@ -573,28 +671,38 @@ export function Library(props: ScreenProps) {
     agent: AgentInfo,
     currentlyDeployed: boolean,
   ) => {
-    const key = `project:${project.id}:${skill.id}:${agent.key}`;
+    const scopePath = selectedScopePath();
+    const key = `project:${project.id}:${scopePath}:${skill.id}:${agent.key}`;
     if (deployingKey()) {
       return;
     }
     deployingKey.set(key);
+    const displayScope = scopePath ? `${project.name} · ${scopePath}` : project.name;
     try {
       if (currentlyDeployed) {
-        await undeployProjectSkill(skill.id, project.id, agent.key);
-        props.notify(toastProjectUndeployed(props.locale, project.name, agent.key), "success");
+        await undeployProjectSkill(skill.id, project.id, agent.key, scopePath);
+        props.notify(toastProjectUndeployed(props.locale, displayScope, agent.key), "success");
       } else {
-        const dep = await deployProjectSkill(skill.id, project.id, agent.key, { force: false });
+        const dep = await deployProjectSkill(skill.id, project.id, agent.key, {
+          scopePath,
+          force: false,
+        });
         props.notify(
-          toastProjectDeployed(props.locale, project.name, dep.agent_key, dep.mode),
+          toastProjectDeployed(props.locale, displayScope, dep.agent_key, dep.mode),
           "success",
         );
       }
       props.refresh();
-      await fetchState({ preferredSkillId: skill.id, projectIdOverride: project.id });
+      await fetchState({
+        preferredSkillId: skill.id,
+        projectIdOverride: project.id,
+        scopePathOverride: scopePath,
+      });
     } catch (error) {
       if (!currentlyDeployed && isTargetConflictError(error)) {
         const relDir = agent.project_relative_skills_dir.trim() || ".agents/skills";
-        const targetPath = joinPath(project.path, relDir, skill.slug);
+        const scopedDir = scopePath ? joinPath(project.path, scopePath) : project.path;
+        const targetPath = joinPath(scopedDir, relDir, skill.slug);
         const { action } = await AlertDialog.show({
           title: s().confirm_conflict_title,
           description: confirmConflictDesc(props.locale, agent.display_name, targetPath),
@@ -605,13 +713,20 @@ export function Library(props: ScreenProps) {
         });
         if (action === "replace") {
           try {
-            const dep = await deployProjectSkill(skill.id, project.id, agent.key, { force: true });
+            const dep = await deployProjectSkill(skill.id, project.id, agent.key, {
+              scopePath,
+              force: true,
+            });
             props.notify(
-              toastProjectDeployed(props.locale, project.name, dep.agent_key, dep.mode),
+              toastProjectDeployed(props.locale, displayScope, dep.agent_key, dep.mode),
               "success",
             );
             props.refresh();
-            await fetchState({ preferredSkillId: skill.id, projectIdOverride: project.id });
+            await fetchState({
+              preferredSkillId: skill.id,
+              projectIdOverride: project.id,
+              scopePathOverride: scopePath,
+            });
           } catch (forceError) {
             props.notify(errorMessage(forceError), "error");
           }
@@ -624,7 +739,7 @@ export function Library(props: ScreenProps) {
     }
   };
 
-  // Sync incoming route parameters (skillId, projectId, scopePath, agentKey, focusSearch) and shell revisions.
+  // Sync incoming route parameters and shell revisions while active.
   effect(() => {
     const rev = props.revision;
     const active = isActive();
@@ -644,7 +759,7 @@ export function Library(props: ScreenProps) {
     if (routeChanged) {
       if (route.projectId !== undefined) {
         selectedProjectId.set(route.projectId || null);
-        selectedScopePath.set(route.scopePath ?? "");
+        selectedScopePath.set(route.projectId ? (route.scopePath ?? "") : "");
       }
       if (route.agentKey !== undefined) {
         agentFilter.set(route.agentKey || null);
@@ -658,6 +773,13 @@ export function Library(props: ScreenProps) {
       preferredSkillId: routeChanged && route.skillId ? route.skillId : undefined,
       projectIdOverride:
         routeChanged && route.projectId !== undefined ? route.projectId || null : undefined,
+      scopePathOverride:
+        routeChanged && route.projectId !== undefined
+          ? route.projectId
+            ? (route.scopePath ?? "")
+            : ""
+          : undefined,
+      confirmRouteSkillSwitch: routeChanged && Boolean(route.skillId),
     });
     void rev;
   });
@@ -673,12 +795,12 @@ export function Library(props: ScreenProps) {
     const unbindEdit = keymap.bind(
       {
         "mod+s": () => {
-          if (editingMarkdown()) {
+          if (isEditingCurrent()) {
             void saveMarkdown();
           }
         },
         escape: () => {
-          if (editingMarkdown()) {
+          if (isEditingCurrent()) {
             void requestCancelEdit();
           }
         },
@@ -690,16 +812,6 @@ export function Library(props: ScreenProps) {
       unbindEdit();
     });
   });
-
-  const scopeLabel = () => activeProject()?.name ?? s().scope_global;
-
-  const selectedAgentLabel = () => {
-    const key = agentFilter();
-    if (!key) {
-      return s().library_all_agents;
-    }
-    return activeAgents().find((agent) => agent.key === key)?.display_name ?? s().library_all_agents;
-  };
 
   return (
     <View
@@ -760,7 +872,16 @@ export function Library(props: ScreenProps) {
           flexShrink: 0,
         }}
       >
-        <View style={{ flex: 1, minWidth: 160, maxWidth: 280, flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <View
+          style={{
+            flex: 1,
+            minWidth: 160,
+            maxWidth: 280,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
           <Input
             ref={searchInputRef}
             value={searchQuery()}
@@ -772,7 +893,7 @@ export function Library(props: ScreenProps) {
               fontSize: 13,
               paddingHorizontal: 10,
               paddingVertical: 6,
-              borderRadius: 8,
+              borderRadius: props.theme.radius ?? 8,
               borderWidth: 1,
               borderColor: props.theme.border,
               backgroundColor: props.theme.surface,
@@ -793,7 +914,7 @@ export function Library(props: ScreenProps) {
           </If>
         </View>
 
-        {/* Scope dropdown Menu: Global, attached projects, + Add Project */}
+        {/* Scope dropdown Menu */}
         <Menu
           offset={4}
           popupStyle={{
@@ -815,10 +936,10 @@ export function Library(props: ScreenProps) {
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
-                maxWidth: 224,
+                maxWidth: 260,
                 paddingHorizontal: 12,
                 paddingVertical: 6,
-                borderRadius: 8,
+                borderRadius: props.theme.radius ?? 8,
                 borderWidth: 1,
                 borderColor: props.theme.border,
                 backgroundColor: props.theme.surface,
@@ -826,8 +947,8 @@ export function Library(props: ScreenProps) {
             >
               <Text
                 style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
+                  numberOfLines: 1,
+                  textOverflow: "ellipsis",
                   fontSize: 13,
                   color: props.theme.foreground,
                   fontFamily: props.theme.fontFamily,
@@ -860,16 +981,44 @@ export function Library(props: ScreenProps) {
             <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>
               {selectedProjectId() === null ? "✓" : ""}
             </Text>
-            <Text style={{ fontSize: 13, color: props.theme.foreground, fontFamily: props.theme.fontFamily }}>
+            <Label theme={props.theme} size={13}>
               {s().scope_global}
-            </Text>
+            </Label>
           </MenuItem>
+
+          <If when={Boolean(activeProject() && selectedScopePath())}>
+            <MenuItem
+              role="menuitemradio"
+              checked
+              onSelect={() => {
+                const project = activeProject();
+                if (project) {
+                  void changeScope(project.id, selectedScopePath());
+                }
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 7,
+                borderRadius: 6,
+              }}
+              focusStyle={{ backgroundColor: props.theme.accent }}
+              hoverStyle={{ backgroundColor: props.theme.accent }}
+            >
+              <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>✓</Text>
+              <Label theme={props.theme} size={13} truncate>
+                {scopeLabel()}
+              </Label>
+            </MenuItem>
+          </If>
 
           <Each of={projects()} key={(project) => project.id}>
             {(project) => (
               <MenuItem
                 role="menuitemradio"
-                checked={selectedProjectId() === project().id}
+                checked={selectedProjectId() === project().id && selectedScopePath() === ""}
                 onSelect={() => {
                   void changeScope(project().id, "");
                 }}
@@ -885,30 +1034,17 @@ export function Library(props: ScreenProps) {
                 hoverStyle={{ backgroundColor: props.theme.accent }}
               >
                 <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>
-                  {selectedProjectId() === project().id ? "✓" : ""}
+                  {selectedProjectId() === project().id && selectedScopePath() === "" ? "✓" : ""}
                 </Text>
-                <Text
-                  style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                    flex: 1,
-                    fontSize: 13,
-                    color: props.theme.foreground,
-                    fontFamily: props.theme.fontFamily,
-                  }}
-                >
+                <Label theme={props.theme} size={13} truncate>
                   {project().name}
-                </Text>
+                </Label>
               </MenuItem>
             )}
           </Each>
 
           <MenuSeparator
-            style={{
-              height: 1,
-              marginVertical: 4,
-              backgroundColor: props.theme.border,
-            }}
+            style={{ height: 1, marginVertical: 4, backgroundColor: props.theme.border }}
           />
 
           <MenuItem
@@ -927,9 +1063,9 @@ export function Library(props: ScreenProps) {
             hoverStyle={{ backgroundColor: props.theme.accent }}
           >
             <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>+</Text>
-            <Text style={{ fontSize: 13, color: props.theme.foreground, fontFamily: props.theme.fontFamily }}>
+            <Label theme={props.theme} size={13}>
               {s().btn_add_project}
-            </Text>
+            </Label>
           </MenuItem>
         </Menu>
 
@@ -971,7 +1107,7 @@ export function Library(props: ScreenProps) {
                 maxWidth: 224,
                 paddingHorizontal: 12,
                 paddingVertical: 6,
-                borderRadius: 8,
+                borderRadius: props.theme.radius ?? 8,
                 borderWidth: 1,
                 borderColor: props.theme.border,
                 backgroundColor: props.theme.surface,
@@ -979,8 +1115,8 @@ export function Library(props: ScreenProps) {
             >
               <Text
                 style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
+                  numberOfLines: 1,
+                  textOverflow: "ellipsis",
                   fontSize: 13,
                   color: props.theme.foreground,
                   fontFamily: props.theme.fontFamily,
@@ -1023,982 +1159,86 @@ export function Library(props: ScreenProps) {
           handleStyle={{ backgroundColor: props.theme.border }}
           handleAccessibilityLabel={s().nav_library}
         >
-          {/* Left Pane: Virtualized Skill List */}
           <ResizablePanel
             size={listPaneWidth()}
             minSize={320}
             maxSize={560}
             onResize={({ size }) => listPaneWidth.set(size)}
-            style={{
-              flex: 1,
-              minHeight: 0,
-              minWidth: 0,
-              backgroundColor: props.theme.background,
-            }}
+            style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: props.theme.background }}
           >
-            <If
-              when={Boolean(
-                selectedProjectId() &&
-                  agentFilter() &&
-                  skills().length > 0 &&
-                  (projectStatusLoading() || projectStatusError()),
-              )}
-              else={
-                <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
-                  <If when={filteredSkills().length > 0}>
-                    <View
-                      style={{
-                        height: 32,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        paddingHorizontal: 16,
-                        gap: 8,
-                        borderBottomWidth: 1,
-                        borderColor: props.theme.border,
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Text
-                        style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                          flex: 1,
-                          minWidth: 0,
-                          fontSize: 12,
-                          color: props.theme.muted,
-                          fontFamily: props.theme.fontFamily,
-                        }}
-                      >
-                        {s().library_skill_column}
-                      </Text>
-                      <Text
-                        style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                          width: 76,
-                          textAlign: "right",
-                          fontSize: 12,
-                          color: props.theme.muted,
-                          fontFamily: props.theme.fontFamily,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {selectedProjectId() ? s().library_project_available : s().library_deployment}
-                      </Text>
-                      <Text
-                        style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                          width: 96,
-                          textAlign: "right",
-                          fontSize: 12,
-                          color: props.theme.muted,
-                          fontFamily: props.theme.fontFamily,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {s().library_token_column}
-                      </Text>
-                    </View>
-                  </If>
-
-                  <If
-                    when={filteredSkills().length === 0}
-                    else={
-                      <List
-                        each={filteredSkills()}
-                        keyExtractor={(skill) => skill.id}
-                        estimatedItemSize={52}
-                        contentStyle={{ paddingVertical: 6 }}
-                        style={{ flex: 1, minHeight: 0 }}
-                      >
-                        {(skill) => (
-                          <View style={{ paddingHorizontal: 8, paddingVertical: 2 }}>
-                            <Button
-                              selected={selectedSkillId() === skill().id}
-                              accessibilityLabel={skill().name}
-                              onPress={() => {
-                                void selectSkill(skill().id);
-                              }}
-                              style={{
-                                height: 48,
-                                flexDirection: "row",
-                                alignItems: "center",
-                                gap: 8,
-                                paddingHorizontal: 10,
-                                borderRadius: 8,
-                                backgroundColor:
-                                  selectedSkillId() === skill().id
-                                    ? props.theme.accent
-                                    : props.theme.background,
-                              }}
-                              hoverStyle={{
-                                backgroundColor: props.theme.accent,
-                              }}
-                              selectedStyle={{
-                                backgroundColor: props.theme.accent,
-                              }}
-                            >
-                              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                                <Text
-                                  style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                                    fontSize: 13,
-                                    fontWeight: "600",
-                                    color: props.theme.foreground,
-                                    fontFamily: props.theme.fontFamily,
-                                  }}
-                                >
-                                  {skill().name}
-                                </Text>
-                                <Text
-                                  style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                                    fontSize: 11,
-                                    color: props.theme.muted,
-                                    fontFamily: props.theme.fontFamily,
-                                  }}
-                                >
-                                  {compactSource(
-                                    skill().source_ref ?? skill().source_type,
-                                    skill().source_type,
-                                  )}
-                                </Text>
-                              </View>
-
-                              <Text
-                                style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                                  width: 76,
-                                  textAlign: "right",
-                                  fontSize: 13,
-                                  color: props.theme.foreground,
-                                  fontFamily: props.theme.fontFamily,
-                                  flexShrink: 0,
-                                }}
-                              >
-                                {selectedProjectId() && !projectStatuses()
-                                  ? "—"
-                                  : `${
-                                      activeAgents().filter(
-                                        (agent) => isAvailableForAgent(skill(), agent.key) === true,
-                                      ).length
-                                    } / ${activeAgents().length}`}
-                              </Text>
-
-                              <View
-                                style={{
-                                  width: 96,
-                                  flexDirection: "row",
-                                  justifyContent: "flex-end",
-                                  flexShrink: 0,
-                                }}
-                              >
-                                <TokenBadge theme={props.theme} tokens={skill().estimated_tokens} />
-                              </View>
-                            </Button>
-                          </View>
-                        )}
-                      </List>
-                    }
-                  >
-                    <EmptyState
-                      theme={props.theme}
-                      title={
-                        skills().length === 0 ? s().empty_library_title : s().empty_search_title
-                      }
-                      description={
-                        skills().length === 0 ? s().empty_library_desc : s().empty_search_desc
-                      }
-                      actions={
-                        skills().length === 0 ? (
-                          <>
-                            <ActionButton
-                              theme={props.theme}
-                              kind="primary"
-                              label={s().btn_install}
-                              onPress={() => props.navigate({ page: "discover", tab: "install" })}
-                            />
-                            <ActionButton
-                              theme={props.theme}
-                              kind="outline"
-                              label={s().btn_discover_adopt}
-                              onPress={() => props.navigate({ page: "discover" })}
-                            />
-                          </>
-                        ) : undefined
-                      }
-                    />
-                  </If>
-                </View>
-              }
-            >
-              <View style={{ padding: 16 }}>
-                <If
-                  when={Boolean(projectStatusError())}
-                  else={
-                    <Text
-                      role="summary"
-            accessibilityState={{ busy: true }}
-                      style={{
-                        fontSize: 13,
-                        color: props.theme.muted,
-                        fontFamily: props.theme.fontFamily,
-                      }}
-                    >
-                      {s().stack_project_checking}
-                    </Text>
-                  }
-                >
-                  <AlertBanner
-                    theme={props.theme}
-                    tone="error"
-                    message={projectStatusError() ?? ""}
-                  />
-                </If>
-              </View>
-            </If>
+            <LibraryListPane
+              locale={props.locale}
+              theme={props.theme}
+              skills={skills()}
+              filteredSkills={filteredSkills()}
+              activeAgents={activeAgents()}
+              selectedSkillId={selectedSkillId()}
+              projectScope={selectedProjectId() !== null}
+              hasProjectStatuses={projectStatuses() !== null}
+              projectStatusLoading={projectStatusLoading()}
+              projectStatusError={projectStatusError()}
+              agentFilter={agentFilter()}
+              isAvailableForAgent={isAvailableForAgent}
+              onSelectSkill={(id) => {
+                void selectSkill(id);
+              }}
+              onOpenInstall={() => props.navigate({ page: "discover", tab: "install" })}
+              onOpenDiscover={() => props.navigate({ page: "discover" })}
+            />
           </ResizablePanel>
 
-          {/* Right Pane: Skill Inspector (Deployments / SKILL.md Preview & Quick Edit) */}
           <ResizablePanel
             minSize={384}
-            style={{
-              flex: 1,
-              minHeight: 0,
-              minWidth: 0,
-              backgroundColor: props.theme.surface,
-            }}
+            style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: props.theme.surface }}
           >
-            <If
-              when={selectedSkill()}
-              else={
-                <EmptyState
-                  theme={props.theme}
-                  title={s().empty_select_skill_title}
-                  description={s().empty_select_skill_desc}
-                />
-              }
-            >
-              {(skill) => (
-                <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
-                  {/* Inspector Header */}
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                      paddingHorizontal: 16,
-                      paddingVertical: 12,
-                      flexShrink: 0,
-                    }}
-                  >
-                    <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-                      <Text
-                        style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                          fontSize: 17,
-                          fontWeight: "600",
-                          color: props.theme.foreground,
-                          fontFamily: props.theme.fontFamily,
-                        }}
-                      >
-                        {skill().name}
-                      </Text>
-                      <Text
-                        tooltip={hintTooltip(
-                          () => props.theme,
-                          () =>
-                            `${skill().source_ref ?? skill().source_type} · ~${skill().estimated_tokens} tokens`,
-                        )}
-                        style={{
-                          numberOfLines: 1,
-                          textOverflow: "ellipsis",
-                          fontSize: 12,
-                          color: props.theme.muted,
-                          fontFamily: props.theme.fontFamily,
-                        }}
-                      >
-                        {`${skill().source_ref ?? skill().source_type} · ~${skill().estimated_tokens} tokens`}
-                      </Text>
-                    </View>
-
-                    <If
-                      when={editingMarkdown()}
-                      else={
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                          <If when={inspectorTab() === "preview"}>
-                            <ActionButton
-                              theme={props.theme}
-                              kind="outline"
-                              label={s().btn_edit_skill}
-                              disabled={markdownLoading()}
-                              onPress={() => {
-                                draftMarkdown.set(loadedMarkdown());
-                                editingMarkdown.set(true);
-                              }}
-                            />
-                          </If>
-
-                          {/* Skill Actions Overflow Menu */}
-                          <Menu
-                            offset={4}
-                            align="end"
-                            popupStyle={{
-                              minWidth: 200,
-                              borderRadius: 10,
-                              borderWidth: 1,
-                              borderColor: props.theme.border,
-                              backgroundColor: props.theme.surface,
-                              padding: 4,
-                            }}
-                            trigger={
-                              <View
-                                accessibilityLabel={s().library_skill_actions}
-                                tooltip={hintTooltip(
-                                  () => props.theme,
-                                  () => s().library_skill_actions,
-                                )}
-                                style={{
-                                  paddingHorizontal: 10,
-                                  paddingVertical: 6,
-                                  borderRadius: 8,
-                                  borderWidth: 1,
-                                  borderColor: props.theme.border,
-                                  backgroundColor: props.theme.background,
-                                }}
-                              >
-                                <Text style={{ fontSize: 14, color: props.theme.foreground }}>⋯</Text>
-                              </View>
-                            }
-                          >
-                            <If
-                              when={
-                                skill().source_type !== "adopted" &&
-                                Boolean(skill().source_ref && skill().source_ref!.trim().length > 0)
-                              }
-                            >
-                              <MenuItem
-                                disabled={updatingSkillId() === skill().id}
-                                onSelect={() => {
-                                  void handleUpdateSkill(skill());
-                                }}
-                                style={{
-                                  paddingHorizontal: 10,
-                                  paddingVertical: 7,
-                                  borderRadius: 6,
-                                }}
-                                focusStyle={{ backgroundColor: props.theme.accent }}
-                                hoverStyle={{ backgroundColor: props.theme.accent }}
-                                disabledStyle={{ opacity: 0.45 }}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 13,
-                                    color: props.theme.foreground,
-                                    fontFamily: props.theme.fontFamily,
-                                  }}
-                                >
-                                  {s().btn_update_skill}
-                                </Text>
-                              </MenuItem>
-                            </If>
-
-                            <MenuItem
-                              onSelect={() => {
-                                void revealPath(skill().central_path).catch((error) => {
-                                  props.notify(errorMessage(error), "error");
-                                });
-                              }}
-                              style={{
-                                paddingHorizontal: 10,
-                                paddingVertical: 7,
-                                borderRadius: 6,
-                              }}
-                              focusStyle={{ backgroundColor: props.theme.accent }}
-                              hoverStyle={{ backgroundColor: props.theme.accent }}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  color: props.theme.foreground,
-                                  fontFamily: props.theme.fontFamily,
-                                }}
-                              >
-                                {s().tooltip_reveal_folder}
-                              </Text>
-                            </MenuItem>
-
-                            <MenuItem
-                              onSelect={() => {
-                                void Clipboard.writeText(skill().central_path)
-                                  .then(() => {
-                                    props.notify(s().library_copy_path, "info");
-                                  })
-                                  .catch((error) => {
-                                    props.notify(errorMessage(error), "error");
-                                  });
-                              }}
-                              style={{
-                                paddingHorizontal: 10,
-                                paddingVertical: 7,
-                                borderRadius: 6,
-                              }}
-                              focusStyle={{ backgroundColor: props.theme.accent }}
-                              hoverStyle={{ backgroundColor: props.theme.accent }}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  color: props.theme.foreground,
-                                  fontFamily: props.theme.fontFamily,
-                                }}
-                              >
-                                {s().library_copy_path}
-                              </Text>
-                            </MenuItem>
-
-                            <MenuSeparator
-                              style={{
-                                height: 1,
-                                marginVertical: 4,
-                                backgroundColor: props.theme.border,
-                              }}
-                            />
-
-                            <MenuItem
-                              onSelect={() => {
-                                void handleDeleteSkill(skill());
-                              }}
-                              style={{
-                                paddingHorizontal: 10,
-                                paddingVertical: 7,
-                                borderRadius: 6,
-                              }}
-                              focusStyle={{ backgroundColor: props.theme.accent }}
-                              hoverStyle={{ backgroundColor: props.theme.accent }}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight: "500",
-                                  color: props.theme.danger,
-                                  fontFamily: props.theme.fontFamily,
-                                }}
-                              >
-                                {s().btn_delete}
-                              </Text>
-                            </MenuItem>
-                          </Menu>
-                        </View>
-                      }
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                        <ActionButton
-                          theme={props.theme}
-                          kind="ghost"
-                          label={s().btn_cancel}
-                          disabled={savingMarkdown()}
-                          onPress={() => {
-                            void requestCancelEdit();
-                          }}
-                        />
-                        <ActionButton
-                          theme={props.theme}
-                          kind="primary"
-                          label={s().btn_save}
-                          loading={savingMarkdown()}
-                          onPress={() => {
-                            void saveMarkdown();
-                          }}
-                        />
-                      </View>
-                    </If>
-                  </View>
-
-                  {/* Sub-tabs: Deployments | Preview */}
-                  <If when={!editingMarkdown()}>
-                    <View
-                      style={{
-                        paddingHorizontal: 16,
-                        borderBottomWidth: 1,
-                        borderColor: props.theme.border,
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Tabs
-                        accessibilityLabel={s().nav_library}
-                        style={{ flexDirection: "row", gap: 16 }}
-                        indicatorStyle={{
-                          bottom: 0,
-                          height: 2,
-                          backgroundColor: props.theme.primary,
-                        }}
-                      >
-                        <Tab
-                          selected={inspectorTab() === "deployments"}
-                          onPress={() => inspectorTab.set("deployments")}
-                          style={{ paddingVertical: 9 }}
-                        >
-                          <Text
-                            style={{
-                              fontSize: 13,
-                              fontWeight: inspectorTab() === "deployments" ? "600" : "500",
-                              color:
-                                inspectorTab() === "deployments"
-                                  ? props.theme.foreground
-                                  : props.theme.muted,
-                              fontFamily: props.theme.fontFamily,
-                            }}
-                          >
-                            {s().library_deployment}
-                          </Text>
-                        </Tab>
-                        <Tab
-                          selected={inspectorTab() === "preview"}
-                          onPress={() => inspectorTab.set("preview")}
-                          style={{ paddingVertical: 9 }}
-                        >
-                          <Text
-                            style={{
-                              fontSize: 13,
-                              fontWeight: inspectorTab() === "preview" ? "600" : "500",
-                              color:
-                                inspectorTab() === "preview"
-                                  ? props.theme.foreground
-                                  : props.theme.muted,
-                              fontFamily: props.theme.fontFamily,
-                            }}
-                          >
-                            {s().library_preview}
-                          </Text>
-                        </Tab>
-                      </Tabs>
-                    </View>
-                  </If>
-
-                  {/* Inspector Body */}
-                  <If
-                    when={editingMarkdown()}
-                    else={
-                      <Scroll style={{ flex: 1, minHeight: 0 }} contentStyle={{ padding: 16, gap: 12 }}>
-                        <If
-                          when={inspectorTab() === "preview"}
-                          else={
-                            /* Deployments Panel */
-                            <View style={{ gap: 10 }}>
-                              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                                <Text
-                                  style={{
-                                    flex: 1,
-                                    minWidth: 0,
-                                    fontSize: 14,
-                                    fontWeight: "600",
-                                    color: props.theme.foreground,
-                                    fontFamily: props.theme.fontFamily,
-                                  }}
-                                >
-                                  {s().library_deployment_targets}
-                                </Text>
-                                <Text
-                                  style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                                    maxWidth: 240,
-                                    fontSize: 12,
-                                    color: props.theme.muted,
-                                    fontFamily: props.theme.fontFamily,
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {scopeLabel()}
-                                </Text>
-                              </View>
-
-                              <If when={activeProject()}>
-                                {(project) => (
-                                  <View
-                                    style={{
-                                      flexDirection: "row",
-                                      alignItems: "center",
-                                      gap: 8,
-                                      paddingVertical: 4,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                                        flex: 1,
-                                        minWidth: 0,
-                                        fontSize: 12,
-                                        color: props.theme.muted,
-                                        fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
-                                      }}
-                                    >
-                                      {project().path}
-                                    </Text>
-                                    <ActionButton
-                                      theme={props.theme}
-                                      kind="ghost"
-                                      compact
-                                      label={s().tooltip_reveal_folder}
-                                      onPress={() => {
-                                        void revealPath(project().path).catch((error) => {
-                                          props.notify(errorMessage(error), "error");
-                                        });
-                                      }}
-                                    />
-                                    <ActionButton
-                                      theme={props.theme}
-                                      kind="ghost"
-                                      compact
-                                      label={s().btn_detach_project}
-                                      onPress={() => {
-                                        void handleDetachProject(project());
-                                      }}
-                                    />
-                                  </View>
-                                )}
-                              </If>
-
-                              <If when={activeAgents().length === 0}>
-                                <Text
-                                  style={{
-                                    fontSize: 13,
-                                    color: props.theme.muted,
-                                    fontFamily: props.theme.fontFamily,
-                                  }}
-                                >
-                                  {s().no_installed_agents}
-                                </Text>
-                              </If>
-
-                              <If when={Boolean(selectedProjectId() && projectStatusLoading())}>
-                                <Text
-                                  role="summary"
-            accessibilityState={{ busy: true }}
-                                  style={{
-                                    fontSize: 12,
-                                    color: props.theme.muted,
-                                    fontFamily: props.theme.fontFamily,
-                                  }}
-                                >
-                                  {s().stack_project_checking}
-                                </Text>
-                              </If>
-
-                              <If when={Boolean(selectedProjectId() && projectStatusError())}>
-                                <AlertBanner
-                                  theme={props.theme}
-                                  tone="error"
-                                  message={projectStatusError() ?? ""}
-                                />
-                              </If>
-
-                              <View style={{ borderTopWidth: 1, borderColor: props.theme.border }}>
-                                <Each of={activeAgents()} key={(agent) => agent.key}>
-                                  {(agent) => (
-                                    <View
-                                      style={{
-                                        minHeight: 42,
-                                        flexDirection: "row",
-                                        alignItems: "center",
-                                        gap: 10,
-                                        borderBottomWidth: 1,
-                                        borderColor: props.theme.border,
-                                        paddingVertical: 6,
-                                      }}
-                                    >
-                                      <Text
-                                        style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                                          flex: 1,
-                                          minWidth: 0,
-                                          fontSize: 13,
-                                          color: props.theme.foreground,
-                                          fontFamily: props.theme.fontFamily,
-                                        }}
-                                      >
-                                        {agent().display_name}
-                                      </Text>
-
-                                      <If
-                                        when={activeProject()}
-                                        else={
-                                          /* Global deployment switch */
-                                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                                            <Text
-                                              style={{
-                                                fontSize: 12,
-                                                color: isSkillDeployedTo(skill(), agent().key)
-                                                  ? props.theme.foreground
-                                                  : props.theme.muted,
-                                                fontFamily: props.theme.fontFamily,
-                                              }}
-                                            >
-                                              {isSkillDeployedTo(skill(), agent().key)
-                                                ? s().library_deployed
-                                                : s().library_not_deployed}
-                                            </Text>
-                                            <Switch
-                                              checked={isSkillDeployedTo(skill(), agent().key)}
-                                              disabled={deployingKey() !== null}
-                                              accessibilityLabel={`${s().library_deployment} · ${agent().display_name} · ${s().scope_global}`}
-                                              onChange={({ checked }) => {
-                                                const current = isSkillDeployedTo(skill(), agent().key);
-                                                if (checked === current) {
-                                                  return;
-                                                }
-                                                void handleGlobalDeployToggle(skill(), agent(), current);
-                                              }}
-                                              trackStyle={{
-                                                width: 38,
-                                                padding: 2,
-                                                borderRadius: 999,
-                                                backgroundColor: isSkillDeployedTo(skill(), agent().key)
-                                                  ? props.theme.primary
-                                                  : props.theme.border,
-                                              }}
-                                              thumbStyle={{
-                                                width: 16,
-                                                height: 16,
-                                                borderRadius: 999,
-                                                backgroundColor: props.theme.background,
-                                                transform: isSkillDeployedTo(skill(), agent().key)
-                                                  ? [{ translateX: 18 }]
-                                                  : [{ translateX: 0 }],
-                                              }}
-                                            />
-                                          </View>
-                                        }
-                                      >
-                                        {(project) => (
-                                          /* Project-scoped deployment status & controls */
-                                          <If when={projectStatusFor(skill().id, agent().key)}>
-                                            {(status) => (
-                                              <View
-                                                style={{
-                                                  flexDirection: "row",
-                                                  alignItems: "center",
-                                                  gap: 8,
-                                                  flexShrink: 0,
-                                                }}
-                                              >
-                                                <Text
-                                                  style={{
-                                                    fontSize: 12,
-                                                    color:
-                                                      status().placement === "conflict" ||
-                                                      status().placement === "unavailable"
-                                                        ? props.theme.warning
-                                                        : status().placement === "managed" ||
-                                                            status().placement === "local"
-                                                          ? props.theme.foreground
-                                                          : props.theme.muted,
-                                                    fontFamily: props.theme.fontFamily,
-                                                  }}
-                                                >
-                                                  {status().placement === "managed"
-                                                    ? s().library_project_deployed
-                                                    : status().placement === "local"
-                                                      ? s().library_project_local
-                                                      : status().placement === "conflict"
-                                                        ? s().library_project_conflict
-                                                        : status().placement === "unavailable"
-                                                          ? s().library_project_unavailable
-                                                          : status().global_available
-                                                            ? s().library_global_available
-                                                            : s().library_not_deployed}
-                                                </Text>
-
-                                                <If when={status().placement === "managed"}>
-                                                  <Switch
-                                                    checked
-                                                    disabled={deployingKey() !== null}
-                                                    accessibilityLabel={`${s().library_project_deployed} · ${agent().display_name}`}
-                                                    tooltip={hintTooltip(
-                                                      () => props.theme,
-                                                      () => s().library_remove_project_deployment,
-                                                    )}
-                                                    onChange={({ checked }) => {
-                                                      if (!checked) {
-                                                        void handleProjectDeployToggle(
-                                                          skill(),
-                                                          project(),
-                                                          agent(),
-                                                          true,
-                                                        );
-                                                      }
-                                                    }}
-                                                    trackStyle={{
-                                                      width: 38,
-                                                      padding: 2,
-                                                      borderRadius: 999,
-                                                      backgroundColor: props.theme.primary,
-                                                    }}
-                                                    thumbStyle={{
-                                                      width: 16,
-                                                      height: 16,
-                                                      borderRadius: 999,
-                                                      backgroundColor: props.theme.background,
-                                                      transform: [{ translateX: 18 }],
-                                                    }}
-                                                  />
-                                                </If>
-
-                                                <If
-                                                  when={
-                                                    status().placement === "missing" ||
-                                                    status().placement === "conflict"
-                                                  }
-                                                >
-                                                  <ActionButton
-                                                    theme={props.theme}
-                                                    kind="ghost"
-                                                    compact
-                                                    disabled={deployingKey() !== null}
-                                                    label={
-                                                      status().placement === "conflict"
-                                                        ? s().library_resolve_project_conflict
-                                                        : s().stack_deploy_project
-                                                    }
-                                                    accessibilityLabel={`${
-                                                      status().placement === "conflict"
-                                                        ? s().library_resolve_project_conflict
-                                                        : s().stack_deploy_project
-                                                    } · ${agent().display_name}`}
-                                                    onPress={() => {
-                                                      void handleProjectDeployToggle(
-                                                        skill(),
-                                                        project(),
-                                                        agent(),
-                                                        false,
-                                                      );
-                                                    }}
-                                                  />
-                                                </If>
-                                              </View>
-                                            )}
-                                          </If>
-                                        )}
-                                      </If>
-                                    </View>
-                                  )}
-                                </Each>
-                              </View>
-                            </View>
-                          }
-                        >
-                          {/* SKILL.md Preview + Lint Warnings */}
-                          <View style={{ maxWidth: 720, gap: 12 }}>
-                            <If
-                              when={Boolean(
-                                selectedLint() && selectedLint()!.warnings.length > 0,
-                              )}
-                            >
-                              <AlertBanner
-                                theme={props.theme}
-                                tone="warning"
-                                message={(selectedLint()?.warnings ?? []).join(" · ")}
-                              />
-                            </If>
-
-                            <If
-                              when={Boolean(
-                                skill().description && skill().description!.trim().length > 0,
-                              )}
-                            >
-                              <View
-                                style={{
-                                  paddingBottom: 12,
-                                  borderBottomWidth: 1,
-                                  borderColor: props.theme.border,
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 13,
-                                    lineHeight: 20,
-                                    color: props.theme.foreground,
-                                    fontFamily: props.theme.fontFamily,
-                                  }}
-                                >
-                                  {skill().description ?? ""}
-                                </Text>
-                              </View>
-                            </If>
-
-                            <TextView
-                              markdown={previewMarkdown()}
-                              selectable
-                              onLinkPress={({ url }) => {
-                                void openUrl(url);
-                              }}
-                              styles={{
-                                root: {
-                                  color: props.theme.foreground,
-                                  fontFamily: props.theme.fontFamily,
-                                  fontSize: 14,
-                                  lineHeight: 22,
-                                },
-                                link: {
-                                  color: props.theme.primary,
-                                },
-                                code: {
-                                  fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
-                                  backgroundColor: props.theme.background,
-                                },
-                                codeBlock: {
-                                  backgroundColor: props.theme.background,
-                                  borderColor: props.theme.border,
-                                },
-                                codeBlockCode: {
-                                  fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
-                                },
-                              }}
-                            />
-                          </View>
-                        </If>
-                      </Scroll>
-                    }
-                  >
-                    {/* Quick Edit Mode for SKILL.md (raw frontmatter preserved) */}
-                    <View style={{ flex: 1, minHeight: 0, padding: 16 }}>
-                      <Input
-                        multiline
-                        submitBehavior="newline"
-                        autoCorrect={false}
-                        value={draftMarkdown()}
-                        onChange={({ value }) => draftMarkdown.set(value)}
-                        placeholder={s().ph_skill_md}
-                        accessibilityLabel={s().btn_edit_skill}
-                        disabled={savingMarkdown()}
-                        style={{
-                          flex: 1,
-                          minHeight: 0,
-                          fontSize: 13,
-                          lineHeight: 20,
-                          padding: 12,
-                          borderRadius: 8,
-                          borderWidth: 1,
-                          borderColor: props.theme.border,
-                          backgroundColor: props.theme.background,
-                          color: props.theme.foreground,
-                          placeholderColor: props.theme.muted,
-                          fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
-                        }}
-                      />
-                    </View>
-                  </If>
-                </View>
-              )}
-            </If>
+            <SkillInspector
+              locale={props.locale}
+              theme={props.theme}
+              skill={selectedSkill()}
+              activeAgents={activeAgents()}
+              activeProject={activeProject()}
+              scopePath={selectedScopePath()}
+              scopeLabel={scopeLabel()}
+              projectStatusLoading={projectStatusLoading()}
+              projectStatusError={projectStatusError()}
+              projectStatusFor={projectStatusFor}
+              inspectorTab={inspectorTab()}
+              editing={isEditingCurrent()}
+              canEdit={canEditCurrent()}
+              markdownLoading={markdownLoading()}
+              markdownError={markdownError()}
+              savingMarkdown={savingSkillId() !== null}
+              draftMarkdown={draftMarkdown()}
+              previewMarkdown={previewMarkdown()}
+              selectedLint={selectedLint()}
+              updatingSkillId={updatingSkillId()}
+              deploying={deployingKey() !== null}
+              onTabChange={(tab) => inspectorTab.set(tab)}
+              onStartEdit={startEditMarkdown}
+              onCancelEdit={() => {
+                void requestCancelEdit();
+              }}
+              onSaveEdit={() => {
+                void saveMarkdown();
+              }}
+              onDraftChange={(value) => draftMarkdown.set(value)}
+              onUpdateSkill={(skill) => {
+                void handleUpdateSkill(skill);
+              }}
+              onDeleteSkill={(skill) => {
+                void handleDeleteSkill(skill);
+              }}
+              onGlobalDeployToggle={(skill, agent, deployed) => {
+                void handleGlobalDeployToggle(skill, agent, deployed);
+              }}
+              onProjectDeployToggle={(skill, project, agent, deployed) => {
+                void handleProjectDeployToggle(skill, project, agent, deployed);
+              }}
+              onDetachProject={(project) => {
+                void handleDetachProject(project);
+              }}
+              onNotify={props.notify}
+            />
           </ResizablePanel>
         </ResizablePanelGroup>
       </View>

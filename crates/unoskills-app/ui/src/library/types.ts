@@ -93,12 +93,14 @@ export interface LibraryStateResponse {
   agents: AgentInfo[];
   projects: ProjectWorkspace[];
   deploy_mode: DeployMode;
+  scope_path?: string;
   project_statuses: ProjectSkillStatusMap | null;
   project_status_error: string | null;
 }
 
 export interface ProjectStatusesResponse {
   project_id: string;
+  scope_path?: string;
   statuses: ProjectSkillStatusMap;
 }
 

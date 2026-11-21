@@ -1,5 +1,6 @@
 import { type JSX, Text, View } from "nsh";
 import { Button, Tooltip } from "nsh/base";
+import { InlineError, Label } from "../controls";
 import type { Theme } from "../shared";
 import { TOKEN_BUDGET_WARN_THRESHOLD, formatTokensShort } from "./format";
 
@@ -17,15 +18,9 @@ export function hintTooltip(theme: () => Theme, text: () => string): JSX.Element
         backgroundColor: theme().foreground,
       }}
     >
-      <Text
-        style={{
-          fontSize: 12,
-          color: theme().background,
-          fontFamily: theme().fontFamily,
-        }}
-      >
+      <Label theme={theme()} size={12} color={theme().background}>
         {text()}
-      </Text>
+      </Label>
     </Tooltip>
   );
 }
@@ -44,6 +39,7 @@ export function ActionButton(props: {
 }) {
   const kind = () => props.kind ?? "outline";
   const isDisabled = () => Boolean(props.disabled || props.loading);
+  const radius = () => props.theme.radius ?? 8;
 
   const bg = () => {
     switch (kind()) {
@@ -69,17 +65,6 @@ export function ActionButton(props: {
     }
   };
 
-  const borderColor = () => {
-    switch (kind()) {
-      case "outline":
-        return props.theme.border;
-      default:
-        return "transparent";
-    }
-  };
-
-  const radius = () => props.theme.radius ?? 8;
-
   return (
     <Button
       onPress={props.onPress}
@@ -101,26 +86,23 @@ export function ActionButton(props: {
         gap: 6,
         borderRadius: radius(),
         borderWidth: kind() === "outline" ? 1 : 0,
-        borderColor: borderColor(),
+        borderColor: kind() === "outline" ? props.theme.border : "transparent",
         backgroundColor: bg(),
         paddingHorizontal: props.compact ? 10 : 12,
         paddingVertical: props.compact ? 5 : 7,
         flexShrink: 0,
       }}
+      focusVisibleStyle={{ borderColor: props.theme.primary }}
       hoverStyle={{
         backgroundColor: kind() === "primary" || kind() === "danger" ? bg() : props.theme.accent,
         opacity: kind() === "primary" || kind() === "danger" ? 0.92 : 1,
       }}
-      activeStyle={{
-        opacity: 0.82,
-      }}
+      activeStyle={{ opacity: 0.82 }}
       selectedStyle={{
         backgroundColor: props.theme.accent,
         borderColor: props.theme.primary,
       }}
-      disabledStyle={{
-        opacity: 0.48,
-      }}
+      disabledStyle={{ opacity: 0.48 }}
     >
       <Text
         style={{
@@ -160,18 +142,9 @@ export function PageHeader(props: {
       }}
     >
       <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <Text
-          style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-            fontSize: 18,
-            fontWeight: "600",
-            color: props.theme.foreground,
-            fontFamily: props.theme.fontFamily,
-          }}
-        >
+        <Label theme={props.theme} heading size={18} truncate>
           {props.title}
-        </Text>
+        </Label>
         <If when={Boolean(props.busyText)}>
           <View
             role="summary"
@@ -184,17 +157,9 @@ export function PageHeader(props: {
               flexShrink: 1,
             }}
           >
-            <Text
-              style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                fontSize: 12,
-                color: props.theme.muted,
-                fontFamily: props.theme.fontFamily,
-              }}
-            >
+            <Label theme={props.theme} muted size={12} truncate>
               {props.busyText ?? ""}
-            </Text>
+            </Label>
           </View>
         </If>
       </View>
@@ -212,57 +177,48 @@ export function AlertBanner(props: {
   tone: "error" | "warning" | "info";
   message: string;
 }) {
-  const accentColor = () => {
-    switch (props.tone) {
-      case "error":
-        return props.theme.danger;
-      case "warning":
-        return props.theme.warning;
-      case "info":
-      default:
-        return props.theme.primary;
-    }
-  };
-
   return (
-    <View
-      role="alert"
-      style={{
-        flexDirection: "row",
-        alignItems: "flex-start",
-        gap: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: accentColor(),
-        backgroundColor: props.theme.surface,
-      }}
+    <If
+      when={props.tone === "error"}
+      else={
+        <View
+          role="alert"
+          style={{
+            flexDirection: "row",
+            alignItems: "flex-start",
+            gap: 8,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            borderRadius: props.theme.radius ?? 8,
+            borderWidth: 1,
+            borderColor: props.tone === "warning" ? props.theme.warning : props.theme.primary,
+            backgroundColor: props.theme.surface,
+          }}
+        >
+          <Label
+            theme={props.theme}
+            size={12}
+            color={props.tone === "warning" ? props.theme.warning : props.theme.primary}
+          >
+            {props.tone === "warning" ? "▲" : "i"}
+          </Label>
+          <Text
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 12,
+              lineHeight: 18,
+              color: props.theme.foreground,
+              fontFamily: props.theme.fontFamily,
+            }}
+          >
+            {props.message}
+          </Text>
+        </View>
+      }
     >
-      <Text
-        style={{
-          fontSize: 12,
-          fontWeight: "600",
-          color: accentColor(),
-          fontFamily: props.theme.fontFamily,
-          flexShrink: 0,
-        }}
-      >
-        {props.tone === "error" ? "!" : props.tone === "warning" ? "▲" : "i"}
-      </Text>
-      <Text
-        style={{
-          flex: 1,
-          minWidth: 0,
-          fontSize: 12,
-          lineHeight: 18,
-          color: props.theme.foreground,
-          fontFamily: props.theme.fontFamily,
-        }}
-      >
-        {props.message}
-      </Text>
-    </View>
+      <InlineError theme={props.theme} message={props.message} />
+    </If>
   );
 }
 
@@ -326,17 +282,14 @@ export function EmptyState(props: {
 export function TokenBadge(props: { theme: Theme; tokens: number }) {
   const overBudget = () => props.tokens > TOKEN_BUDGET_WARN_THRESHOLD;
   return (
-    <Text
-      style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-        fontSize: 12,
-        fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
-        color: overBudget() ? props.theme.warning : props.theme.muted,
-        flexShrink: 0,
-      }}
+    <Label
+      theme={props.theme}
+      mono
+      size={12}
+      truncate
+      color={overBudget() ? props.theme.warning : props.theme.muted}
     >
       {formatTokensShort(props.tokens)}
-    </Text>
+    </Label>
   );
 }

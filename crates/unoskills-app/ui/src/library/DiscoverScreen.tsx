@@ -1,6 +1,5 @@
 import {
   type InputRef,
-  List,
   type ListRef,
   Text,
   View,
@@ -9,24 +8,15 @@ import {
   computed,
   effect,
   keymap,
-  openUrl,
   signal,
 } from "nsh";
-import {
-  AlertDialog,
-  Button,
-  Checkbox,
-  Input,
-  Menu,
-  MenuItem,
-  Select,
-  Tab,
-  Tabs,
-} from "nsh/base";
+import { AlertDialog, Tab, Tabs } from "nsh/base";
 import type { ScreenProps } from "../shared";
+import { type AdoptGroup, type AdoptRow, AdoptTab } from "./AdoptTab";
+import { ALL_SOURCES_VALUE, MarketplaceTab } from "./MarketplaceTab";
 import { QuickInstallDialog } from "./QuickInstallDialog";
-import { ActionButton, AlertBanner, EmptyState, PageHeader, TokenBadge, hintTooltip } from "./controls";
-import { formatInstallCount, marketInstallStatus } from "./format";
+import { ActionButton, PageHeader } from "./controls";
+import { marketInstallStatus } from "./format";
 import {
   adoptLocalSkills,
   errorMessage,
@@ -38,8 +28,6 @@ import {
 } from "./host";
 import {
   adoptConfirmTitle,
-  adoptSelectedCount,
-  boardLabel,
   busyAdoptingAll,
   busyInstalling,
   busySearching,
@@ -50,9 +38,7 @@ import {
 } from "./strings";
 import type { AdoptCandidate, MarketBoard, MarketplaceSkillItem, Skill } from "./types";
 
-const ALL_SOURCES_VALUE = "__all_sources__";
 const MAX_INITIALLY_EXPANDED_SKILLS = 8;
-const MARKET_BOARDS: MarketBoard[] = ["trending", "hot", "all-time"];
 
 interface CachedMarketBoard {
   items: MarketplaceSkillItem[];
@@ -60,17 +46,6 @@ interface CachedMarketBoard {
   total: number | null;
   hasMore: boolean;
 }
-
-interface AdoptGroup {
-  key: string;
-  name: string;
-  candidates: AdoptCandidate[];
-  expanded: boolean;
-}
-
-type AdoptRow =
-  | { kind: "group"; id: string; group: AdoptGroup }
-  | { kind: "candidate"; id: string; candidate: AdoptCandidate };
 
 function parseMarketBoard(tab?: string): MarketBoard | null {
   switch (tab) {
@@ -88,7 +63,6 @@ export function Discover(props: ScreenProps) {
   const installDialogOpen = signal(false);
   const installDialogInitialSource = signal<string | undefined>(undefined);
 
-  // Installed skills snapshot (used to show Installed / SameName status & navigate to Library)
   const installedSkills = signal<Skill[]>([]);
   const installingRefs = signal<Record<string, boolean>>({});
   const busyText = signal<string | null>(null);
@@ -493,9 +467,8 @@ export function Discover(props: ScreenProps) {
     if (!current) {
       return;
     }
-    const nextExpanded = !current.expanded;
     if (!adoptSearch().trim()) {
-      adoptExpansion.update((prev) => ({ ...prev, [groupKey]: nextExpanded }));
+      adoptExpansion.update((prev) => ({ ...prev, [groupKey]: !current.expanded }));
     }
   };
 
@@ -697,11 +670,7 @@ export function Discover(props: ScreenProps) {
         <Tabs
           accessibilityLabel={s().discover_title}
           style={{ flexDirection: "row", gap: 20 }}
-          indicatorStyle={{
-            bottom: 0,
-            height: 2,
-            backgroundColor: props.theme.primary,
-          }}
+          indicatorStyle={{ bottom: 0, height: 2, backgroundColor: props.theme.primary }}
         >
           <Tab
             selected={subTab() === "marketplace"}
@@ -743,969 +712,105 @@ export function Discover(props: ScreenProps) {
         </Tabs>
       </View>
 
-      {/* Main Content */}
       <If
         when={subTab() === "marketplace"}
         else={
-          /* Local Skills (Adopt) Tab */
-          <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                alignItems: "center",
-                gap: 8,
-                paddingHorizontal: 20,
-                paddingVertical: 10,
-                borderBottomWidth: 1,
-                borderColor: props.theme.border,
-                flexShrink: 0,
-              }}
-            >
-              <View style={{ flex: 1, minWidth: 180, maxWidth: 360, flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Input
-                  ref={adoptSearchRef}
-                  value={adoptSearch()}
-                  onChange={({ value }) => {
-                    adoptSearch.set(value);
-                    adoptListRef?.scrollToOffset({ offset: 0, animated: false });
-                  }}
-                  placeholder={s().ph_adopt_search}
-                  accessibilityLabel={s().ph_adopt_search}
-                  style={{
-                    flex: 1,
-                    fontSize: 13,
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 8,
-                    borderWidth: 1,
-                    borderColor: props.theme.border,
-                    backgroundColor: props.theme.surface,
-                    color: props.theme.foreground,
-                    placeholderColor: props.theme.muted,
-                    fontFamily: props.theme.fontFamily,
-                  }}
-                />
-                <If when={adoptSearch().length > 0}>
-                  <ActionButton
-                    theme={props.theme}
-                    kind="ghost"
-                    compact
-                    label="×"
-                    accessibilityLabel={s().adopt_clear_selection}
-                    onPress={() => adoptSearch.set("")}
-                  />
-                </If>
-              </View>
-
-              <ActionButton
-                theme={props.theme}
-                kind="outline"
-                label={s().btn_rescan}
-                loading={scanningAdopt()}
-                disabled={adopting()}
-                onPress={() => {
-                  props.refresh();
-                  void refreshInstalledAndAdopt();
-                }}
-              />
-            </View>
-
-            <If when={Boolean(adoptError())}>
-              <View style={{ paddingHorizontal: 20, paddingTop: 10 }}>
-                <AlertBanner theme={props.theme} tone="error" message={adoptError() ?? ""} />
-              </View>
-            </If>
-
-            <If
-              when={adoptRows().length === 0}
-              else={
-                <List
-                  ref={adoptListRef}
-                  each={adoptRows()}
-                  keyExtractor={(row) => row.id}
-                  estimatedItemSize={42}
-                  style={{ flex: 1, minHeight: 0 }}
-                >
-                  {(row) => (
-                    <View style={{ paddingHorizontal: 20 }}>
-                      <If
-                        when={row().kind === "group"}
-                        else={
-                          /* Candidate row */
-                          <View
-                            style={{
-                              height: 42,
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 10,
-                              paddingHorizontal: 8,
-                              borderBottomWidth: 1,
-                              borderColor: props.theme.border,
-                            }}
-                          >
-                            <Checkbox
-                              checked={Boolean(
-                                row().kind === "candidate" &&
-                                  selectedAdoptPaths()[
-                                    (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                                  ],
-                              )}
-                              disabled={adopting()}
-                              accessibilityLabel={
-                                row().kind === "candidate"
-                                  ? (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.name
-                                  : ""
-                              }
-                              onChange={({ checked }) => {
-                                const current = row();
-                                if (current.kind === "candidate") {
-                                  toggleAdoptCandidateSelected(current.candidate.path, checked);
-                                }
-                              }}
-                              indicatorStyle={{
-                                width: 16,
-                                height: 16,
-                                borderRadius: 4,
-                                borderWidth: 1,
-                                borderColor:
-                                  row().kind === "candidate" &&
-                                  selectedAdoptPaths()[
-                                    (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                                  ]
-                                    ? props.theme.primary
-                                    : props.theme.border,
-                                backgroundColor:
-                                  row().kind === "candidate" &&
-                                  selectedAdoptPaths()[
-                                    (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                                  ]
-                                    ? props.theme.primary
-                                    : props.theme.background,
-                                alignItems: "center",
-                                justifyContent: "center",
-                              }}
-                              indicator={
-                                <Text
-                                  style={{
-                                    fontSize: 11,
-                                    fontWeight: "700",
-                                    color: props.theme.onPrimary,
-                                  }}
-                                >
-                                  {row().kind === "candidate" &&
-                                  selectedAdoptPaths()[
-                                    (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                                  ]
-                                    ? "✓"
-                                    : ""}
-                                </Text>
-                              }
-                            />
-
-                            <Text
-                              style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                                width: "32%",
-                                minWidth: 0,
-                                fontSize: 13,
-                                color: props.theme.foreground,
-                                fontFamily: props.theme.fontFamily,
-                              }}
-                            >
-                              {row().kind === "candidate"
-                                ? (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.name
-                                : ""}
-                            </Text>
-
-                            <Text
-                              tooltip={hintTooltip(
-                                () => props.theme,
-                                () =>
-                                  row().kind === "candidate"
-                                    ? (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                                    : "",
-                              )}
-                              style={{
-                                numberOfLines: 1,
-                                textOverflow: "ellipsis",
-                                flex: 1,
-                                minWidth: 0,
-                                fontSize: 12,
-                                color: props.theme.muted,
-                                fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
-                              }}
-                            >
-                              {row().kind === "candidate"
-                                ? (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                                : ""}
-                            </Text>
-
-                            <TokenBadge
-                              theme={props.theme}
-                              tokens={
-                                row().kind === "candidate"
-                                  ? (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate
-                                      .estimated_tokens
-                                  : 0
-                              }
-                            />
-                          </View>
-                        }
-                      >
-                        {/* Group header row */}
-                        <View
-                          style={{
-                            height: 40,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: 8,
-                            paddingHorizontal: 10,
-                            borderRadius: 6,
-                            backgroundColor: props.theme.surface,
-                            borderBottomWidth: 1,
-                            borderColor: props.theme.border,
-                          }}
-                        >
-                          <Button
-                            onPress={() => {
-                              const current = row();
-                              if (current.kind === "group") {
-                                toggleAdoptGroupExpanded(current.group.key);
-                              }
-                            }}
-                            style={{
-                              flex: 1,
-                              minWidth: 0,
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 6,
-                              paddingVertical: 4,
-                            }}
-                          >
-                            <Text style={{ fontSize: 12, color: props.theme.muted }}>
-                              {row().kind === "group" &&
-                              (row() as Extract<AdoptRow, { kind: "group" }>).group.expanded
-                                ? "▾"
-                                : "▸"}
-                            </Text>
-                            <Text
-                              style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                                flex: 1,
-                                minWidth: 0,
-                                fontSize: 13,
-                                fontWeight: "600",
-                                color: props.theme.foreground,
-                                fontFamily: props.theme.fontFamily,
-                              }}
-                            >
-                              {row().kind === "group"
-                                ? `${(row() as Extract<AdoptRow, { kind: "group" }>).group.name} (${
-                                    (row() as Extract<AdoptRow, { kind: "group" }>).group.candidates.length
-                                  })`
-                                : ""}
-                            </Text>
-                          </Button>
-
-                          <ActionButton
-                            theme={props.theme}
-                            kind="ghost"
-                            compact
-                            disabled={adopting()}
-                            label={
-                              row().kind === "group" &&
-                              (row() as Extract<AdoptRow, { kind: "group" }>).group.candidates.every(
-                                (candidate) => Boolean(selectedAdoptPaths()[candidate.path]),
-                              )
-                                ? s().adopt_clear_selection
-                                : s().adopt_select_group
-                            }
-                            onPress={() => {
-                              const current = row();
-                              if (current.kind === "group") {
-                                toggleAdoptGroupSelected(current.group);
-                              }
-                            }}
-                          />
-                        </View>
-                      </If>
-                    </View>
-                  )}
-                </List>
-              }
-            >
-              <EmptyState
-                theme={props.theme}
-                title={
-                  adoptCandidates().length === 0
-                    ? s().empty_adopt_done_title
-                    : s().empty_adopt_filter_title
-                }
-                description={
-                  adoptCandidates().length === 0
-                    ? s().empty_adopt_done_desc
-                    : s().empty_adopt_filter_desc
-                }
-              />
-            </If>
-
-            {/* Selection Action Bar */}
-            <If when={selectedAdoptCount() > 0}>
-              <View
-                style={{
-                  minHeight: 52,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                  paddingHorizontal: 20,
-                  paddingVertical: 10,
-                  borderTopWidth: 1,
-                  borderColor: props.theme.border,
-                  backgroundColor: props.theme.surface,
-                  flexShrink: 0,
-                }}
-              >
-                <Text
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    fontSize: 13,
-                    color: props.theme.foreground,
-                    fontFamily: props.theme.fontFamily,
-                  }}
-                >
-                  {adoptSelectedCount(props.locale, selectedAdoptCount())}
-                </Text>
-                <ActionButton
-                  theme={props.theme}
-                  kind="ghost"
-                  disabled={adopting()}
-                  label={s().adopt_clear_selection}
-                  onPress={() => selectedAdoptPaths.set({})}
-                />
-                <ActionButton
-                  theme={props.theme}
-                  kind="primary"
-                  loading={adopting()}
-                  label={labelWithCount(props.locale, s().btn_adopt, selectedAdoptCount())}
-                  onPress={() => {
-                    void confirmAndAdoptSelected();
-                  }}
-                />
-              </View>
-            </If>
-          </View>
+          <AdoptTab
+            locale={props.locale}
+            theme={props.theme}
+            searchQuery={adoptSearch()}
+            totalCandidates={adoptCandidates().length}
+            rows={adoptRows()}
+            selectedPaths={selectedAdoptPaths()}
+            selectedCount={selectedAdoptCount()}
+            scanning={scanningAdopt()}
+            adopting={adopting()}
+            error={adoptError()}
+            onSearchInputRef={(ref) => {
+              adoptSearchRef = ref;
+            }}
+            onListRef={(ref) => {
+              adoptListRef = ref;
+            }}
+            onSearchChange={(value) => {
+              adoptSearch.set(value);
+              adoptListRef?.scrollToOffset({ offset: 0, animated: false });
+            }}
+            onRescan={() => {
+              props.refresh();
+              void refreshInstalledAndAdopt();
+            }}
+            onToggleGroupExpanded={toggleAdoptGroupExpanded}
+            onToggleGroupSelected={toggleAdoptGroupSelected}
+            onToggleCandidateSelected={toggleAdoptCandidateSelected}
+            onClearSelection={() => selectedAdoptPaths.set({})}
+            onConfirmAdopt={() => {
+              void confirmAndAdoptSelected();
+            }}
+          />
         }
       >
-        {/* Marketplace Tab */}
-        <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
-          {/* Marketplace Toolbar */}
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              alignItems: "center",
-              gap: 8,
-              paddingHorizontal: 20,
-              paddingVertical: 10,
-              flexShrink: 0,
-            }}
-          >
-            <View style={{ flex: 1, minWidth: 160, maxWidth: 360, flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <Input
-                ref={marketSearchRef}
-                value={marketSearchInput()}
-                onChange={({ value }) => {
-                  marketSearchInput.set(value);
-                  if (marketSearchActive() && value.trim().length === 0) {
-                    void loadMarketBoard(marketBoard(), false);
-                  }
-                }}
-                onSubmit={({ text }) => {
-                  void runMarketSearch(text);
-                }}
-                placeholder={s().ph_market_search}
-                accessibilityLabel={s().ph_market_search}
-                returnKeyType="search"
-                submitBehavior="submit"
-                style={{
-                  flex: 1,
-                  fontSize: 13,
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: props.theme.border,
-                  backgroundColor: props.theme.surface,
-                  color: props.theme.foreground,
-                  placeholderColor: props.theme.muted,
-                  fontFamily: props.theme.fontFamily,
-                }}
-              />
-              <If when={marketSearchInput().length > 0}>
-                <ActionButton
-                  theme={props.theme}
-                  kind="ghost"
-                  compact
-                  label="×"
-                  accessibilityLabel={s().adopt_clear_selection}
-                  onPress={() => {
-                    marketSearchInput.set("");
-                    if (marketSearchActive()) {
-                      void loadMarketBoard(marketBoard(), false);
-                    }
-                  }}
-                />
-              </If>
-            </View>
-
-            <ActionButton
-              theme={props.theme}
-              kind="ghost"
-              label={s().btn_search}
-              tooltip={s().market_search_hint}
-              onPress={() => {
-                void runMarketSearch(marketSearchInput());
-              }}
-            />
-
-            {/* Board Picker Menu */}
-            <Menu
-              offset={4}
-              popupStyle={{
-                minWidth: 170,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: props.theme.border,
-                backgroundColor: props.theme.surface,
-                padding: 4,
-              }}
-              trigger={
-                <View
-                  accessibilityLabel={s().market_sort}
-                  tooltip={hintTooltip(
-                    () => props.theme,
-                    () => s().market_sort,
-                  )}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 8,
-                    borderWidth: 1,
-                    borderColor: props.theme.border,
-                    backgroundColor: props.theme.surface,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      color: props.theme.foreground,
-                      fontFamily: props.theme.fontFamily,
-                    }}
-                  >
-                    {marketSearchActive()
-                      ? s().market_search_results
-                      : boardLabel(props.locale, marketBoard())}
-                  </Text>
-                  <Text style={{ fontSize: 11, color: props.theme.muted }}>▾</Text>
-                </View>
-              }
-            >
-              <Each of={MARKET_BOARDS} key={(board) => board}>
-                {(board) => (
-                  <MenuItem
-                    role="menuitemradio"
-                    checked={!marketSearchActive() && marketBoard() === board()}
-                    onSelect={() => {
-                      void loadMarketBoard(board(), false);
-                    }}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
-                      paddingHorizontal: 10,
-                      paddingVertical: 7,
-                      borderRadius: 6,
-                    }}
-                    focusStyle={{ backgroundColor: props.theme.accent }}
-                    hoverStyle={{ backgroundColor: props.theme.accent }}
-                  >
-                    <Text style={{ width: 14, fontSize: 12, color: props.theme.primary }}>
-                      {!marketSearchActive() && marketBoard() === board() ? "✓" : ""}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        color: props.theme.foreground,
-                        fontFamily: props.theme.fontFamily,
-                      }}
-                    >
-                      {boardLabel(props.locale, board())}
-                    </Text>
-                  </MenuItem>
-                )}
-              </Each>
-            </Menu>
-
-            {/* Source Filter Select (searchable) */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
-              <Select
-                items={marketSourceSelectItems()}
-                value={marketSourceFilter() ?? ALL_SOURCES_VALUE}
-                searchable
-                searchPlaceholder={s().market_source_search}
-                searchAccessibilityLabel={s().market_source_search}
-                accessibilityLabel={s().market_source_label}
-                disabled={marketItems().length === 0}
-                offset={4}
-                onChange={({ value }) => {
-                  marketSourceFilter.set(!value || value === ALL_SOURCES_VALUE ? null : value);
-                  resetMarketScroll();
-                }}
-                popupStyle={{
-                  width: 288,
-                  maxHeight: 300,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: props.theme.border,
-                  backgroundColor: props.theme.surface,
-                  padding: 4,
-                }}
-                searchStyle={{
-                  margin: 4,
-                  paddingHorizontal: 8,
-                  paddingVertical: 6,
-                  borderRadius: 6,
-                  borderWidth: 1,
-                  borderColor: props.theme.border,
-                  backgroundColor: props.theme.background,
-                  color: props.theme.foreground,
-                  placeholderColor: props.theme.muted,
-                  fontSize: 12,
-                }}
-                itemStyle={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 7,
-                  borderRadius: 6,
-                  fontSize: 13,
-                  color: props.theme.foreground,
-                  fontFamily: props.theme.fontFamily,
-                }}
-                trigger={
-                  <View
-                    style={{
-                      width: 176,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 6,
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: props.theme.border,
-                      backgroundColor: props.theme.surface,
-                    }}
-                  >
-                    <Text
-                      style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                        flex: 1,
-                        minWidth: 0,
-                        fontSize: 13,
-                        color: props.theme.foreground,
-                        fontFamily: props.theme.fontFamily,
-                      }}
-                    >
-                      {marketSourceFilter() ?? s().market_all_sources}
-                    </Text>
-                    <Text style={{ fontSize: 11, color: props.theme.muted }}>▾</Text>
-                  </View>
-                }
-              />
-
-              <If when={marketSourceFilter() !== null}>
-                <ActionButton
-                  theme={props.theme}
-                  kind="ghost"
-                  compact
-                  label="×"
-                  accessibilityLabel={s().market_clear_source_filter}
-                  tooltip={s().market_clear_source_filter}
-                  onPress={() => {
-                    marketSourceFilter.set(null);
-                    resetMarketScroll();
-                  }}
-                />
-              </If>
-            </View>
-
-            <ActionButton
-              theme={props.theme}
-              kind="ghost"
-              label="↻"
-              loading={marketLoading()}
-              accessibilityLabel={marketLoading() ? s().market_loading : s().btn_trending}
-              tooltip={marketLoading() ? s().market_loading : s().btn_trending}
-              onPress={() => {
-                if (marketSearchActive()) {
-                  void runMarketSearch(marketSearchInput());
-                } else {
-                  void loadMarketBoard(marketBoard(), true);
-                }
-              }}
-            />
-
-            <View style={{ flex: 1 }} />
-
-            <If when={filteredMarketItems().length > 0}>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: props.theme.muted,
-                  fontFamily: props.theme.fontFamily,
-                  flexShrink: 0,
-                }}
-              >
-                {marketCountBadge()}
-              </Text>
-            </If>
-          </View>
-
-          <If when={Boolean(marketError())}>
-            <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
-              <AlertBanner theme={props.theme} tone="error" message={marketError() ?? ""} />
-            </View>
-          </If>
-
-          {/* Marketplace Grid / Loading / Empty */}
-          <If
-            when={marketLoading() && filteredMarketItems().length === 0}
-            else={
-              <If
-                when={filteredMarketItems().length === 0}
-                else={
-                  <List
-                    ref={marketListRef}
-                    each={filteredMarketItems()}
-                    keyExtractor={(entry) => entry.item.id}
-                    numColumns={3}
-                    estimatedItemSize={116}
-                    loadMoreThreshold={1}
-                    onLoadMore={() => {
-                      if (!marketLoadMoreFailed()) {
-                        void loadNextMarketPage();
-                      }
-                    }}
-                    contentStyle={{ paddingHorizontal: 20, paddingVertical: 8, gap: 12 }}
-                    style={{ flex: 1, minHeight: 0 }}
-                    footer={
-                      <If when={showMarketFooter()}>
-                        <View
-                          style={{
-                            height: 64,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: 8,
-                          }}
-                        >
-                          <If
-                            when={marketLoadingMore()}
-                            else={
-                              <ActionButton
-                                theme={props.theme}
-                                kind="outline"
-                                compact
-                                label={s().btn_load_more}
-                                onPress={() => {
-                                  void loadNextMarketPage();
-                                }}
-                              />
-                            }
-                          >
-                            <Text
-                              role="summary"
-            accessibilityState={{ busy: true }}
-                              style={{
-                                fontSize: 12,
-                                color: props.theme.muted,
-                                fontFamily: props.theme.fontFamily,
-                              }}
-                            >
-                              {s().market_loading_more}
-                            </Text>
-                          </If>
-                        </View>
-                      </If>
-                    }
-                  >
-                    {(entry) => (
-                      <View
-                        style={{
-                          height: 108,
-                          paddingHorizontal: 12,
-                          paddingVertical: 10,
-                          justifyContent: "space-between",
-                          borderRadius: 10,
-                          borderWidth: 1,
-                          borderColor:
-                            !marketSearchActive() && entry().rankIndex === 0
-                              ? props.theme.primary
-                              : props.theme.border,
-                          backgroundColor: props.theme.surface,
-                        }}
-                      >
-                        {/* Row 1: Name, Official badge, Rank */}
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                          <Text
-                            tooltip={hintTooltip(
-                              () => props.theme,
-                              () => entry().item.name,
-                            )}
-                            style={{
-                              numberOfLines: 1,
-                              textOverflow: "ellipsis",
-                              flex: 1,
-                              minWidth: 0,
-                              fontSize: 13,
-                              fontWeight: "600",
-                              color: props.theme.foreground,
-                              fontFamily: props.theme.fontFamily,
-                            }}
-                          >
-                            {entry().item.name}
-                          </Text>
-
-                          <If when={entry().item.is_official}>
-                            <View
-                              accessibilityLabel={s().market_official}
-                              tooltip={hintTooltip(
-                                () => props.theme,
-                                () => s().market_official,
-                              )}
-                              style={{
-                                paddingHorizontal: 5,
-                                paddingVertical: 1,
-                                borderRadius: 4,
-                                backgroundColor: props.theme.accent,
-                                flexShrink: 0,
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: "600",
-                                  color: props.theme.primary,
-                                  fontFamily: props.theme.fontFamily,
-                                }}
-                              >
-                                {s().market_official}
-                              </Text>
-                            </View>
-                          </If>
-
-                          <If when={!marketSearchActive()}>
-                            <Text
-                              style={{
-                                fontSize: 11,
-                                fontWeight: entry().rankIndex < 3 ? "600" : "400",
-                                color:
-                                  entry().rankIndex === 0
-                                    ? props.theme.primary
-                                    : props.theme.muted,
-                                fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {`#${entry().rankIndex + 1}`}
-                            </Text>
-                          </If>
-                        </View>
-
-                        {/* Row 2: Source repo filter + external link */}
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                          <If when={entry().item.source.length > 0}>
-                            <Button
-                              onPress={() => {
-                                marketSourceFilter.set(entry().item.source);
-                                resetMarketScroll();
-                              }}
-                              accessibilityLabel={`${s().market_filter_scope} · ${entry().item.name} · ${entry().item.source}`}
-                              tooltip={hintTooltip(
-                                () => props.theme,
-                                () => `${s().market_filter_scope} · ${entry().item.source}`,
-                              )}
-                              style={{
-                                flex: 1,
-                                minWidth: 0,
-                                flexDirection: "row",
-                                alignItems: "center",
-                              }}
-                            >
-                              <Text
-                                style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-                                  flex: 1,
-                                  minWidth: 0,
-                                  fontSize: 12,
-                                  color:
-                                    marketSourceFilter() === entry().item.source
-                                      ? props.theme.primary
-                                      : props.theme.muted,
-                                  fontFamily: props.theme.fontFamily,
-                                }}
-                              >
-                                {entry().item.source}
-                              </Text>
-                            </Button>
-                          </If>
-
-                          <If when={Boolean(entry().item.detail_url)}>
-                            <ActionButton
-                              theme={props.theme}
-                              kind="ghost"
-                              compact
-                              label="↗"
-                              accessibilityLabel={`${s().market_view_details} · ${entry().item.name}`}
-                              tooltip={s().market_view_details}
-                              onPress={() => {
-                                const url = entry().item.detail_url;
-                                if (url) {
-                                  void openUrl(url);
-                                }
-                              }}
-                            />
-                          </If>
-                        </View>
-
-                        {/* Row 3: Installs count + Primary action */}
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                          <Text
-                            tooltip={hintTooltip(
-                              () => props.theme,
-                              () => `${entry().item.installs} ${s().installs_unit}`,
-                            )}
-                            style={{
-                              numberOfLines: 1,
-                              textOverflow: "ellipsis",
-                              flex: 1,
-                              minWidth: 0,
-                              fontSize: 12,
-                              color: props.theme.muted,
-                              fontFamily: props.theme.fontFamily,
-                            }}
-                          >
-                            {`${formatInstallCount(entry().item.installs)} ${s().installs_unit}`}
-                          </Text>
-
-                          <ActionButton
-                            theme={props.theme}
-                            kind="outline"
-                            compact
-                            loading={Boolean(installingRefs()[entry().item.install_ref.trim()])}
-                            disabled={
-                              marketInstallStatus(
-                                entry().item,
-                                installedSourceRefs(),
-                                installedSkillNames(),
-                              ) === "same_name"
-                            }
-                            label={
-                              marketInstallStatus(
-                                entry().item,
-                                installedSourceRefs(),
-                                installedSkillNames(),
-                              ) === "installed"
-                                ? s().market_open_skill
-                                : marketInstallStatus(
-                                      entry().item,
-                                      installedSourceRefs(),
-                                      installedSkillNames(),
-                                    ) === "same_name"
-                                  ? s().market_same_name
-                                  : s().market_add_to_library
-                            }
-                            tooltip={
-                              marketInstallStatus(
-                                entry().item,
-                                installedSourceRefs(),
-                                installedSkillNames(),
-                              ) === "installed"
-                                ? s().already_in_library
-                                : marketInstallStatus(
-                                      entry().item,
-                                      installedSourceRefs(),
-                                      installedSkillNames(),
-                                    ) === "same_name"
-                                  ? s().market_same_name
-                                  : s().market_add_to_library
-                            }
-                            accessibilityLabel={`${
-                              marketInstallStatus(
-                                entry().item,
-                                installedSourceRefs(),
-                                installedSkillNames(),
-                              ) === "installed"
-                                ? s().market_open_skill
-                                : marketInstallStatus(
-                                      entry().item,
-                                      installedSourceRefs(),
-                                      installedSkillNames(),
-                                    ) === "same_name"
-                                  ? s().market_same_name
-                                  : s().market_add_to_library
-                            } · ${entry().item.name} · ${entry().item.source}`}
-                            onPress={() => {
-                              void handleInstallMarketItem(entry().item);
-                            }}
-                          />
-                        </View>
-                      </View>
-                    )}
-                  </List>
-                }
-              >
-                <EmptyState
-                  theme={props.theme}
-                  title={s().empty_market_title}
-                  description={s().empty_market_desc}
-                />
-              </If>
+        <MarketplaceTab
+          locale={props.locale}
+          theme={props.theme}
+          searchQuery={marketSearchInput()}
+          searchActive={marketSearchActive()}
+          board={marketBoard()}
+          sourceFilter={marketSourceFilter()}
+          sourceSelectItems={marketSourceSelectItems()}
+          totalItemsCount={marketItems().length}
+          entries={filteredMarketItems()}
+          countBadge={marketCountBadge()}
+          loading={marketLoading()}
+          loadingMore={marketLoadingMore()}
+          loadMoreFailed={marketLoadMoreFailed()}
+          showFooter={showMarketFooter()}
+          error={marketError()}
+          installedSourceRefs={installedSourceRefs()}
+          installedSkillNames={installedSkillNames()}
+          installingRefs={installingRefs()}
+          onSearchInputRef={(ref) => {
+            marketSearchRef = ref;
+          }}
+          onListRef={(ref) => {
+            marketListRef = ref;
+          }}
+          onSearchChange={(value) => {
+            marketSearchInput.set(value);
+            if (marketSearchActive() && value.trim().length === 0) {
+              void loadMarketBoard(marketBoard(), false);
             }
-          >
-            <View
-              role="summary"
-            accessibilityState={{ busy: true }}
-              accessibilityLabel={s().market_loading}
-              style={{
-                flex: 1,
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 24,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 13,
-                  color: props.theme.muted,
-                  fontFamily: props.theme.fontFamily,
-                }}
-              >
-                {s().market_loading}
-              </Text>
-            </View>
-          </If>
-        </View>
+          }}
+          onSearchSubmit={(query) => {
+            void runMarketSearch(query);
+          }}
+          onClearSearch={() => {
+            marketSearchInput.set("");
+            if (marketSearchActive()) {
+              void loadMarketBoard(marketBoard(), false);
+            }
+          }}
+          onSelectBoard={(board) => {
+            void loadMarketBoard(board, false);
+          }}
+          onSelectSourceFilter={(source) => {
+            marketSourceFilter.set(source);
+            resetMarketScroll();
+          }}
+          onRefresh={() => {
+            if (marketSearchActive()) {
+              void runMarketSearch(marketSearchInput());
+            } else {
+              void loadMarketBoard(marketBoard(), true);
+            }
+          }}
+          onLoadMore={() => {
+            void loadNextMarketPage();
+          }}
+          onItemAction={(item) => {
+            void handleInstallMarketItem(item);
+          }}
+        />
       </If>
 
       <QuickInstallDialog

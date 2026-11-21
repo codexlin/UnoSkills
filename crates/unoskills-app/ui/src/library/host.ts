@@ -1,4 +1,4 @@
-import { call } from "../shared";
+import { HostError, call, errorMessage } from "../shared";
 import type {
   AdoptBatchResponse,
   AdoptCandidate,
@@ -19,20 +19,14 @@ import type {
   SkillUpdateResult,
 } from "./types";
 
-export interface HostError extends Error {
-  code?: string;
-}
-
-export function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
+export { errorMessage };
 
 export function isTargetConflictError(error: unknown): boolean {
-  const hostError = error as HostError | null | undefined;
-  if (hostError?.code === "TARGET_CONFLICT") {
+  if (error instanceof HostError && error.code === "TARGET_CONFLICT") {
+    return true;
+  }
+  const withCode = error as { code?: string } | null | undefined;
+  if (withCode?.code === "TARGET_CONFLICT") {
     return true;
   }
   return errorMessage(error).includes("TARGET_CONFLICT");
@@ -42,16 +36,34 @@ export function pickFolder(title?: string): Promise<string | null> {
   return call<{ title?: string }, string | null>("dialog.folder", title ? { title } : {});
 }
 
-export function loadLibraryState(projectId?: string | null): Promise<LibraryStateResponse> {
-  return call<{ project_id?: string | null }, LibraryStateResponse>("library.state", {
-    project_id: projectId ?? null,
-  });
+export function revealPath(path: string): Promise<void> {
+  return call<{ path: string }, void>("dialog.reveal", { path });
 }
 
-export function loadProjectStatuses(projectId: string): Promise<ProjectStatusesResponse> {
-  return call<{ project_id: string }, ProjectStatusesResponse>("library.project_statuses", {
-    project_id: projectId,
-  });
+export function loadLibraryState(
+  projectId?: string | null,
+  scopePath?: string,
+): Promise<LibraryStateResponse> {
+  return call<{ project_id?: string | null; scope_path?: string }, LibraryStateResponse>(
+    "library.state",
+    {
+      project_id: projectId ?? null,
+      scope_path: projectId ? (scopePath ?? "") : "",
+    },
+  );
+}
+
+export function loadProjectStatuses(
+  projectId: string,
+  scopePath = "",
+): Promise<ProjectStatusesResponse> {
+  return call<{ project_id: string; scope_path: string }, ProjectStatusesResponse>(
+    "library.project_statuses",
+    {
+      project_id: projectId,
+      scope_path: scopePath,
+    },
+  );
 }
 
 export function getSkillMarkdown(skillId: string): Promise<SkillMarkdownResponse> {
@@ -118,12 +130,13 @@ export function deployProjectSkill(
   skillId: string,
   projectId: string,
   agentKey: string,
-  options?: { mode?: DeployMode | null; force?: boolean },
+  options?: { scopePath?: string; mode?: DeployMode | null; force?: boolean },
 ): Promise<ProjectDeployment> {
   return call<
     {
       skill_id: string;
       project_id: string;
+      scope_path: string;
       agent_key: string;
       mode?: DeployMode | null;
       force?: boolean;
@@ -132,6 +145,7 @@ export function deployProjectSkill(
   >("library.deploy_project_skill", {
     skill_id: skillId,
     project_id: projectId,
+    scope_path: options?.scopePath ?? "",
     agent_key: agentKey,
     mode: options?.mode ?? null,
     force: options?.force ?? false,
@@ -142,13 +156,27 @@ export function undeployProjectSkill(
   skillId: string,
   projectId: string,
   agentKey: string,
-): Promise<{ undeployed: boolean; skill_id: string; project_id: string; agent_key: string }> {
+  scopePath = "",
+): Promise<{
+  undeployed: boolean;
+  skill_id: string;
+  project_id: string;
+  scope_path: string;
+  agent_key: string;
+}> {
   return call<
-    { skill_id: string; project_id: string; agent_key: string },
-    { undeployed: boolean; skill_id: string; project_id: string; agent_key: string }
+    { skill_id: string; project_id: string; scope_path: string; agent_key: string },
+    {
+      undeployed: boolean;
+      skill_id: string;
+      project_id: string;
+      scope_path: string;
+      agent_key: string;
+    }
   >("library.undeploy_project_skill", {
     skill_id: skillId,
     project_id: projectId,
+    scope_path: scopePath,
     agent_key: agentKey,
   });
 }
@@ -165,12 +193,6 @@ export function detachProject(projectId: string): Promise<{ detached: boolean; p
     "library.detach_project",
     { project_id: projectId },
   );
-}
-
-export function revealPath(path: string): Promise<void> {
-  return call<{ path: string }, void>("dialog.reveal", {
-    path,
-  });
 }
 
 export function installFromSource(sourceRef: string): Promise<Skill> {
