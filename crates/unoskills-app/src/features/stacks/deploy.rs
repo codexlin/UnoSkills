@@ -4,6 +4,7 @@ use gpui_kit::component::{
     ActiveTheme, Disableable, IconName, IndexPath, Sizable, StyledExt, WindowExt,
     alert::Alert,
     button::{Button, ButtonVariants},
+    checkbox::Checkbox,
     h_flex,
     searchable_list::{SearchableListItem, SearchableVec},
     select::{Select, SelectEvent, SelectState},
@@ -100,6 +101,7 @@ struct ProjectDeployForm {
     module_task: Option<Task<()>>,
     module_error: Option<String>,
     running: bool,
+    include_global: bool,
     status: Option<Result<StackProjectDeployStatus, String>>,
     status_task: Option<Task<()>>,
     result: Option<Result<StackProjectDeploySummary, String>>,
@@ -234,6 +236,7 @@ impl ProjectDeployForm {
             module_task: None,
             module_error: None,
             running: false,
+            include_global: false,
             status: None,
             status_task: None,
             result: None,
@@ -350,10 +353,11 @@ impl ProjectDeployForm {
             return;
         };
         if self.running
-            || !self
-                .status
-                .as_ref()
-                .is_some_and(|status| status.as_ref().is_ok_and(|status| status.pending > 0))
+            || !self.status.as_ref().is_some_and(|status| {
+                status
+                    .as_ref()
+                    .is_ok_and(|status| status.pending_count(self.include_global) > 0)
+            })
         {
             return;
         }
@@ -365,13 +369,20 @@ impl ProjectDeployForm {
         let manager = self.workspace.read(cx).manager().clone();
         let workspace = self.workspace.downgrade();
         let stack = self.stack.clone();
+        let include_global = self.include_global;
         let background = cx.background_executor().clone();
         cx.notify();
         cx.spawn_in(window, async move |form, cx| {
             let result = background
                 .spawn(async move {
                     manager
-                        .deploy_stack_to_project_at(&stack, &project, &agent, &scope)
+                        .deploy_stack_to_project_at_with_globals(
+                            &stack,
+                            &project,
+                            &agent,
+                            &scope,
+                            include_global,
+                        )
                         .map_err(|error| format!("{error:#}"))
                 })
                 .await;
@@ -412,7 +423,8 @@ impl Render for ProjectDeployForm {
             .map(|(project, scope)| project.path.join(scope).display().to_string());
         let installing = ws.is_stack_installing(&self.stack.id);
         let status = self.status.as_ref().and_then(|status| status.as_ref().ok());
-        let pending = status.map_or(0, |status| status.pending);
+        let pending = status.map_or(0, |status| status.pending_count(self.include_global));
+        let global_available = status.map_or(0, |status| status.global_available);
         let unavailable = status.map_or(0, |status| status.unavailable);
         let conflicts = status.map_or(0, |status| status.conflicts);
         let status_error = self
@@ -427,9 +439,7 @@ impl Render for ProjectDeployForm {
         let has_target = project.is_some() && agent_key.is_some() && scope.is_some();
         let checking = has_target && self.status.is_none() && !installing;
         let progress = match status {
-            Some(status) => {
-                lang.stack_project_progress(status.deployed, self.stack.skills.len(), pending)
-            }
+            Some(status) => lang.stack_project_progress(status, self.stack.skills.len(), pending),
             None if installing => s.stack_project_installing.to_owned(),
             None if checking => s.stack_project_checking.to_owned(),
             None => String::new(),
@@ -600,6 +610,18 @@ impl Render for ProjectDeployForm {
             })
             .when_some(status_error, |form, error| {
                 form.child(Alert::error("stack-project-check-error", error.clone()).banner())
+            })
+            .when(global_available > 0, |form| {
+                form.child(
+                    Checkbox::new("stack-include-global")
+                        .label(s.stack_include_global)
+                        .checked(self.include_global)
+                        .disabled(self.running)
+                        .on_click(cx.listener(|form, checked: &bool, _, cx| {
+                            form.include_global = *checked;
+                            cx.notify();
+                        })),
+                )
             })
             .when(unavailable > 0, |form| {
                 form.child(

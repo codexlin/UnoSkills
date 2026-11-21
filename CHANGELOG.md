@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.6.2] - 2026-11-21
+
+### Fixed / 修复
+
+- **Project skill availability / 项目技能可用状态**. The Library counts globally available skills in project view and shows where each Agent gets the skill. Removing a project deployment keeps the global installation available. 技能库在项目视图中统计全局可用技能，并标明每个 Agent 的技能来源。移除项目部署后，已全局安装的技能仍然可用。
+- **Project stack deployment / 组合部署到项目**. The preview distinguishes globally available skills from missing skills. Deploy only the missing skills by default, or include global skills to place them in the project directory. 部署预览区分全局可用和待部署技能。默认只补齐缺少项，也可勾选将全局可用项写入项目目录。
+
 ## [v0.6.1] - 2026-11-21
 
 ### Changed / 改进
