@@ -39,20 +39,11 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install Linux GPUI dependencies
+      - name: Install Linux NSH dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shm0-dev \
-            libwayland-dev \
-            libfontconfig1-dev \
-            libssl-dev
+          sudo apt-get install -y pkg-config libgtk-4-dev libssl-dev
 
       - name: Build release binaries (app + cli)
         run: |
@@ -132,7 +123,9 @@ jobs:
                   dpkg -S "$path" 2>/dev/null | head -1 | cut -d: -f1
                 fi
               done | sort -u | tr '\n' ',' | sed 's/,$//')
-          echo "Auto-detected Depends: ${NEEDED:-none}"
+          NEEDED=$(printf '%s' "$NEEDED" | sed -E 's/(^|,)libgtk-4-1(,|$)/\1/; s/,$//')
+          DEPENDS="libgtk-4-1 (>= 4.14)${NEEDED:+,$NEEDED}"
+          echo "Package Depends: $DEPENDS"
           mkdir -p dist/deb-root/DEBIAN dist/deb-root/usr/bin \
             dist/deb-root/usr/share/applications \
             dist/deb-root/usr/share/icons/hicolor/256x256/apps
@@ -140,7 +133,7 @@ jobs:
           install -m 0755 "target/${{ matrix.target }}/release/unoskills" dist/deb-root/usr/bin/unoskills
           install -m 0644 packaging/icons/unoskills-256.png dist/deb-root/usr/share/icons/hicolor/256x256/apps/unoskills.png
           install -m 0644 packaging/linux/unoskills.desktop dist/deb-root/usr/share/applications/unoskills.desktop
-          sed -e "s/@APP_VERSION@/${VERSION}/" -e "s/@DEPENDS@/${NEEDED:-}/" \
+          sed -e "s/@APP_VERSION@/${VERSION}/" -e "s/@DEPENDS@/${DEPENDS}/" \
             packaging/linux/control > dist/deb-root/DEBIAN/control
           dpkg-deb --root-owner-group --build dist/deb-root "dist/unoskills_${VERSION}_amd64.deb"
           dpkg-deb --info "dist/unoskills_${VERSION}_amd64.deb"

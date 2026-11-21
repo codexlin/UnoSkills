@@ -1,6 +1,6 @@
 # UnoSkills Architecture & Engineering Best Practices
 
-This document explains how **UnoSkills** is structured, why key technical decisions were made, and the patterns contributors should follow when extending the core engine, CLI, or native GPUI Kit desktop application.
+This document explains how **UnoSkills** is structured, why key technical decisions were made, and the patterns contributors should follow when extending the core engine, CLI, or native NSH desktop application.
 
 > Looking for the short, mandatory rules checklist for AI agents and PR reviews? See [AGENTS.md](../AGENTS.md).
 
@@ -11,7 +11,7 @@ This document explains how **UnoSkills** is structured, why key technical decisi
 UnoSkills uses a strict **3-crate Cargo workspace** where dependencies flow strictly downwards:
 
 ```text
-  unoskills-app (GPUI Kit GUI)       unoskills-cli (clap + --json)
+  unoskills-app (Native Shell)       unoskills-cli (clap + --json)
                  \                           /
                   ▼                         ▼
          unoskills-core (pure Rust domain, SQLite WAL, sync, source, stacks)
@@ -19,15 +19,15 @@ UnoSkills uses a strict **3-crate Cargo workspace** where dependencies flow stri
 
 - **`crates/unoskills-core`**: Zero UI or windowing dependencies. Owns domain types, strict `SKILL.md` parsing/linting, SQLite WAL persistence (`~/.unoskills/unoskills.db`), filesystem sync safety, `skills.sh` marketplace client, adopt scanner, and declarative Stack registry.
 - **`crates/unoskills-cli`**: Thin `clap` wrapper around `UnoSkillsManager` with machine-readable `--json` output for scripts and AI agents.
-- **`crates/unoskills-app`**: Native desktop workbench built on `gpui-kit` (`0.10.0`). Never touches SQLite or raw filesystem sync directly — every mutation passes through `UnoSkillsManager`.
+- **`crates/unoskills-app`**: Native desktop workbench built on Native Shell (`0.6.1`) with TSX screens. Never touches SQLite or raw filesystem sync directly — every mutation passes through `UnoSkillsManager`.
 
-### Crate-Internal Embedded Assets (`cargo publish` Ready)
+### Crate-embedded assets
 
-All `include_str!` / `include_bytes!` assets live **inside** the crate that embeds them, never via `../../../` paths escaping crate roots:
+Production assets embedded with `include_str!` or `include_bytes!` live inside the crate that ships them.
 
 - `crates/unoskills-core/data/agents.toml` — declarative registry of 22 AI coding agents.
 - `crates/unoskills-core/data/featured_stacks.toml` — curated starter Skill Stacks.
-- `crates/unoskills-app/assets/icons/` — embedded brand SVGs (`uno-mark.svg`, `uno-app-icon.svg`).
+- `crates/unoskills-app/assets/icons/` — embedded brand mark (`uno-mark.svg`).
 - `packaging/icons/` — installer/bundle metadata separate from Rust compilation.
 
 ---
@@ -63,79 +63,120 @@ Community stacks live behind the `unoskills_core::stacks::StackRegistry` trait (
 
 ## 3. Desktop App Architecture (`unoskills-app`)
 
-### Module Layout
+### Directory layout
 
 ```text
-crates/unoskills-app/src/
-├── main.rs            # App entry, UnoAssets registration, Window bootstrap
-├── assets.rs          # Composite AssetSource (Uno brand SVGs -> gpui-kit fallback) + AppIcon
-├── fonts.rs           # System font enumeration, language-aware Auto fonts, Theme::update
-├── shell.rs           # UnoSkillsShell: TitleBar, collapsible Sidebar, active tab host
-├── state.rs           # WorkspaceState entity, WorkspaceEvent bus, async orchestrators
-├── components/        # Pure RenderOnce reusable UI primitives (PageHeader, TokenBadge, StatusBadge)
-├── i18n/              # Modular locale tables: mod.rs, zh_cn.rs, en.rs, ja.rs
-└── features/
-    ├── library/       # mod.rs (state + split), list.rs (virtualized), inspector.rs (preview/edit/deploy)
-    ├── stacks/        # mod.rs, browser.rs, detail.rs, editor.rs (create + TOML import)
-    ├── discover/      # mod.rs (caching + seq guards), marketplace.rs, adopt.rs
-    └── settings/      # mod.rs (select subscriptions), sections.rs (general/fonts/updates/agents)
+UnoSkills/
+├── Cargo.toml                 Cargo workspace manifest
+├── Cargo.lock
+├── crates/
+│   ├── unoskills-core/        Rust domain, persistence, and embedded data/
+│   ├── unoskills-cli/         CLI over UnoSkillsManager
+│   └── unoskills-app/
+│       ├── Cargo.toml
+│       ├── build.rs           bundles the embedded UI
+│       ├── src/
+│       │   ├── main.rs        desktop executable and platform host
+│       │   ├── nsh/           command handlers and native module registration
+│       │   └── smoke.rs       Rust tests of the embedded bundle and host
+│       ├── tests/             Cargo integration tests
+│       ├── assets/icons/      crate-embedded brand mark
+│       └── ui/                NSH project root
+│           ├── App.tsx        mounts the shell
+│           ├── nsh.json       app identity, capabilities, and window settings
+│           ├── tsconfig.json  TSX source and test type checking
+│           ├── src/           shell, shared UI, and library/ and projects/ features
+│           ├── tests/         nsh.json and feature-local tests and harnesses
+│           └── .nsh/          generated by the NSH CLI
+├── packaging/                 installer metadata and platform icons
+└── target/                    generated by Cargo
 ```
 
-### Event-Driven State Flow (`WorkspaceState` + `WorkspaceEvent`)
+### Desktop entry and hosts
 
-Instead of a monolithic "God Entity" passing mutable state into stateless view functions, UnoSkills splits ownership across a shared **`WorkspaceState`** entity and 4 independent feature view entities (`LibraryView`, `StacksView`, `DiscoverView`, `SettingsView`):
+`build.rs` bundles `ui/App.tsx` and its imports into Cargo's `OUT_DIR/ui.js`. The handwritten executable in `src/main.rs` embeds that bundle, applies the window settings and capabilities from `ui/nsh.json`, and opens it in NSH's GTK, AppKit, or Win32 host. Installer names, application identity and the Rust updater remain compatible with existing UnoSkills installations.
 
-```text
-  User Action in FeatureView
-        │
-        ▼
-  workspace.update(cx, |ws, cx| ...)
-        │  (persists to SQLite / runs background executor)
-        ▼
-  cx.emit(WorkspaceEvent::...)  ──► GPUI deferred effects queue (re-entrancy safe)
-        │
-        ├──► UnoSkillsShell  (updates active tab, sidebar counts, TitleBar spinner)
-        ├──► LibraryView     (refilters indices, refreshes preview only on Reloaded)
-        ├──► StacksView      (re-reads stack snapshots on Reloaded)
-        ├──► DiscoverView    (clears per-row spinner on InstallFinished, updates adopt list)
-        └──► SettingsView    (syncs locale/font Select widgets on LanguageChanged/SettingsChanged)
-```
+`src/main.rs` wires the `unoskills.command` host channel and registers the UI sets returned by `src/nsh/mod.rs`, including the `unoskills/desktop` module for native file dialogs. TSX reaches that module through `nativeModule()` in `ui/src/shared.ts`. The upstream generated mixed Rust and TSX runner discovers crates through a manifest's `rust` field. UnoSkills supplies its own Cargo host and registration, and the pinned NSH CLI checks, bundles and tests the TSX project separately. [NSH v0.6.1 project structure](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/project-structure.md)
 
-**Why `WorkspaceEvent` is split finely:**
-- `Reloaded` — domain snapshots changed (skills/stacks/agents/adopt); triggers `LibraryView` to refresh `SKILL.md` preview (while protecting unsaved edits if `editing_markdown == true`).
-- `SettingsChanged` — lightweight preference change (theme, fonts, font size, deploy mode, update check status); avoids forcing `LibraryView` to re-read disk files or re-parse Markdown AST.
-- `LanguageChanged` — updates live `InputState`/`TextareaState` placeholders and rebuilds `SelectState` "Auto (...)" labels across views.
-- `BusyChanged` — redraws the TitleBar spinner.
-- `InstallFinished(String)` — clears the exact row-level loading spinner in `DiscoverView` without racing with other concurrent tasks.
-- `NavigateTo(NavTab)` — single funnel for all tab transitions (sidebar clicks, empty-state buttons, post-install jump to Library, auto-loading Trending on first Discover visit).
+`ui/tsconfig.json` extends the CLI-generated `ui/.nsh/tsconfig.json`. Run `nsh check crates/unoskills-app/ui` to regenerate declarations for editors. NSH also writes test entries and default bundle output under `.nsh/`. Building a fixture entry directly can produce a nested `.nsh/` alongside it. Git ignores `.nsh/` at every depth and Cargo's workspace `target/`, including the embedded bundle under `OUT_DIR`.
 
----
+`ui/src/Shell.tsx` owns navigation, the selected locale and theme, workspace revisions, and notifications.
+`Home.tsx`, `Settings.tsx`, `Updates.tsx`, `library/`, and `projects/` own screen state and layout.
+Links carry opaque IDs and an optional relative `scopePath`. An empty scope path selects the project root.
 
-## 4. GPUI Kit Performance & UX Best Practices
+### Where to add files
 
-All UI code follows the official GPUI Kit guides (`docs/style`, `docs/design-guides`, `docs/coding-guides`, `component/scrollable`, `docs/assets`, `docs/fonts`).
+| New file | Placement |
+| --- | --- |
+| Screen, private component, types, or typed host client | Keep it with its owning screen in `ui/src/`. Use `ui/src/library/` for Library and Discover, and `ui/src/projects/` for Projects and Stacks. Use the feature's `index.ts` for exports the shell or another feature needs. |
+| Shared interface, theme, or text | Use `ui/src/components/` for styled buttons, fields, tabs, popups, feedback and layout primitives. Use `shared.ts` for shared contracts, `theme.ts` to map theme tokens to controls, and `i18n.ts` for shell and shared text. Store Tweakcn preset colors and typography in `ui/themes/` using shadcn's `cssVars` format, with shadows next to `cssVars` for components to apply as NSH `boxShadow`. Add feature text to that feature's `strings.ts` in English, Simplified Chinese, and Japanese. |
+| Rust host adapter or domain behavior | Put desktop command handlers and registered native modules in `src/nsh/`. Add durable behavior shared by desktop and CLI to `crates/unoskills-core/` under `UnoSkillsManager`. |
+| TSX regression or fixture | Use `ui/tests/<feature>/` for `*.test.tsx` and their harnesses. `ui/tests/nsh.json` gives those fixtures a separate application identity and capabilities, including test status-bar access and the host channel supplied by the tests. Use the crate's `tests/` or `src/smoke.rs` for integration with the real Rust host. |
+| Image, font, or icon | Keep TSX imports near the feature that uses them. Put Rust-embedded app assets under `crates/unoskills-app/assets/`, such as the mark supplied by the host. Put installer artwork in `packaging/icons/` and installer metadata under its platform directory in `packaging/`. |
 
-### 1. Zero Heavy Work Inside `render()`
-- **Retained Markdown AST**: `LibraryView` stores `Entity<TextViewState>` and calls `state.set_text(&stripped_body, cx)` only when selection or saved file changes. Never call `TextView::markdown(...)` inside `render()`.
-- **Zero-Clone Filtering**: `LibraryView` and `DiscoverView` maintain `filtered_indices: Vec<usize>`, recomputed on `InputEvent::Change` and `WorkspaceEvent::Reloaded`. `render()` indexes directly into `&[Skill]` / `&[AdoptCandidate]` without cloning vectors.
-- **List Virtualization**: All lists that can grow beyond ~25 items (`Library`, `Marketplace`, `Adopt`) use `uniform_list` + `UniformListScrollHandle` + `.vertical_scrollbar(&handle)`.
-- **Smooth Dev Builds**: Workspace `Cargo.toml` sets `[profile.dev.package."*"] opt-level = 2` so GPUI, Taffy, cosmic-text, and wgpu run smoothly even in debug builds.
+### Choosing TSX or Rust
 
-### 2. Overflow & Scrollbar Hygiene
-- Every variable-length text column inside `h_flex()` carries `.flex_1().min_w_0()` (and `.truncate()` for single-line text), while action buttons, badges, and `TabBar`s carry `.flex_shrink_0()`.
-- Scrollbars (`.overflow_y_scrollbar()`) live on the full-viewport element with `.flex_1().min_h_0()`; content padding (`p_4`/`p_5`) goes on an inner container so scrollbars anchor cleanly flush against panel edges.
-- Every ancestor above a scrollable container or `uniform_list` includes `.min_h_0().overflow_hidden()`.
+Use TSX for ordinary desktop pages and Rust for durable domain behavior. Either language can use NSH's native renderer. Choose the owner by asking who needs the behavior and what state or platform capability it needs.
 
-### 3. Concurrency & Race-Condition Safety
-- Blocking filesystem, Git, and HTTP calls always run on `cx.background_executor()`.
-- Concurrent tasks register via `begin_busy(label, cx) -> u64` and release via `end_busy(token, cx)` so overlapping operations never prematurely dismiss the TitleBar spinner.
-- Async leaderboard/search requests in `DiscoverView` carry a monotonic `market_req_seq: u64` so slow out-of-order responses are ignored instead of overwriting newer results.
+| Responsibility | Owner in UnoSkills | Example |
+| --- | --- | --- |
+| Window-wide state and navigation | `ui/src/Shell.tsx` and the shared route contract | Switch from a project to its scoped Library view |
+| User interaction and transient state | The TSX feature under `ui/src/` | Hold a Markdown draft, show a read failure, enable Save |
+| Reusable presentation | Shared TSX controls over `nsh/base` and semantic roles in `ui/src/theme.ts` | Give dialogs the same focus behavior and backdrop across themes |
+| Desktop integration | Rust host under `src/nsh/` | Open a native folder picker, validate a command payload, run blocking work on a worker |
+| Persistent rules and data | `unoskills-core`, exposed through `UnoSkillsManager` | Decide whether a deployment would overwrite an unmanaged directory, for both CLI and desktop |
 
-### 4. Theme, Fonts, Assets & i18n
-- **Appearance + Fonts**: `WorkspaceState::set_theme_mode` persists `"dark"`/`"light"` in SQLite, calls `Theme::change`, and immediately re-applies `fonts::apply_fonts_to_theme` because `Theme::change` reloads theme defaults.
-- **Language-Aware Auto Fonts**: When UI font is `"auto"`, `fonts.rs` queries `cx.text_system().all_font_names()` and picks the sharpest installed font for the active locale (`zh-CN` / `ja` / `en`).
-- **Component Locale Sync**: Switching language calls `gpui_kit::component::set_locale(lang.code())` so built-in GPUI Kit controls (search inputs, dialogs, empty states) translate in lockstep.
-- **Custom Brand Icons**: `UnoAssets` implements `AssetSource`, serving embedded brand SVGs first and delegating all other paths to `gpui_kit::assets::Assets`.
+A Rust UI component is also appropriate when it wraps a native capability or profiling identifies expensive application code in a frequently used control. Keep its props and events typed so the surrounding page can stay in TSX. If filtering a large library is slow, measure filtering, host data transfer, and list rendering separately before choosing which part to change.
+
+### Feature structure and coding conventions
+
+- Keep a feature's screens, private components, strings and typed host functions together. Split a module when two parts own independent behavior, such as an editor draft and a marketplace query. Promote a control to the shared layer when multiple features need the same interaction. Cross-feature navigation uses `Route` and the feature's public entry point.
+- The Library's `scope.ts` owns project selection and status queries. Its `deployments.ts` owns mutation and conflict confirmation for the captured target. `markdownEditor.ts` owns the skill-bound draft and its reads and saves.
+- Discover composes market queries, pagination, and result installation from `marketplace.ts` with scanning and selection from `adoption.ts`. The quick-install dialog owns its own form. Home uses the Projects public entry point for the pick-and-attach flow, which Projects and Stack deployment also share.
+- Projects and Stacks keep asynchronous UI state in `projects/state.ts`.
+- Name components for what users see (`SkillInspector`) and handlers for what users do (`saveSkillMarkdown`). Follow the existing TypeScript camelCase and Rust snake_case conventions. At the wire boundary, spell fields exactly as the serialized Rust contract expects.
+- NSH builds a component once. Read changing props and signals in bindings or computed values. Give subscriptions, shortcuts and timers a component owner and release them on deactivation or disposal as appropriate. A retained background screen may keep its draft. Only the active screen may handle its page shortcuts.
+- Use the existing semantic controls for focus, disabled state and keyboard activation. Keep raw palette values in the theme source and provide localized accessible labels. A virtualized row's key must follow the record through refresh or reorder. Preserve distinguishable occurrences when the data format allows duplicates.
+- Show pending work where its result appears. Use skeletons for the first load of content with a known shape, and retain available results during refresh with feedback on the triggering control. Use one accessible loading status for each operation.
+- Use the shared 120 ms color transition for button, tab and switch feedback. Let NSH move the tab indicator and fade dialogs. Respect reduced motion in both transition classes and dialog settings, and leave page switches immediate. Use a still placeholder for pending content under reduced motion.
+- Keep published preset values in `ui/themes/` and contrast corrections in `theme.ts`. Auto fonts use the preset and language fallbacks. The desktop host registers the OFL-licensed font files under `assets/fonts/` before displaying the loaded screens. A saved font or radius choice takes precedence over the preset.
+
+### TSX to Rust
+
+`ui/src/shared.ts` calls `unoskills.command` over NSH's host channel. The request carries an explicit command name and
+JSON input. The response contains the typed result or an error message and code. Rust dispatch lives in
+`src/nsh/`. Blocking calls run on host worker threads and reach the same `UnoSkillsManager` as the CLI.
+NSH's Rust file-dialog services supply the picker and reveal actions through `src/nsh/dialogs.rs`.
+
+Expose each new command through the feature's typed TS function or command map. The Rust handler validates the input before calling the domain operation. Keep error codes intact across the boundary so pages can distinguish a conflict from a read failure. Persisted formats, CLI JSON and legacy skill layouts are compatibility surfaces for changes to the shared core.
+
+**Example — saving a skill.** Library enables editing after a successful read for the selected skill ID. It captures that ID and the raw draft when calling `library.save_markdown`. The host passes both to the manager. On success the screen can advance `revision` to refresh subscribers. A late response for skill A may complete A's write, but it must never replace skill B's visible draft. A failed read keeps Save unavailable and displays the error. The preview can strip frontmatter while the editor retains the raw file.
+
+Apply the same identity rule to deployment. Carry the selected project ID, relative scope path and agent through preview, confirmation and mutation. The Rust core owns conflict detection and the replacement decision. The page requests explicit confirmation for the precise target reported to the user.
+
+### Review and evidence
+
+Choose evidence at the layer that owns the changed behavior.
+
+| Change | Evidence expected in review |
+| --- | --- |
+| Domain policy, storage or CLI compatibility | A Rust test exercising the real manager with a temporary store or filesystem fixture. Include affected legacy data and conflict paths. |
+| Host command | Check its request, success value and relevant error code through the dispatcher. For a scoped mutation, verify the target on disk. |
+| TSX behavior | Exercise user actions in the NSH headless runner. For async selection or retained pages, include a switch away and return, or a delayed response. |
+| Native desktop interaction | Exercise the affected focus, keyboard, picker or persistence flow on the built app with disposable data. Record the tested commit, OS, observed result and any platform or external service still unverified. |
+
+For the NSH migration, run the repository checks first, then use `agent-desktop` on the same integrated commit. Give the launched app its own home and data/config/cache directories. Report native interaction separately from headless tests and cross-platform CI.
+
+### Desktop development
+
+Use stable Rust 1.97 or later. Linux builds need GTK 4.14 or later and the development packages in CI.
+The standalone CLI `nsh` v0.6.1 is used for TSX type checks and independent bundle checks. Cargo builds embed
+the bundle with the Rust bundler, so developers and packaging jobs can build the desktop executable directly.
+
+- [NSH v0.6.1 guide](https://github.com/longbridge/nsh/tree/v0.6.1/website/docs)
+- [NSH v0.6.1 coding guide](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/coding-guides.md)
+- [NSH v0.6.1 controls](https://github.com/longbridge/nsh/tree/v0.6.1/website/elements)
+- [NSH v0.6.1 base API](https://github.com/longbridge/nsh/blob/v0.6.1/website/modules/nsh-base.md)
 
 ---
 
@@ -146,9 +187,9 @@ All UI code follows the official GPUI Kit guides (`docs/style`, `docs/design-gui
 2. Run `cargo test -p unoskills-core` (`loads_declarative_builtin_agents` validates TOML parsing).
 
 ### Add a New Language (Locale)
-1. Copy `crates/unoskills-app/src/i18n/en.rs` to `crates/unoskills-app/src/i18n/<locale>.rs` and translate every field of `Strings` (the Rust compiler enforces 100% key parity).
-2. Register the new `Lang` variant in `crates/unoskills-app/src/i18n/mod.rs` (`ALL`, `code`, `display_name`, `short_label`, `next`, `index`, `from_code`, `t`, and dynamic formatters).
-3. Add preferred default system fonts for that language in `crates/unoskills-app/src/fonts.rs` (`resolve_ui_font`).
+1. Add the translated keys in `crates/unoskills-app/ui/src/i18n.ts` and the Library/Discover and Projects/Stacks locale tables.
+2. Update the locale type in `ui/src/shared.ts` and the language choices in Settings.
+3. Add the locale's automatic font choices in `ui/src/theme.ts`.
 
 ### Add a New Featured Stack
 1. Append a `[[stack]]` entry to `crates/unoskills-core/data/featured_stacks.toml` (following [STACKS_SPEC.md](./STACKS_SPEC.md)).
@@ -159,5 +200,8 @@ All UI code follows the official GPUI Kit guides (`docs/style`, `docs/design-gui
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo build -p unoskills-app
+cargo build -p unoskills-app --locked
+nsh check crates/unoskills-app/ui
+nsh build crates/unoskills-app/ui --release
+nsh test crates/unoskills-app/ui
 ```

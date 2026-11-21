@@ -72,7 +72,7 @@ Select the skills you want and choose **Save as Stack**. If skills are missing f
 
 ## Desktop screenshots
 
-These screenshots show the current Linux build with a sample workspace.
+These screenshots show UnoSkills with a sample workspace.
 
 <details>
 <summary>Library and Stacks</summary>
@@ -119,7 +119,7 @@ cargo run -p unoskills-app --locked
 cargo run -p unoskills-cli --locked -- agents
 ```
 
-The workspace uses GPUI Kit for the desktop app, a shared Rust core for the library and safe deployment, and a thin CLI.
+The workspace uses Native Shell (NSH) for the desktop app, a shared Rust core for the library and safe deployment, and a thin CLI.
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Skill stack format](docs/STACKS_SPEC.md)

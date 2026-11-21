@@ -3,6 +3,7 @@ name = "unoskills-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version = "1.97"
 
 [[bin]]
 name = "unoskills-app"
@@ -10,9 +11,30 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
-async-channel = "2.5"
+base64 = "0.22"
 chrono.workspace = true
-gpui-kit.workspace = true
-reqwest.workspace = true
+env_logger = "0.11"
+fontdb = "0.23"
+nsh-base = { version = "=0.6.1", default-features = false, features = ["editor", "highlight", "plot"] }
+nsh-core = { version = "=0.6.1", default-features = false }
+nsh-engine = { version = "=0.6.1", default-features = false, features = ["js-core"] }
+rayon = "1.11"
+serde.workspace = true
 serde_json.workspace = true
 unoskills-core = { path = "../unoskills-core" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nsh-platform-linux = { version = "=0.6.1", default-features = false, features = ["js", "svg"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nsh-platform-macos = { version = "=0.6.1", default-features = false, features = ["js", "svg"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+nsh-platform-windows = { version = "=0.6.1", default-features = false, features = ["js", "svg"] }
+
+[build-dependencies]
+nsh-base = { version = "=0.6.1", default-features = false, features = ["editor", "highlight", "plot"] }
+nsh-bundler = "=0.6.1"
+
+[dev-dependencies]
+tempfile.workspace = true

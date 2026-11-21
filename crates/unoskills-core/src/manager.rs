@@ -316,10 +316,19 @@ impl UnoSkillsManager {
         self.store.list_skills()
     }
 
-    /// Check availability for library skills without changing project or global files.
+    /// Check availability for library skills at the project root without changing project or global files.
     pub fn project_skill_statuses(
         &self,
         project_id: &str,
+    ) -> Result<HashMap<String, HashMap<String, ProjectSkillStatus>>> {
+        self.project_skill_statuses_at(project_id, Path::new(""))
+    }
+
+    /// Check availability for library skills at a validated project scope (`""` for root or relative subproject path).
+    pub fn project_skill_statuses_at(
+        &self,
+        project_id: &str,
+        scope: &Path,
     ) -> Result<HashMap<String, HashMap<String, ProjectSkillStatus>>> {
         let project = self
             .store
@@ -332,7 +341,7 @@ impl UnoSkillsManager {
             .into_iter()
             .filter(|agent| agent.installed && agent.enabled)
         {
-            let directory = scoped_project_skills_dir(&project, Path::new(""), &agent)?;
+            let directory = scoped_project_skills_dir(&project, scope, &agent)?;
             let by_skill = skills
                 .iter()
                 .map(|skill| {
@@ -369,13 +378,26 @@ impl UnoSkillsManager {
     }
 
     pub fn read_skill_markdown(&self, skill_id: &str) -> Result<(String, String)> {
+        let (entry, path) = self.skill_markdown_path(skill_id)?;
+        Ok((entry, std::fs::read_to_string(path).unwrap_or_default()))
+    }
+
+    /// Reads the editable file and propagates failures to the caller.
+    pub fn read_skill_markdown_checked(&self, skill_id: &str) -> Result<(String, String)> {
+        let (entry, path) = self.skill_markdown_path(skill_id)?;
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read {}", path.display()))?;
+        Ok((entry, content))
+    }
+
+    fn skill_markdown_path(&self, skill_id: &str) -> Result<(String, PathBuf)> {
         let skill = self
             .store
             .find_skill(skill_id)?
             .context("Skill not found")?;
         let entry = find_skill_entry(&skill.central_path).unwrap_or_else(|| "SKILL.md".to_string());
-        let content = std::fs::read_to_string(skill.central_path.join(&entry)).unwrap_or_default();
-        Ok((entry, content))
+        let path = skill.central_path.join(&entry);
+        Ok((entry, path))
     }
 
     pub fn save_skill_markdown(&self, skill_id: &str, new_content: &str) -> Result<Skill> {
@@ -819,6 +841,25 @@ impl UnoSkillsManager {
         mode_override: Option<DeployMode>,
         force: bool,
     ) -> Result<ProjectDeployment> {
+        self.deploy_skill_to_project_at(
+            skill_id_or_slug,
+            project_id_or_name,
+            Path::new(""),
+            agent_key,
+            mode_override,
+            force,
+        )
+    }
+
+    pub fn deploy_skill_to_project_at(
+        &self,
+        skill_id_or_slug: &str,
+        project_id_or_name: &str,
+        scope: &Path,
+        agent_key: &str,
+        mode_override: Option<DeployMode>,
+        force: bool,
+    ) -> Result<ProjectDeployment> {
         let skill = self
             .store
             .find_skill(skill_id_or_slug)?
@@ -840,7 +881,6 @@ impl UnoSkillsManager {
             .find(|a| a.key == agent_key)
             .with_context(|| format!("Unknown agent '{agent_key}'"))?;
 
-        let scope = Path::new("");
         let target_path = scoped_project_skills_dir(&project, scope, agent)?.join(&skill.slug);
         if !force
             && matches!(
@@ -956,6 +996,21 @@ impl UnoSkillsManager {
         project_id_or_name: &str,
         agent_key: &str,
     ) -> Result<()> {
+        self.undeploy_skill_from_project_at(
+            skill_id_or_slug,
+            project_id_or_name,
+            Path::new(""),
+            agent_key,
+        )
+    }
+
+    pub fn undeploy_skill_from_project_at(
+        &self,
+        skill_id_or_slug: &str,
+        project_id_or_name: &str,
+        scope: &Path,
+        agent_key: &str,
+    ) -> Result<()> {
         let skill = self
             .store
             .find_skill(skill_id_or_slug)?
@@ -965,9 +1020,7 @@ impl UnoSkillsManager {
             .find_project(project_id_or_name)?
             .context("Project workspace not found")?;
         let Some(dep) = skill.project_deployments.iter().find(|d| {
-            d.project_id == project.id
-                && d.agent_key == agent_key
-                && d.scope_path.as_os_str().is_empty()
+            d.project_id == project.id && d.agent_key == agent_key && d.scope_path == scope
         }) else {
             return Ok(());
         };

@@ -1,21 +1,18 @@
-# AGENTS.md — UnoSkills Engineering & GPUI Kit Guidelines
+# AGENTS.md — UnoSkills Engineering & Native Shell Guidelines
 
 This document defines the mandatory rules, architecture boundaries, and design/coding standards for all AI coding agents and human contributors working on **UnoSkills**.
 For deeper architectural diagrams, event flow explanations, and contributor playbooks, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
-Normative terminology follows GPUI Kit's convention:
+Normative terminology:
 - **Must**: hard correctness, safety, or ecosystem constraint. Do not violate.
 - **Should**: default architectural choice; depart only with an explicit, concrete reason.
 - **May**: optional technique.
 
-Official GPUI Kit references (must be respected for all UI work):
-- Style: https://gpui-kit.com/docs/style/
-- Design Guides: https://gpui-kit.com/docs/design-guides/
-- Coding Guides: https://gpui-kit.com/docs/coding-guides/
-- Scrollable: https://gpui-kit.com/component/scrollable/
-- Assets & Icons: https://gpui-kit.com/docs/assets/
-- Fonts: https://gpui-kit.com/docs/fonts/
-- Auto Update: https://gpui-kit.com/docs/auto-update/
+Desktop UI work must use the APIs documented for Native Shell v0.6.1.
+
+- [Architecture, accessibility, reactivity, and packaging](https://github.com/longbridge/nsh/tree/v0.6.1/website/docs)
+- [Element guides](https://github.com/longbridge/nsh/tree/v0.6.1/website/elements)
+- [Base components](https://github.com/longbridge/nsh/blob/v0.6.1/website/modules/nsh-base.md)
 
 ---
 
@@ -39,95 +36,46 @@ UnoSkills is a **fast, lean, native Rust AI Skills & Stacks Workbench** — not 
 Dependencies **must** strictly flow downwards:
 
 ```text
-unoskills-app (GPUI Kit UI)   unoskills-cli (clap + --json)
+unoskills-app (NSH TSX + Rust host)   unoskills-cli (clap + --json)
             \                       /
              ▼                     ▼
       unoskills-core (pure Rust domain, SQLite WAL, sync, source, stacks)
 ```
 
-- `unoskills-core` **must never** depend on `gpui-kit`, UI types, or windowing crates.
+- `unoskills-core` **must never** depend on NSH, UI types, or windowing crates.
 - `unoskills-app` and `unoskills-cli` **must** share the same `UnoSkillsManager` facade and `~/.unoskills/unoskills.db` (SQLite WAL + `busy_timeout`).
 - Community registry access **must** stay behind the `unoskills_core::stacks::StackRegistry` trait so Stage 1 (built-in + GitHub static `index.json`) can evolve to Stage 2 (lightweight API Hub) without rewriting UI views.
+- **Should** compose pages and own transient interaction state in TSX. **Must** keep shared persistence and deployment rules in the Rust core. The desktop host adapts native capabilities and typed commands. See the [placement rules and worked example](docs/ARCHITECTURE.md#choosing-tsx-or-rust).
 
 ---
 
-## 3. GPUI Kit Design Guides (`gpui-kit.com/docs/design-guides/`)
+## 3. Desktop UI
 
-### Core Design Thesis
-1. **Clarity before personality**: make the primary task and next action immediately obvious before adding visual decoration.
-2. **Composition before invention**: compose existing `gpui-kit` components rather than inventing raw custom widgets.
-3. **Tokens before values**: always pull colors and semantic tokens from `cx.theme()` (`theme.background`, `theme.foreground`, `theme.muted_foreground`, `theme.border`, `theme.primary`, `theme.accent`, `theme.secondary`, `theme.danger`, `theme.warning`, etc.). Never hardcode hex/RGB colors that break Light/Dark theme switching.
-4. **Desktop before web convention**: honor desktop traits — keyboard shortcuts (`Enter` to search/install), native window chrome (`TitleBar`), resizable split panes, dense scannable lists, and crisp focus/selection states.
-5. **Visible state**: hover, focus, selection, disabled, loading (`Spinner`, `.loading(true)`), validation (`Alert`), and destructive (`.danger()`) states **must** be visually distinct and consistent.
-6. **Geometry-driven containment**: radii, insets, and borders must form a coherent hierarchy. Use theme radius tiers (`rounded_md`, `rounded_lg`); for ordinary rectangles, corner radius **must** stay visibly smaller than half the shorter side.
+- **Must** use the shared theme tokens for Light, Dark, and System appearance and support keyboard focus, selection, disabled, loading, errors, and destructive actions.
+- **Must** prefer documented NSH base controls for input, selection, dialogs, progress and buttons. Supply accessible names, meaningful focus targets, and keyboard shortcuts.
+- **Should** compose shared controls from `ui/src/components/`. Add reusable sizes, variants and interaction styles to the component that owns them. Use NSH Tabs for tab activation, focus, and the moving indicator.
+- **Should** use a compact, consistent spacing and type scale. Put path and label text in a shrinking column so actions remain visible on narrow windows.
+- **Must** give scroll containers a constrained viewport and use virtualized NSH lists for growing datasets such as Library, Marketplace, and Adopt.
 
-### Spacing & Typography Scale
-- **Should** stick to the compact semantic spacing scale: **2, 4, 8, 12, 16, 24, 32 px** (`gap_1`, `gap_2`, `gap_3`, `gap_4`, `p_2`, `p_3`, `p_4`, `p_5`).
-- **Should** stick to the clean typography scale: **12, 14, 16, 18, 20 px** (`text_xs`, `text_sm`, `text_base`, `text_lg`, `text_xl`).
-- **Dialogs**: size a dialog strictly to its decision complexity (short confirmation vs. medium form). Never enlarge a dialog merely to create empty whitespace.
+## 4. Desktop State and Host Calls
 
-### Mandatory `gpui-kit` Component-First Policy
-Before writing custom styled `div()` blocks, **must** check and prefer built-in `gpui_kit::component::*` widgets:
-- Window & Chrome: `TitleBar`, `Sidebar` / `SidebarGroup` / `SidebarMenu` / `SidebarMenuItem` / `SidebarFooter`
-- Split Layouts: `h_resizable` / `v_resizable` + `resizable_panel`
-- Sub-navigation & Segmented Controls: `TabBar::segmented()` + `Tab`
-  - **Gotcha**: `Tab::icon(...)` renders an **icon-only** tab and hides `label`. Use `Tab::new().label(...)` when text labels are expected.
-- Containers & Dividers: `GroupBox::outline()` (or `.fill()`), `Separator::horizontal()` / `Separator::vertical()`
-- Feedback & States: `WindowExt::push_notification(Notification::success/error/info/warning(...), cx)`, `Alert::warning/info/error(...).banner()`, `Empty` / `EmptyHeader` / `EmptyMedia` / `EmptyTitle` / `EmptyDescription` / `EmptyContent`, `Spinner`
-- Controls & Content: `Button`, `Switch`, `Input`, `Textarea`, `TextView` (`TextView::new(&Entity<TextViewState>)`), `Tag`, `Badge`, `Dialog` / `AlertDialog`, `Sheet`, `DataTable`
+- Follow the [NSH v0.6.1 coding guide](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/coding-guides.md) for reactive ownership, shortcuts, and stable list keys.
+- Keep screen state in NSH signals, computed values and event handlers. Use effects for async requests or platform services and discard outdated responses.
+- Keep blocking filesystem, database, Git and HTTP work in the Rust host off the UI and script threads. Use `UnoSkillsManager` for domain operations and preserve core error codes in host replies.
+- Preserve raw frontmatter when editing. Pass `unoskills_core::parser::strip_frontmatter` content to the Markdown preview when the selection or file changes.
+- Use compound navigation data for project scope. IDs are strings, and the empty scope path selects the project root.
+- **Must** bind page shortcuts to the active screen and async editor results to the record that initiated the operation. Cover regressions through user actions such as switching pages during a pending read or save.
 
----
+## 5. Localization and Assets
 
-## 4. GPUI Kit Style, Layout & Scrollable Rules (`gpui-kit.com/docs/style/`, `/component/scrollable/`)
+- **Must** maintain Simplified Chinese (`zh-CN`), English (`en`), and Japanese (`ja`) parity in the desktop locale tables.
+- Locale switching updates the NSH locale, reactive labels and input placeholders, Auto font selection, and SQLite's `settings.language`.
+- Use the app's embedded assets and application identity across platforms. Keep theme and typography settings compatible with existing desktop installations.
 
-- **Style chains are frame-local**: fluent `Styled` / `StyledExt` chains describe the current frame's presentation using strongly typed Rust values, not persistent CSS stylesheets.
-- **Prevent horizontal overflow on narrow/default windows (Must)**:
-  - Every `h_flex()` header or list row containing variable-length text **must** place `.flex_1().min_w_0()` (and `.truncate()` where appropriate) on the text column, and `.flex_shrink_0()` on right-aligned buttons, badges, switches, or `TabBar`s.
-  - Never place a long wrapping description and multi-button action bar side-by-side in a rigid single-row `h_flex()` without wrapping or stacking.
-- **Scroll ownership & edge anchoring (Must)**:
-  - Attach `.overflow_y_scrollbar()` (or `.overflow_scrollbar()`) to the element owning the full panel viewport with `.flex_1().min_h_0()`.
-  - Place content padding (`p_4`, `p_5`) on an **inner** child element, never on the scrollable viewport itself, so the scrollbar anchors cleanly flush against the panel edge.
-- **Flex height constraint (Must)**: every ancestor chain above a scrollable region or `uniform_list` **must** carry `.min_h_0()` and `.overflow_hidden()` so Taffy constrains viewport height instead of expanding to content height.
+## 6. App Updates
 
----
-
-## 5. GPUI Kit Coding & Performance Rules (`gpui-kit.com/docs/coding-guides/`)
-
-- **Retained state vs. declarative `render()` (Must)**:
-  - Keep `render()` cheap and side-effect free.
-  - Default to `RenderOnce` for lightweight value-like components; use `Entity<T>` only for retained state (inputs, editors, rich text state, subscriptions, async owners).
-  - **Never** construct `InputState`, `TextareaState`, `TextViewState`, `SelectState`, or `UniformListScrollHandle` inside `render()`; store them on the owning feature `Entity` (`LibraryView`, `StacksView`, `DiscoverView`, `SettingsView`).
-- **Markdown rendering (Must)**:
-  - Always retain `Entity<TextViewState>` and update via `state.set_text(&body, cx)` only when selection or file content changes. **Never** call `TextView::markdown(...)` directly inside `render()` — doing so re-parses the full Markdown AST on every scroll frame.
-  - Always pass `unoskills_core::parser::strip_frontmatter(&md)` to preview `TextViewState` so YAML frontmatter's closing `---` is never parsed as a CommonMark Setext `<h2>`. Keep raw frontmatter intact in edit mode.
-- **Virtualized lists for unbounded / medium-large datasets (Must)**:
-  - Any list that can exceed ~25 rows (`Library`, `Marketplace`, `Adopt Existing`) **must** use `gpui_kit::uniform_list` + `UniformListScrollHandle` + `.vertical_scrollbar(&handle)` so only visible viewport rows are constructed per frame.
-- **Async work & Tasks (Must)**:
-  - Never spawn async work unconditionally inside `render()`. Trigger background tasks from user events, lifecycle hooks, or named navigation methods.
-  - Run blocking filesystem/git/network operations on `cx.background_executor()`, never on the UI thread.
-  - Capture weak entity handles (`cx.spawn_in(window, async move |this, cx| ...)`) so closed views are not kept alive.
-  - Always surface explicit loading (`Spinner` / `.loading(true)`) and error (`Notification::error`) states to the user — never swallow errors silently.
-- **Dev build smoothness (Should)**:
-  - Keep `[profile.dev.package."*"] opt-level = 2` in workspace `Cargo.toml` so GPUI, Taffy, cosmic-text, and wgpu remain fluid during local development.
-
----
-
-## 6. Internationalization (i18n), Assets & Fonts Rules
-
-- **Must** keep full **Simplified Chinese (`zh-CN`)**, **English (`en`)**, and **Japanese (`ja`)** parity for every user-facing string in `crates/unoskills-app/src/i18n/{mod,zh_cn,en,ja}.rs`.
-- **Must not** hardcode user-visible prose literals directly in UI files (`shell.rs`, `components/*.rs`, `features/**`).
-- Language selector in Settings **should** use `Select` dropdown (scalable to additional locales).
-- Switching language **must**:
-  1. Call `gpui_kit::component::set_locale(lang.code())` so built-in `gpui-kit` controls stay in sync.
-  2. Update live input placeholders via `InputState::set_placeholder` / `TextareaState::set_placeholder`.
-  3. Refresh language-aware font selection when UI font is set to `Auto` (`Theme::update`).
-  4. Persist the chosen locale to SQLite `settings.language`.
-- **Custom Icons & Assets**:
-  - Embed app brand icons (`crates/unoskills-app/assets/icons/uno-mark.svg`) inside the app crate via a composite `AssetSource` that falls back to `gpui_kit::assets::Assets`, exposed through a typed `IconNamed` enum.
-- **Fonts**:
-  - Configure UI & monospace fonts globally through `Theme::update(cx, |theme| ...)` using `cx.text_system().all_font_names()` for system font discovery; avoid hardcoding font families per-element.
-- **Auto Update**:
-  - Use `gpui-updater-core` / `gpui-updater-pre` (matching `gpui-kit`'s `gpui-pre` runtime) with GitHub Releases / static manifest + Ed25519 signature verification; never auto-install silently without explicit user click.
+- Use the existing Rust guided updater with GitHub Releases and SHA-256 verification when a checksum asset exists.
+- Check on every launch and offer manual rechecks. Only download an installer or launch it after the user selects the respective action.
 
 ---
 
@@ -165,7 +113,7 @@ These safety invariants are non-negotiable (informed by real-world production in
 Before reporting any task complete:
 1. Run `cargo test --workspace` — all unit & integration tests **must** pass. Any new core behavior or bug fix **should** include a focused test.
 2. Run `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets -- -D warnings` — **must** finish with **0 errors and 0 warnings** (fix unused imports/dead fields immediately).
-3. When UI code changes, run `cargo build -p unoskills-app` to confirm linking succeeds cleanly.
+3. When UI code changes, run `cargo build -p unoskills-app --locked`, `nsh check crates/unoskills-app/ui`, `nsh build crates/unoskills-app/ui --release`, and `nsh test crates/unoskills-app/ui`. Match the evidence to the [layer changed](docs/ARCHITECTURE.md#review-and-evidence).
 
 ### Desktop GUI Verification (`agent-desktop`)
 Use `agent-desktop` to see and operate desktop apps. Before the first use, run

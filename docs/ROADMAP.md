@@ -15,7 +15,7 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 - [x] Unmanaged local skill scanner & adopter (single + bulk)
 - [x] Declarative Skill Stacks (`.unoskills-stack.toml`): featured stacks, local creation, TOML import/export, incremental one-click install
 
-### Native Desktop App (`unoskills-app`, GPUI Kit)
+### Native Desktop App (`unoskills-app`, Native Shell)
 - [x] Lean 4-tab desktop shell (`Library` / `Stacks` / `Discover` / `Settings`) with collapsible sidebar
 - [x] Modular entity + event architecture (`WorkspaceState`, `WorkspaceEvent`, feature folders, `RenderOnce` components)
 - [x] Custom Uno brand SVG icon via composite `AssetSource` (`UnoAssets` + `AppIcon`)
@@ -48,7 +48,7 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 
 ### `v0.3.0` — Release Engineering (delivered 2026-11-20)
 - [x] **Branch + PR + Ruleset workflow**: three-OS CI as required checks, linear-history squash merges, Conventional Commits
-- [x] **User-Facing Installers** (from the GPUI Kit packaging guide): macOS `.app` → `.dmg`, Windows Inno Setup installer, Linux `.deb` with auto-resolved `Depends`, plus stable platform identity (`dev.unoskills.UnoSkills`)
+- [x] **User-Facing Installers**: macOS `.app` → `.dmg`, Windows Inno Setup installer, Linux `.deb` with auto-resolved `Depends`, plus stable platform identity (`dev.unoskills.UnoSkills`)
 - [x] **Curated Release Notes**: `git-cliff` with a hand-written CHANGELOG override per version
 - [x] **README revamp**: brand header, badges, real app screenshots, bilingual (EN + zh-CN)
 
@@ -72,4 +72,4 @@ UnoSkills is designed to remain a **fast, lean, local-first, open-source** nativ
 - **No forced account or cloud lock-in**: local skill management and TOML Stacks always work offline.
 - **No workspace rule-file manager (`CLAUDE.md` / `AGENTS.md` / `.cursorrules`)**: project rules are tightly bound to a single repo and belong in your IDE/Git workflow, whereas UnoSkills focuses exclusively on reusable Skills & shareable Skill Stacks.
 - **No full code IDE**: `SKILL.md` editing stays lightweight and fast; complex multi-file authoring belongs in your editor.
-- **No Electron / WebView runtime**: keep startup instant, memory footprint low, and rendering 100% native via GPUI.
+- **No Electron / WebView runtime**: keep startup instant, memory footprint low, and rendering native via NSH.
