@@ -103,6 +103,7 @@ export function App() {
 
   const themeMode = computed(() => preferences().theme);
   const controlsInset = Number(host.params.native_window_controls_inset) || 0;
+  const titleBarHeight = () => titleBar().height || 36;
   effect(() => setColorScheme(themeMode()));
   effect(() => setLocale(locale()));
   effect(() => applyNativeTheme(theme(), preferences().accent_palette));
@@ -112,7 +113,8 @@ export function App() {
     const { hoverStyle, activeStyle } = interactionStyles(current);
     host.post("unoskills.command", {
       command: "window.titlebar_colors",
-      input: { foreground: current.foreground, hover: hoverStyle.backgroundColor, active: activeStyle.backgroundColor },
+      input: { height: titleBarHeight(), foreground: current.foreground,
+        hover: hoverStyle.backgroundColor, active: activeStyle.backgroundColor },
     });
   });
 
@@ -182,7 +184,7 @@ export function App() {
   return (
     <View testID="desktop-shell" accessible={false} focusable={false} onPress={() => Keyboard.dismiss()}
       style={{ flex: 1, minHeight: 0, backgroundColor: theme().background }}>
-      <View desktop={{ windowDrag: true }} style={{ height: 36, flexShrink: 0,
+      <View desktop={{ windowDrag: true }} style={{ height: titleBarHeight(), flexShrink: 0,
         paddingLeft: titleBarInset(titleBar().left) + 12, paddingRight: titleBarInset(titleBar().right) + 8,
         flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8,
         backgroundColor: rail(), borderBottomWidth: 1, borderColor: theme().border,

@@ -43,6 +43,7 @@ export function Label(props: {
   truncate?: boolean;
   weight?: "400" | "500" | "600";
 }) {
+  const size = () => props.size ?? props.theme.fontSize;
   return (
     <Text
       role={props.heading ? "header" : undefined}
@@ -51,7 +52,8 @@ export function Label(props: {
         numberOfLines: props.truncate ? 1 : undefined,
         color: props.color ?? (props.muted ? props.theme.muted : props.theme.foreground),
         fontFamily: props.mono ? props.theme.monoFamily : props.theme.fontFamily,
-        fontSize: props.size ?? props.theme.fontSize,
+        fontSize: size(),
+        lineHeight: Math.ceil(size() * 1.4),
         fontWeight: props.weight ?? (props.heading ? "600" : "400"),
       }}
     >{props.children}</Text>

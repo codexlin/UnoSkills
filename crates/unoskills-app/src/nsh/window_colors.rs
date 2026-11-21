@@ -1,7 +1,7 @@
 use std::cell::OnceCell;
 
 use nsh_core::Color;
-use nsh_platform_linux::gtk4::{self as gtk, gdk, glib};
+use nsh_platform_linux::gtk4::{self as gtk, gdk, glib, prelude::*};
 use serde::Deserialize;
 
 const BUTTON_WIDTH: u32 = 32;
@@ -15,6 +15,7 @@ thread_local! {
 
 #[derive(Deserialize)]
 pub(super) struct TitleBarColors {
+    height: f32,
     foreground: String,
     hover: String,
     active: String,
@@ -33,8 +34,8 @@ pub(super) fn apply(colors: TitleBarColors) {
         let Some(display) = gdk::Display::default() else {
             return;
         };
-        WINDOW_COLORS.with(|colors| {
-            let provider = colors.get_or_init(|| {
+        WINDOW_COLORS.with(|css| {
+            let provider = css.get_or_init(|| {
                 let provider = gtk::CssProvider::new();
                 gtk::style_context_add_provider_for_display(
                     &display,
@@ -59,6 +60,31 @@ pub(super) fn apply(colors: TitleBarColors) {
                  overlay > windowcontrols > button:hover {{ background-color: {hover}; }}
                  overlay > windowcontrols > button:active {{ background-color: {active}; }}"
             ));
+            center_controls(colors.height);
         });
     });
+}
+
+fn center_controls(bar_height: f32) {
+    // NSH's AppView puts the controls overlay below the menu bar slot.
+    // Re-measure it after the app's CSS changes the buttons' size.
+    for widget in gtk::Window::list_toplevels() {
+        let Some(overlay) = widget
+            .downcast::<gtk::ApplicationWindow>()
+            .ok()
+            .and_then(|window| window.child()?.last_child().and_downcast::<gtk::Overlay>())
+        else {
+            continue;
+        };
+        let mut child = overlay.first_child();
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            let Ok(controls) = widget.downcast::<gtk::WindowControls>() else {
+                continue;
+            };
+            let measured = controls.measure(gtk::Orientation::Vertical, -1).1;
+            let height = (measured - controls.margin_top() - controls.margin_bottom()).max(0);
+            controls.set_margin_top(((bar_height - height as f32) / 2.0).round().max(0.0) as i32);
+        }
+    }
 }
