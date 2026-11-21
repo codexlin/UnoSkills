@@ -1,6 +1,6 @@
 import { Scroll, View, cleanup, computed, effect, openUrl, reduceMotion, signal, windowSize } from "nsh";
 import { Bar, Grid, Plot, PlotAxis } from "nsh/base/plot";
-import { Action, ActionControl, Icon, InlineError, Label, PageHeader, SkeletonBlock, TabList, panelSurface, textSize } from "./components";
+import { Action, ActionControl, Icon, InlineError, Label, PageHeader, SkeletonBlock, TabList, panelSurface, textSize, textStyle } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps } from "./shared";
 import { attachProjectFromPicker } from "./projects";
@@ -273,7 +273,7 @@ function Activity(props: { theme: ScreenProps["theme"]; days: Day[]; locale: Scr
   });
   const hovered = signal<number | null>(null);
   const selected = () => hovered() === null ? undefined : props.days[hovered()!];
-  const axisStyle = () => ({ fontFamily: props.theme.fontFamily, fontSize: textSize(props.theme, 12), color: props.theme.muted });
+  const axisStyle = () => ({ ...textStyle(props.theme, { size: textSize(props.theme, 12) }), color: props.theme.muted });
   return (
     <View style={{ gap: props.compact ? 4 : 8 }}>
       <View style={{ ...row, justifyContent: "space-between", gap: 8 }}>

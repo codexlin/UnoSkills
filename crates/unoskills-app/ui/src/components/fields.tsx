@@ -1,7 +1,7 @@
 import { View, cleanup, effect, keymap, signal, type InputRef } from "nsh";
 import { Input, type InputProps } from "nsh/base";
 import type { Theme } from "../shared";
-import { Label } from "./layout";
+import { Label, textStyle } from "./layout";
 
 type TextInputProps = Pick<InputProps, "value" | "placeholder" | "accessibilityLabel" | "multiline" | "masked"
   | "autoFocus" | "disabled" | "autoCorrect" | "returnKeyType" | "submitBehavior"> & {
@@ -41,8 +41,7 @@ export function TextInput(props: TextInputProps) {
       paddingHorizontal: embedded() ? 0 : 12, paddingVertical: embedded() || props.multiline ? 6 : 4,
       color: props.theme.foreground, placeholderColor: props.theme.muted,
       backgroundColor: embedded() ? "transparent" : props.variant === "surface" ? props.theme.surface : props.theme.control.inputFill,
-      fontFamily: props.mono ? props.theme.monoFamily ?? props.theme.fontFamily : props.theme.fontFamily,
-      fontSize: embedded() ? props.theme.fontSize - 1 : props.theme.fontSize,
+      ...textStyle(props.theme, { size: props.theme.fontSize - (embedded() ? 1 : 0), mono: props.mono }),
       borderColor: props.theme.chrome?.inputBorder ?? props.theme.border,
       boxShadow: embedded() ? undefined : props.theme.control.shadow,
       borderWidth: embedded() ? 0 : 1, borderRadius: embedded() ? 0 : props.theme.control.radius }} />;

@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.7.0] - 2026-11-22
+
+### Changed / 改进
+
+- **Native Shell desktop / Native Shell 桌面端**. Home, Library, Discover, Projects, Stacks, and Settings now run on NSH 0.6.1. The app and CLI open the existing local library and keep the same skill and stack formats. 首页、技能库、发现、项目、技能组合与设置已迁移到 NSH 0.6.1，桌面端与 CLI 直接读取原有本地技能库，继续使用已有技能和组合格式。
+- **Typography and themes / 排版与主题**. Six light and dark presets share the same navigation, focus, and text styles. The base text size applies to interface labels and skill Markdown. 六套深浅主题统一导航、焦点和文字样式，基础字号同时作用于界面和技能 Markdown。
+- **Reading and editing / 阅读与编辑**. The Library uses NSH Markdown preview and an editor with syntax highlighting, line numbers, and soft wrapping. 技能库使用 NSH Markdown 预览，源码编辑支持语法高亮、行号和软换行。
+
+### Fixed / 修复
+
+- **Desktop interactions / 桌面交互**. Switch pages without sending shortcuts to a hidden editor, keep drafts tied to their skill, and deploy to the intended project or subproject. 页面快捷键仅作用于当前页，草稿绑定当前技能，部署写入选定的项目或子项目。
+- **Feedback and layout / 反馈与布局**. Loading feedback appears with its content, long font lists are searchable, and Linux title-bar controls stay centered as the theme changes. 加载反馈就近展示，长字体列表支持搜索，Linux 标题栏按钮随主题变化保持居中。
+
 ## [v0.6.2] - 2026-11-21
 
 ### Fixed / 修复

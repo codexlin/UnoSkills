@@ -141,6 +141,14 @@ A Rust UI component is also appropriate when it wraps a native capability or pro
 - Use the shared 120 ms color transition for button, tab and switch feedback. Let NSH move the tab indicator and fade dialogs. Respect reduced motion in both transition classes and dialog settings, and leave page switches immediate. Use a still placeholder for pending content under reduced motion.
 - Keep published preset values in `ui/themes/` and contrast corrections in `theme.ts`. Auto fonts use the preset and language fallbacks. The desktop host registers the OFL-licensed font files under `assets/fonts/` before displaying the loaded screens. A saved font or radius choice takes precedence over the preset.
 
+### Typography and navigation
+
+Use `Label` for static text. It renders NSH `Text` with a themed font and a line height of 1.4 times the text size, rounded up to a point. `textStyle` supplies those same properties to direct text, inputs, plot labels, and document components. Use `textSize` for the supporting and heading sizes. Expand fixed-height rows as the type grows so the line box and a font fallback fit. [NSH v0.6.1 text guide](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/text.md)
+
+The skill reader passes the current base size and reading line height to NSH `TextView`. The source editor passes the base size and monospace font to NSH `Editor`. The preferred installed font names come from the desktop user's font catalog, combined with the embedded presets. [NSH v0.6.1 fonts guide](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/fonts.md)
+
+The main and settings sidebars use `NavigationControl`. The current page uses the theme primary pair. Hover and press on other rows use the sidebar or content accent pair. The keyboard outline sits outside the fill. Page tabs use NSH `Tabs` and its moving indicator.
+
 ### TSX to Rust
 
 `ui/src/shared.ts` calls `unoskills.command` over NSH's host channel. The request carries an explicit command name and
@@ -165,7 +173,7 @@ Choose evidence at the layer that owns the changed behavior.
 | TSX behavior | Exercise user actions in the NSH headless runner. For async selection or retained pages, include a switch away and return, or a delayed response. |
 | Native desktop interaction | Exercise the affected focus, keyboard, picker or persistence flow on the built app with disposable data. Record the tested commit, OS, observed result and any platform or external service still unverified. |
 
-For the NSH migration, run the repository checks first, then use `agent-desktop` on the same integrated commit. Give the launched app its own home and data/config/cache directories. Report native interaction separately from headless tests and cross-platform CI.
+Run the repository checks first, then use `agent-desktop` on the same build. Use disposable data for tests that write skills, preferences, and deployments. A normal local launch sees the user's existing library, settings and fonts. Report native interaction separately from headless tests and cross-platform CI.
 
 ### Desktop development
 
@@ -179,6 +187,12 @@ the bundle with the Rust bundler, so developers and packaging jobs can build the
 - [NSH v0.6.1 base API](https://github.com/longbridge/nsh/blob/v0.6.1/website/modules/nsh-base.md)
 
 ---
+
+## 4. Packaging and Updates
+
+The Cargo workspace version drives the desktop, CLI, and installer metadata. A `vMAJOR.MINOR.PATCH` tag on the tested main commit starts the release workflow. The workflow builds Apple Silicon macOS, Windows x64, and Linux x64 packages, then publishes them with SHA-256 checksums and the matching changelog section. A manual run on the candidate branch builds the same packages for inspection.
+
+The desktop updater obtains the platform installer from GitHub Releases. It verifies the downloaded file when the release provides a checksum. The user initiates the download and opens the installer. The package preserves the existing application identity and the app opens the same local SQLite library. [Release workflow](../.github/workflows/release.yml)
 
 ## 5. Contributor Playbooks
 

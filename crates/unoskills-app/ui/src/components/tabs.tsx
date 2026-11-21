@@ -1,6 +1,6 @@
 import { Text, View } from "nsh";
 import { Tab, Tabs } from "nsh/base";
-import { Icon } from "./layout";
+import { Icon, Label, textStyle } from "./layout";
 import { focusOutline } from "./interaction";
 import { controlMotionClass } from "./motion";
 import type { IconName } from "../icons";
@@ -49,14 +49,13 @@ export function TabList<Id extends string>(props: TabListProps<Id>) {
             activeStyle={{ opacity: 0.7 }} disabledStyle={{ opacity: 0.5 }}
             focusVisibleStyle={focusOutline(props.theme)}>
             <If when={tab().glyph}>{(glyph) => <Icon name={glyph()} size={14} color={color()} />}</If>
-            <Text style={{ color: color(), fontSize: props.theme.fontSize, fontFamily: props.theme.fontFamily,
-              fontWeight: "500" }}>{tab().label}</Text>
+            <Label theme={props.theme} color={color()} weight="500">{tab().label}</Label>
             {(tab().count ?? 0) > 0 ? <View accessibilityElementsHidden
               style={{ minWidth: 18, minHeight: 16, paddingHorizontal: 5, borderRadius: 8, alignItems: "center",
                 justifyContent: "center", backgroundColor: props.theme.chrome?.segmented ?? props.theme.background,
                 borderWidth: 1, borderColor: props.theme.border }}>
-              <Text style={{ fontSize: Math.max(10, props.theme.fontSize - 4), fontWeight: "600",
-                fontFamily: props.theme.fontFamily, color: props.theme.muted, fontVariant: ["tabular-nums"] }}>
+              <Text style={{ ...textStyle(props.theme, { size: Math.max(10, props.theme.fontSize - 4) }),
+                fontWeight: "600", color: props.theme.muted, fontVariant: ["tabular-nums"] }}>
                 {tab().count}
               </Text>
             </View> : null}

@@ -1,6 +1,6 @@
 import { type InputRef, List, type ListRef, Text, View } from "nsh";
 import { Checkbox } from "nsh/base";
-import { ActionControl, AlertBanner, Icon, Label, LoadingLine, controlMotionClass, focusOutline, interactionStyles } from "../components";
+import { ActionControl, AlertBanner, Icon, Label, LoadingLine, controlMotionClass, focusOutline, interactionStyles, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, TokenBadge, hintTooltip } from "./controls";
 import { type Locale, adoptSelectedCount, busyAdoptingAll, getStrings, labelWithCount } from "./strings";
@@ -158,9 +158,8 @@ export function AdoptTab(props: {
                           textOverflow: "ellipsis",
                           width: "33%",
                           minWidth: 0,
-                          fontSize: 14,
+                          ...textStyle(props.theme),
                           color: props.theme.foreground,
-                          fontFamily: props.theme.fontFamily,
                         }}
                       >
                         {row().kind === "candidate"
@@ -181,9 +180,8 @@ export function AdoptTab(props: {
                           textOverflow: "ellipsis",
                           flex: 1,
                           minWidth: 0,
-                          fontSize: 12,
+                          ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                           color: props.theme.muted,
-                          fontFamily: props.theme.fontFamily,
                         }}
                       >
                         {row().kind === "candidate"
@@ -240,10 +238,9 @@ export function AdoptTab(props: {
                           textOverflow: "ellipsis",
                           flexShrink: 1,
                           minWidth: 0,
-                          fontSize: 13,
+                          ...textStyle(props.theme, { size: textSize(props.theme, 13) }),
                           fontWeight: "600",
                           color: props.theme.foreground,
-                          fontFamily: props.theme.fontFamily,
                         }}
                       >
                         {row().kind === "group"

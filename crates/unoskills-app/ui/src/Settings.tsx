@@ -1,6 +1,6 @@
 import { List, Scroll, Text, View, computed, effect, host, nativeModule, signal, type JSX } from "nsh";
 import { Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
-import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, NavigationControl, PageHeader, controlMotionClass, focusOutline, interactionStyles, panelSurface, textSize } from "./components";
+import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, NavigationControl, PageHeader, controlMotionClass, focusOutline, interactionStyles, panelSurface, textSize, textStyle } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps, type Theme } from "./shared";
 import { bundledThemeFonts, paletteFor, palettes, type Preferences } from "./theme";
@@ -72,8 +72,7 @@ function About(props: SettingsProps) {
     {host.params.bundled_fonts === true ? <Action theme={props.theme} label={label()} onPress={showLicenses} /> : null}
     <Modal theme={props.theme} label={label()} open={open()} width={640} onClose={() => open.set(false)}>
       <Scroll style={{ height: 320 }}>
-        <Text style={{ color: props.theme.popup.foreground, fontFamily: props.theme.fontFamily,
-          fontSize: props.theme.fontSize, userSelect: "text" }}>{licenses()}</Text>
+        <Text style={{ ...textStyle(props.theme), color: props.theme.popup.foreground, userSelect: "text" }}>{licenses()}</Text>
       </Scroll>
     </Modal>
   </>;

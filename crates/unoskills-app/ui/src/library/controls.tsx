@@ -1,5 +1,5 @@
 import { type InputRef, type JSX, Text, View } from "nsh";
-import { Action, ActionControl, Hint, Icon, Label, TextInput, type ActionVariant } from "../components";
+import { Action, ActionControl, Hint, Icon, Label, TextInput, type ActionVariant, textSize, textStyle } from "../components";
 import type { IconName } from "../icons";
 import type { Theme } from "../shared";
 import { TOKEN_BUDGET_WARN_THRESHOLD, formatTokensShort } from "./format";
@@ -165,10 +165,9 @@ export function EmptyState(props: {
       }</If>
       <Text
         style={{
-          fontSize: 15,
+          ...textStyle(props.theme, { size: textSize(props.theme, 15) }),
           fontWeight: "600",
           color: props.theme.foreground,
-          fontFamily: props.theme.fontFamily,
           textAlign: "center",
         }}
       >
@@ -176,10 +175,8 @@ export function EmptyState(props: {
       </Text>
       <Text
         style={{
-          fontSize: 13,
-          lineHeight: 19,
+          ...textStyle(props.theme, { size: textSize(props.theme, 13) }),
           color: props.theme.muted,
-          fontFamily: props.theme.fontFamily,
           textAlign: "center",
           maxWidth: 360,
         }}

@@ -22,6 +22,15 @@ export function textSize(theme: Theme, points: number) {
   return Math.round(theme.fontSize / 0.875) * points / 16;
 }
 
+export function textStyle(theme: Theme, options: { size?: number; mono?: boolean; leading?: number } = {}) {
+  const fontSize = options.size ?? theme.fontSize;
+  return {
+    fontFamily: options.mono ? theme.monoFamily ?? theme.fontFamily : theme.fontFamily,
+    fontSize,
+    lineHeight: Math.ceil(fontSize * (options.leading ?? 1.4)),
+  };
+}
+
 export function PageHeader(props: { theme: Theme; title: string; children?: JSX.Element }) {
   return <View style={{ flexDirection: "row", alignItems: "center", minHeight: 56, paddingHorizontal: 20,
     paddingVertical: 8, gap: 12, borderBottomWidth: 1, borderColor: props.theme.border }}>
@@ -43,7 +52,6 @@ export function Label(props: {
   truncate?: boolean;
   weight?: "400" | "500" | "600";
 }) {
-  const size = () => props.size ?? props.theme.fontSize;
   return (
     <Text
       role={props.heading ? "header" : undefined}
@@ -51,9 +59,7 @@ export function Label(props: {
         minWidth: 0,
         numberOfLines: props.truncate ? 1 : undefined,
         color: props.color ?? (props.muted ? props.theme.muted : props.theme.foreground),
-        fontFamily: props.mono ? props.theme.monoFamily : props.theme.fontFamily,
-        fontSize: size(),
-        lineHeight: Math.ceil(size() * 1.4),
+        ...textStyle(props.theme, props),
         fontWeight: props.weight ?? (props.heading ? "600" : "400"),
       }}
     >{props.children}</Text>

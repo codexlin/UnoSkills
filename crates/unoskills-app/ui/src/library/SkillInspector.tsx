@@ -1,6 +1,6 @@
 import { Clipboard, Scroll, Text, View, openUrl } from "nsh";
 import { Editor, Switch, TextView } from "nsh/base";
-import { ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, MenuDivider, PageTabs, controlMotionClass } from "../components";
+import { ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, MenuDivider, PageTabs, controlMotionClass, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, hintTooltip } from "./controls";
 import { isSkillDeployedTo, joinPath } from "./format";
@@ -106,9 +106,8 @@ export function SkillInspector(props: {
                 style={{
                   numberOfLines: 1,
                   textOverflow: "ellipsis",
-                  fontSize: 12,
+                  ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                   color: props.theme.muted,
-                  fontFamily: props.theme.fontFamily,
                 }}
               >
                 {`${skill().source_ref ?? skill().source_type} · ~${skill().estimated_tokens} tokens`}
@@ -204,9 +203,8 @@ export function SkillInspector(props: {
                             numberOfLines: 1,
                             textOverflow: "ellipsis",
                             maxWidth: 240,
-                            fontSize: 12,
+                            ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                             color: props.theme.muted,
-                            fontFamily: props.theme.fontFamily,
                             flexShrink: 0,
                           }}
                         >
@@ -229,9 +227,8 @@ export function SkillInspector(props: {
                                 textOverflow: "ellipsis",
                                 flex: 1,
                                 minWidth: 0,
-                                fontSize: 12,
+                                ...textStyle(props.theme, { size: textSize(props.theme, 12), mono: true }),
                                 color: props.theme.muted,
-                                fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
                               }}
                             >
                               {projectDisplayPath()}
@@ -298,9 +295,8 @@ export function SkillInspector(props: {
                                   textOverflow: "ellipsis",
                                   flex: 1,
                                   minWidth: 0,
-                                  fontSize: 14,
+                                  ...textStyle(props.theme),
                                   color: props.theme.foreground,
-                                  fontFamily: props.theme.fontFamily,
                                 }}
                               >
                                 {agent().display_name}
@@ -507,10 +503,8 @@ export function SkillInspector(props: {
                       >
                         <Text
                           style={{
-                            fontSize: 14,
-                            lineHeight: 20,
+                            ...textStyle(props.theme),
                             color: props.theme.foreground,
-                            fontFamily: props.theme.fontFamily,
                           }}
                         >
                           {skill().description ?? ""}
@@ -527,9 +521,7 @@ export function SkillInspector(props: {
                       styles={{
                         root: {
                           color: props.theme.foreground,
-                          fontFamily: props.theme.fontFamily,
-                          fontSize: 14,
-                          lineHeight: 22,
+                          ...textStyle(props.theme, { leading: 1.55 }),
                         },
                         link: { color: props.theme.primary },
                         code: {
@@ -562,9 +554,7 @@ export function SkillInspector(props: {
                 placeholder={s().ph_skill_md}
                 accessibilityLabel={s().btn_edit_skill}
                 readOnly={props.savingMarkdown}
-                fontFamily={props.theme.monoFamily ?? props.theme.fontFamily}
-                fontSize={props.theme.fontSize}
-                lineHeight={Math.ceil(props.theme.fontSize * 1.5)}
+                {...textStyle(props.theme, { mono: true, leading: 1.5 })}
                 styles={{ content: { paddingRight: 12 }, line: { color: props.theme.foreground },
                   gutter: { backgroundColor: props.theme.surface, borderRightWidth: 1, borderColor: props.theme.border } }}
                 focusStyle={{ borderColor: props.theme.primary }}

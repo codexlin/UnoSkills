@@ -1,6 +1,6 @@
 import { Clipboard, cleanup, computed, effect, keymap, List, Scroll, signal, Text, View, type InputRef, type JSX } from "nsh";
 import { Button, ResizablePanel, ResizablePanelGroup } from "nsh/base";
-import { ActionMenu, Icon, MenuAction, MenuDivider, PageTabs, focusOutline, interactionStyles } from "../components";
+import { ActionMenu, Icon, MenuAction, MenuDivider, PageTabs, focusOutline, interactionStyles, textStyle } from "../components";
 import type { ScreenProps, Theme } from "../shared";
 import { Action, Choice, Feedback, Field, Footer, Header, Heading, Label, confirm, padding, row, viewport } from "./controls";
 import { load, operation } from "./state";
@@ -222,7 +222,7 @@ function CatalogEmpty(props: { theme: Theme; title: string; description: string;
   return <View style={{ ...viewport, alignItems: "center", justifyContent: "center", padding: 16, gap: 8 }}>
     <If when={props.showIcon}><Icon name="layout-dashboard" color={props.theme.muted} size={24} /></If>
     <Heading theme={props.theme} label={props.title} />
-    <Text style={{ fontFamily: props.theme.fontFamily, fontSize: props.theme.fontSize - 2, color: props.theme.muted,
+    <Text style={{ ...textStyle(props.theme, { size: props.theme.fontSize - 2 }), color: props.theme.muted,
       textAlign: "center", maxWidth: "100%" }}>{props.description}</Text>
     {props.children}
   </View>;

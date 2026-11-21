@@ -24,6 +24,7 @@ jobs:
             target: aarch64-apple-darwin
             artifact_suffix: macos-arm64
             ext: ""
+            deployment_target: "14.0"
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_suffix: linux-x64
@@ -39,6 +40,17 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
+      - name: Resolve release version
+        shell: bash
+        run: |
+          VERSION=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\([^"]*\)"$/\1/p' Cargo.toml)
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match workspace version $VERSION"
+            exit 1
+          fi
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
       - name: Install Linux NSH dependencies
         if: runner.os == 'Linux'
         run: |
@@ -46,6 +58,8 @@ jobs:
           sudo apt-get install -y pkg-config libgtk-4-dev libssl-dev
 
       - name: Build release binaries (app + cli)
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
         run: |
           cargo build --release --target ${{ matrix.target }} -p unoskills-app -p unoskills-cli --locked
 
@@ -73,8 +87,7 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [[ "$VERSION" =~ ^[0-9] ]] || VERSION="0.0.0"
+          VERSION="$RELEASE_VERSION"
           mkdir -p "dist/UnoSkills.app/Contents/MacOS" "dist/UnoSkills.app/Contents/Resources"
           cp "dist/unoskills-app-macos-arm64" "dist/UnoSkills.app/Contents/MacOS/unoskills-app"
           cp packaging/icons/unoskills.icns "dist/UnoSkills.app/Contents/Resources/AppIcon.icns"
@@ -95,8 +108,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [[ "$VERSION" =~ ^[0-9] ]] || VERSION="0.0.0"
+          VERSION="$RELEASE_VERSION"
           mkdir -p dist/windows
           cp "dist/unoskills-app-windows-x64.exe" dist/windows/unoskills-app.exe
           cp "dist/unoskills-windows-x64.exe" dist/windows/unoskills.exe
@@ -108,8 +120,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [[ "$VERSION" =~ ^[0-9] ]] || VERSION="0.0.0"
+          VERSION="$RELEASE_VERSION"
           # Auto-resolve runtime Depends from the NEEDED entries of the built
           # binaries against packages installed on this runner. Libraries that
           # are not installed here are skipped; extend packaging/linux/control

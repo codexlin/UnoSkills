@@ -9,7 +9,7 @@ import {
   signal,
   windowSize,
 } from "nsh";
-import { ActionControl, ActionMenu, AlertBanner, Icon, Label, LoadingLine, MenuAction, SelectControl, SkeletonBlock } from "../components";
+import { ActionControl, ActionMenu, AlertBanner, Icon, Label, LoadingLine, MenuAction, SelectControl, SkeletonBlock, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, hintTooltip } from "./controls";
 import { formatInstallCount, marketInstallStatus } from "./format";
@@ -53,6 +53,8 @@ export function MarketplaceTab(props: {
 }) {
   const s = () => getStrings(props.locale);
   const containerWidth = signal(0);
+  const cardHeight = () => Math.max(100, textSize(props.theme, 100));
+  const textRowHeight = () => Math.max(20, textStyle(props.theme).lineHeight);
 
   // Match legacy 3-column desktop grid while adapting cleanly on narrower viewports.
   const gridColumns = computed(() => {
@@ -220,7 +222,7 @@ export function MarketplaceTab(props: {
                   each={props.entries}
                   keyExtractor={(entry) => entry.item.id}
                   numColumns={gridColumns()}
-                  estimatedItemSize={112}
+                  estimatedItemSize={cardHeight() + 12}
                   loadMoreThreshold={1}
                   onLoadMore={() => {
                     if (!props.loadMoreFailed) {
@@ -271,7 +273,7 @@ export function MarketplaceTab(props: {
                   {(entry) => (
                     <View
                       style={{
-                        height: 100,
+                        height: cardHeight(),
                         paddingHorizontal: 12,
                         paddingVertical: 8,
                         gap: 4,
@@ -289,7 +291,7 @@ export function MarketplaceTab(props: {
                       {/* Row 1: Name, Official verified badge, 3-tier Rank */}
                       <View
                         style={{
-                          height: 20,
+                          height: textRowHeight(),
                           flexDirection: "row",
                           alignItems: "center",
                           gap: 8,
@@ -305,10 +307,9 @@ export function MarketplaceTab(props: {
                             textOverflow: "ellipsis",
                             flex: 1,
                             minWidth: 0,
-                            fontSize: 14,
+                            ...textStyle(props.theme),
                             fontWeight: "600",
                             color: props.theme.foreground,
-                            fontFamily: props.theme.fontFamily,
                           }}
                         >
                           {entry().item.name}
@@ -346,9 +347,8 @@ export function MarketplaceTab(props: {
                                 else={
                                   <Text
                                     style={{
-                                      fontSize: 12,
+                                      ...textStyle(props.theme, { size: textSize(props.theme, 12), mono: true }),
                                       color: props.theme.muted,
-                                      fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
                                       flexShrink: 0,
                                     }}
                                   >
@@ -369,10 +369,9 @@ export function MarketplaceTab(props: {
                                 >
                                   <Text
                                     style={{
-                                      fontSize: 11,
+                                      ...textStyle(props.theme, { size: textSize(props.theme, 11) }),
                                       fontWeight: "600",
                                       color: props.theme.onAccent,
-                                      fontFamily: props.theme.fontFamily,
                                     }}
                                   >
                                     {`#${entry().rankIndex + 1}`}
@@ -391,16 +390,15 @@ export function MarketplaceTab(props: {
                             >
                               <Text
                                 accessibilityElementsHidden
-                                style={{ fontSize: 12, color: props.theme.primary }}
+                                style={{ ...textStyle(props.theme, { size: textSize(props.theme, 12) }), color: props.theme.primary }}
                               >
                                 ★
                               </Text>
                               <Text
                                 style={{
-                                  fontSize: 12,
+                                  ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                                   fontWeight: "600",
                                   color: props.theme.foreground,
-                                  fontFamily: props.theme.fontFamily,
                                 }}
                               >
                                 #1
@@ -413,7 +411,7 @@ export function MarketplaceTab(props: {
                       {/* Row 2: Source repo filter + external link */}
                       <View
                         style={{
-                          height: 20,
+                          height: textRowHeight(),
                           flexDirection: "row",
                           alignItems: "center",
                           gap: 6,
@@ -437,7 +435,7 @@ export function MarketplaceTab(props: {
                             <Text
                               accessibilityElementsHidden
                               style={{
-                                fontSize: 11,
+                                ...textStyle(props.theme, { size: textSize(props.theme, 11) }),
                                 color:
                                   props.sourceFilter === entry().item.source
                                     ? props.theme.primary
@@ -452,12 +450,11 @@ export function MarketplaceTab(props: {
                                 textOverflow: "ellipsis",
                                 flex: 1,
                                 minWidth: 0,
-                                fontSize: 12,
+                                ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                                 color:
                                   props.sourceFilter === entry().item.source
                                     ? props.theme.primary
                                     : props.theme.muted,
-                                fontFamily: props.theme.fontFamily,
                               }}
                             >
                               {entry().item.source}
@@ -507,7 +504,7 @@ export function MarketplaceTab(props: {
                         >
                           <Text
                             accessibilityElementsHidden
-                            style={{ fontSize: 11, color: props.theme.muted, flexShrink: 0 }}
+                            style={{ ...textStyle(props.theme, { size: textSize(props.theme, 11) }), color: props.theme.muted, flexShrink: 0 }}
                           >
                             ↓
                           </Text>
@@ -517,9 +514,8 @@ export function MarketplaceTab(props: {
                               textOverflow: "ellipsis",
                               flex: 1,
                               minWidth: 0,
-                              fontSize: 12,
+                              ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                               color: props.theme.muted,
-                              fontFamily: props.theme.fontFamily,
                             }}
                           >
                             {`${formatInstallCount(entry().item.installs)} ${s().installs_unit}`}
@@ -584,7 +580,7 @@ export function MarketplaceTab(props: {
                         style={{
                           flex: 1,
                           minWidth: 0,
-                          height: 100,
+                          height: cardHeight(),
                           paddingHorizontal: 12,
                           paddingVertical: 10,
                           justifyContent: "space-between",

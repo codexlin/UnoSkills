@@ -1,7 +1,7 @@
 import { View, signal, type JSX } from "nsh";
 import { Dialog, Menu, MenuItem, MenuSeparator, Select, type SelectItem } from "nsh/base";
 import type { IconName } from "../icons";
-import { Icon, Label } from "./layout";
+import { Icon, Label, textStyle } from "./layout";
 import { disabledControlStyle, focusOutline, interactionStyles } from "./interaction";
 import { Hint } from "./feedback";
 import { dialogAnimation } from "./motion";
@@ -101,7 +101,7 @@ export function SelectControl(props: {
     searchStyle={{
       marginBottom: 6, paddingHorizontal: 8, minHeight: 32, flexShrink: 0,
       color: props.theme.popup.foreground, placeholderColor: props.theme.muted, backgroundColor: props.theme.control.inputFill,
-      fontFamily: props.theme.fontFamily, fontSize: props.theme.fontSize,
+      ...textStyle(props.theme),
       borderWidth: 1, borderColor: props.theme.chrome?.inputBorder ?? props.theme.border, borderRadius: props.theme.control.radius,
     }}
     renderItem={(item) => {

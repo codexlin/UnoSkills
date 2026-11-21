@@ -1,6 +1,6 @@
 import { List, Text, View } from "nsh";
 import { Button } from "nsh/base";
-import { AlertBanner, LoadingLine, controlMotionClass, focusOutline, interactionStyles } from "../components";
+import { AlertBanner, LoadingLine, controlMotionClass, focusOutline, interactionStyles, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, TokenBadge } from "./controls";
 import { compactSource } from "./format";
@@ -24,6 +24,7 @@ export function LibraryListPane(props: {
   onOpenDiscover: () => void;
 }) {
   const s = () => getStrings(props.locale);
+  const rowHeight = () => Math.max(48, textSize(props.theme, 48));
 
   return (
     <If
@@ -49,9 +50,8 @@ export function LibraryListPane(props: {
                   textOverflow: "ellipsis",
                   flex: 1,
                   minWidth: 0,
-                  fontSize: 12,
+                  ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                   color: props.theme.muted,
-                  fontFamily: props.theme.fontFamily,
                 }}
               >
                 {s().library_skill_column}
@@ -62,9 +62,8 @@ export function LibraryListPane(props: {
                   textOverflow: "ellipsis",
                   width: 76,
                   textAlign: "right",
-                  fontSize: 12,
+                  ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                   color: props.theme.muted,
-                  fontFamily: props.theme.fontFamily,
                   flexShrink: 0,
                 }}
               >
@@ -76,9 +75,8 @@ export function LibraryListPane(props: {
                   textOverflow: "ellipsis",
                   width: 96,
                   textAlign: "right",
-                  fontSize: 12,
+                  ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                   color: props.theme.muted,
-                  fontFamily: props.theme.fontFamily,
                   flexShrink: 0,
                 }}
               >
@@ -93,7 +91,7 @@ export function LibraryListPane(props: {
               <List
                 each={props.filteredSkills}
                 keyExtractor={(skill) => skill.id}
-                estimatedItemSize={52}
+                estimatedItemSize={rowHeight() + 4}
                 contentStyle={{ paddingVertical: 4 }}
                 style={{ flex: 1, minHeight: 0 }}
               >
@@ -107,7 +105,7 @@ export function LibraryListPane(props: {
                       onPress={() => props.onSelectSkill(skill().id)}
                       class={controlMotionClass}
                       style={{
-                        height: 48,
+                        height: rowHeight(),
                         flexDirection: "row",
                         alignItems: "center",
                         gap: 8,
@@ -136,10 +134,9 @@ export function LibraryListPane(props: {
                           style={{
                             numberOfLines: 1,
                             textOverflow: "ellipsis",
-                            fontSize: 14,
+                            ...textStyle(props.theme),
                             fontWeight: "600",
                             color: selected() ? props.theme.onAccent : props.theme.foreground,
-                            fontFamily: props.theme.fontFamily,
                           }}
                         >
                           {skill().name}
@@ -148,9 +145,8 @@ export function LibraryListPane(props: {
                           style={{
                             numberOfLines: 1,
                             textOverflow: "ellipsis",
-                            fontSize: 12,
+                            ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                             color: selected() ? props.theme.onAccent : props.theme.muted,
-                            fontFamily: props.theme.fontFamily,
                           }}
                         >
                           {compactSource(
@@ -166,9 +162,8 @@ export function LibraryListPane(props: {
                           textOverflow: "ellipsis",
                           width: 76,
                           textAlign: "right",
-                          fontSize: 14,
+                          ...textStyle(props.theme),
                           color: selected() ? props.theme.onAccent : props.theme.foreground,
-                          fontFamily: props.theme.fontFamily,
                           flexShrink: 0,
                         }}
                       >

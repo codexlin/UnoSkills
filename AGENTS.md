@@ -20,7 +20,8 @@ Desktop UI work must use the APIs documented for Native Shell v0.6.1.
 
 UnoSkills is a **fast, lean, native Rust AI Skills & Stacks Workbench** — not a bloated dashboard.
 
-- **Must** keep the desktop shell focused on its **4 core top-level views**:
+- **Must** keep the desktop shell focused on Home and its four working areas:
+   - `Home` (首页) opens projects and shows library activity and the skills.sh rankings.
   1. `Library` (技能库) — inspect, preview/quick-edit `SKILL.md`, lint/token budget, 1-click per-agent deploy.
   2. `Stacks` (技能组合) — curated & personal declarative `.unoskills-stack.toml` recipes, 1-click install & share.
   3. `Discover` (发现安装) — Quick Install, `skills.sh` Marketplace, and Adopt unmanaged skills.
@@ -54,6 +55,8 @@ unoskills-app (NSH TSX + Rust host)   unoskills-cli (clap + --json)
 - **Must** use the shared theme tokens for Light, Dark, and System appearance and support keyboard focus, selection, disabled, loading, errors, and destructive actions.
 - **Must** prefer documented NSH base controls for input, selection, dialogs, progress and buttons. Supply accessible names, meaningful focus targets, and keyboard shortcuts.
 - **Should** compose shared controls from `ui/src/components/`. Add reusable sizes, variants and interaction styles to the component that owns them. Use NSH Tabs for tab activation, focus, and the moving indicator.
+- **Should** use `Label` for plain text and `textStyle` for customized NSH `Text`, `TextView`, `Editor`, and `Input`. Size supporting labels relative to the base size with `textSize`. Reserve enough height for the text and its font fallback at the largest supported size. Follow the [NSH v0.6.1 text guide](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/text.md).
+- **Must** get navigation colors from the preset. The current page uses the primary color and its paired foreground. Hover on an unselected item uses the relevant accent. Keep the keyboard focus outline visible around selected items.
 - **Should** use a compact, consistent spacing and type scale. Put path and label text in a shrinking column so actions remain visible on narrow windows.
 - **Must** give scroll containers a constrained viewport and use virtualized NSH lists for growing datasets such as Library, Marketplace, and Adopt.
 
@@ -108,6 +111,7 @@ These safety invariants are non-negotiable (informed by real-world production in
 - **Should** develop features, fixes, and chore updates on dedicated branches (`feat/<topic>`, `fix/<topic>`, `chore/<topic>`) rather than committing directly to `main`.
 - **Should** use Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `chore(scope): ...`) so `git-cliff` and `.github/release.yml` automatically categorize Release Notes.
 - **Should** open a Pull Request against `main` and let 3-OS CI (`ubuntu-latest`, `macos-latest`, `windows-latest`) pass before merging.
+- For a release, update the workspace version, lockfile and curated changelog in the PR. Tag the verified commit on `main` with the full SemVer tag. The release workflow checks that the tag matches the workspace version and publishes installers, portable archives and `SHA256SUMS.txt`.
 
 ### Verification Checklist
 Before reporting any task complete:

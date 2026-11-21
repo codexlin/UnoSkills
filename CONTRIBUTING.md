@@ -27,6 +27,13 @@ Run `cargo test -p unoskills-core` to verify the registry parses cleanly.
 
 ```bash
 cargo test -p unoskills-core
-cargo check --workspace
-cargo run -p unoskills-app
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo run -p unoskills-app --locked
+nsh check crates/unoskills-app/ui
+nsh build crates/unoskills-app/ui --release
+nsh test crates/unoskills-app/ui
 ```
+
+Use the NSH 0.6.1 CLI for the last three commands. Desktop UI changes should include evidence from the affected workflows in the native app. Use temporary libraries for tests that deploy or edit files. [Engineering rules](AGENTS.md) · [Project structure and verification](docs/ARCHITECTURE.md)

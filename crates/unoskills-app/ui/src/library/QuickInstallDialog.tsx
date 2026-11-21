@@ -2,7 +2,7 @@ import { type InputRef, Text, View, effect, signal } from "nsh";
 import { Dialog } from "nsh/base";
 import type { Theme } from "../shared";
 import { ActionButton } from "./controls";
-import { AlertBanner, TextInput, dialogAnimation } from "../components";
+import { AlertBanner, TextInput, dialogAnimation, textSize, textStyle } from "../components";
 import { errorMessage, installFromSource, pickFolder } from "./host";
 import { type Locale, busyInstalling, getStrings, toastInstalled } from "./strings";
 import type { Skill } from "./types";
@@ -103,10 +103,9 @@ export function QuickInstallDialog(props: {
     >
       <Text
         style={{
-          fontSize: 16,
+          ...textStyle(props.theme, { size: textSize(props.theme, 16) }),
           fontWeight: "600",
           color: props.theme.foreground,
-          fontFamily: props.theme.fontFamily,
         }}
       >
         {s().quick_install_title}

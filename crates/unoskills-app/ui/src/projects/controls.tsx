@@ -1,6 +1,6 @@
 import { Text, View, type InputRef, type JSX } from "nsh";
 import { AlertDialog, Checkbox } from "nsh/base";
-import { Action as ButtonAction, AlertBanner, Hint, Icon, LoadingLine, PageHeader, SelectControl, TextInput, focusOutline, interactionStyles, textSize } from "../components";
+import { Action as ButtonAction, AlertBanner, Hint, Icon, LoadingLine, PageHeader, SelectControl, TextInput, focusOutline, interactionStyles, textSize, textStyle } from "../components";
 import type { IconName } from "../icons";
 import type { ScreenProps, Theme } from "../shared";
 import { strings } from "./strings";
@@ -26,13 +26,16 @@ export function Banner(props: { theme: Theme; label: string; tone: "error" | "wa
 }
 
 export function Heading(props: { theme: Theme; label: string; size?: number; lines?: number }) {
-  return <Text role="header" style={{ color: props.theme.foreground, fontFamily: props.theme.fontFamily, fontSize: textSize(props.theme, props.size ?? 18), fontWeight: "600", numberOfLines: props.lines, minWidth: 0, flexShrink: 1 }}>{props.label}</Text>;
+  return <Text role="header" style={{ ...textStyle(props.theme, { size: textSize(props.theme, props.size ?? 18) }),
+    color: props.theme.foreground, fontWeight: "600", numberOfLines: props.lines,
+    minWidth: 0, flexShrink: 1 }}>{props.label}</Text>;
 }
 
 export function Label(props: { theme: Theme; label: string; muted?: boolean; lines?: number; danger?: boolean; size?: number; weight?: "500" | "600"; color?: string; title?: string }) {
   return <Text tooltip={props.title ? <Hint theme={props.theme} text={props.title} /> : undefined} style={{
     color: props.color ?? (props.danger ? props.theme.danger : props.muted ? props.theme.muted : props.theme.foreground),
-    fontFamily: props.theme.fontFamily, fontSize: props.size ?? props.theme.fontSize + (props.muted ? -2 : 0), numberOfLines: props.lines,
+    ...textStyle(props.theme, { size: props.size ?? props.theme.fontSize - (props.muted ? 2 : 0) }),
+    numberOfLines: props.lines,
     fontWeight: props.weight,
     minWidth: 0, flexShrink: 1,
   }}>{props.label}</Text>;
