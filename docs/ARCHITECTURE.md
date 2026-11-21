@@ -1,6 +1,6 @@
 # UnoSkills Architecture & Engineering Best Practices
 
-This document explains how **UnoSkills** is structured, why key technical decisions were made, and the patterns contributors should follow when extending the core engine, CLI, or native GPUI Kit desktop application.
+This document explains how **UnoSkills** is structured, why key technical decisions were made, and the patterns contributors should follow when extending the core engine, CLI, or native NSH desktop application.
 
 > Looking for the short, mandatory rules checklist for AI agents and PR reviews? See [AGENTS.md](../AGENTS.md).
 
@@ -11,7 +11,7 @@ This document explains how **UnoSkills** is structured, why key technical decisi
 UnoSkills uses a strict **3-crate Cargo workspace** where dependencies flow strictly downwards:
 
 ```text
-  unoskills-app (GPUI Kit GUI)       unoskills-cli (clap + --json)
+  unoskills-app (Native Shell)       unoskills-cli (clap + --json)
                  \                           /
                   ▼                         ▼
          unoskills-core (pure Rust domain, SQLite WAL, sync, source, stacks)
@@ -19,7 +19,7 @@ UnoSkills uses a strict **3-crate Cargo workspace** where dependencies flow stri
 
 - **`crates/unoskills-core`**: Zero UI or windowing dependencies. Owns domain types, strict `SKILL.md` parsing/linting, SQLite WAL persistence (`~/.unoskills/unoskills.db`), filesystem sync safety, `skills.sh` marketplace client, adopt scanner, and declarative Stack registry.
 - **`crates/unoskills-cli`**: Thin `clap` wrapper around `UnoSkillsManager` with machine-readable `--json` output for scripts and AI agents.
-- **`crates/unoskills-app`**: Native desktop workbench built on `gpui-kit` (`0.10.0`). Never touches SQLite or raw filesystem sync directly — every mutation passes through `UnoSkillsManager`.
+- **`crates/unoskills-app`**: Native desktop workbench built on Native Shell (`0.6.1`) with TSX screens. Never touches SQLite or raw filesystem sync directly — every mutation passes through `UnoSkillsManager`.
 
 ### Crate-Internal Embedded Assets (`cargo publish` Ready)
 
@@ -27,7 +27,7 @@ All `include_str!` / `include_bytes!` assets live **inside** the crate that embe
 
 - `crates/unoskills-core/data/agents.toml` — declarative registry of 22 AI coding agents.
 - `crates/unoskills-core/data/featured_stacks.toml` — curated starter Skill Stacks.
-- `crates/unoskills-app/assets/icons/` — embedded brand SVGs (`uno-mark.svg`, `uno-app-icon.svg`).
+- `crates/unoskills-app/assets/icons/` — embedded brand mark (`uno-mark.svg`).
 - `packaging/icons/` — installer/bundle metadata separate from Rust compilation.
 
 ---
@@ -63,79 +63,36 @@ Community stacks live behind the `unoskills_core::stacks::StackRegistry` trait (
 
 ## 3. Desktop App Architecture (`unoskills-app`)
 
-### Module Layout
+### Desktop entry and hosts
 
-```text
-crates/unoskills-app/src/
-├── main.rs            # App entry, UnoAssets registration, Window bootstrap
-├── assets.rs          # Composite AssetSource (Uno brand SVGs -> gpui-kit fallback) + AppIcon
-├── fonts.rs           # System font enumeration, language-aware Auto fonts, Theme::update
-├── shell.rs           # UnoSkillsShell: TitleBar, collapsible Sidebar, active tab host
-├── state.rs           # WorkspaceState entity, WorkspaceEvent bus, async orchestrators
-├── components/        # Pure RenderOnce reusable UI primitives (PageHeader, TokenBadge, StatusBadge)
-├── i18n/              # Modular locale tables: mod.rs, zh_cn.rs, en.rs, ja.rs
-└── features/
-    ├── library/       # mod.rs (state + split), list.rs (virtualized), inspector.rs (preview/edit/deploy)
-    ├── stacks/        # mod.rs, browser.rs, detail.rs, editor.rs (create + TOML import)
-    ├── discover/      # mod.rs (caching + seq guards), marketplace.rs, adopt.rs
-    └── settings/      # mod.rs (select subscriptions), sections.rs (general/fonts/updates/agents)
-```
+`crates/unoskills-app/build.rs` uses the pinned NSH bundler to compile `ui/App.tsx`.
+The executable embeds the resulting JavaScript and opens it in NSH's GTK, AppKit, or Win32 host.
+Installer names, application identity and the Rust updater remain compatible with existing UnoSkills installations.
 
-### Event-Driven State Flow (`WorkspaceState` + `WorkspaceEvent`)
+`ui/src/Shell.tsx` owns navigation, the selected locale and theme, workspace revisions, and notifications.
+`Home.tsx`, `Settings.tsx`, `Updates.tsx`, `library/`, and `projects/` own screen state and layout.
+Links carry opaque IDs and an optional relative `scopePath`. An empty scope path selects the project root.
 
-Instead of a monolithic "God Entity" passing mutable state into stateless view functions, UnoSkills splits ownership across a shared **`WorkspaceState`** entity and 4 independent feature view entities (`LibraryView`, `StacksView`, `DiscoverView`, `SettingsView`):
+### TSX to Rust
 
-```text
-  User Action in FeatureView
-        │
-        ▼
-  workspace.update(cx, |ws, cx| ...)
-        │  (persists to SQLite / runs background executor)
-        ▼
-  cx.emit(WorkspaceEvent::...)  ──► GPUI deferred effects queue (re-entrancy safe)
-        │
-        ├──► UnoSkillsShell  (updates active tab, sidebar counts, TitleBar spinner)
-        ├──► LibraryView     (refilters indices, refreshes preview only on Reloaded)
-        ├──► StacksView      (re-reads stack snapshots on Reloaded)
-        ├──► DiscoverView    (clears per-row spinner on InstallFinished, updates adopt list)
-        └──► SettingsView    (syncs locale/font Select widgets on LanguageChanged/SettingsChanged)
-```
+`ui/src/shared.ts` calls `unoskills.command` over NSH's host channel. The request carries an explicit command name and
+JSON input. The response contains the typed result or an error message and code. Rust dispatch lives in
+`src/nsh/`. Blocking calls run on host worker threads and reach the same `UnoSkillsManager` as the CLI.
+NSH's Rust file-dialog services supply the picker and reveal actions through `src/nsh/dialogs.rs`.
 
-**Why `WorkspaceEvent` is split finely:**
-- `Reloaded` — domain snapshots changed (skills/stacks/agents/adopt); triggers `LibraryView` to refresh `SKILL.md` preview (while protecting unsaved edits if `editing_markdown == true`).
-- `SettingsChanged` — lightweight preference change (theme, fonts, font size, deploy mode, update check status); avoids forcing `LibraryView` to re-read disk files or re-parse Markdown AST.
-- `LanguageChanged` — updates live `InputState`/`TextareaState` placeholders and rebuilds `SelectState` "Auto (...)" labels across views.
-- `BusyChanged` — redraws the TitleBar spinner.
-- `InstallFinished(String)` — clears the exact row-level loading spinner in `DiscoverView` without racing with other concurrent tasks.
-- `NavigateTo(NavTab)` — single funnel for all tab transitions (sidebar clicks, empty-state buttons, post-install jump to Library, auto-loading Trending on first Discover visit).
+After a successful mutation, a screen calls `refresh()` to advance the shared revision. Subscribers use the revision
+to update their own snapshots. Retain draft text while refreshing data and discard obsolete async replies when the
+target changes. Give scrollable regions a constrained viewport and use NSH's virtualized `List` for growing datasets.
 
----
+### Desktop development
 
-## 4. GPUI Kit Performance & UX Best Practices
+Use stable Rust 1.97 or later. Linux builds need GTK 4.14 or later and the development packages in CI.
+The standalone CLI `nsh` v0.6.1 is used for TSX type checks and independent bundle checks. Cargo builds embed
+the bundle with the Rust bundler, so developers and packaging jobs can build the desktop executable directly.
 
-All UI code follows the official GPUI Kit guides (`docs/style`, `docs/design-guides`, `docs/coding-guides`, `component/scrollable`, `docs/assets`, `docs/fonts`).
-
-### 1. Zero Heavy Work Inside `render()`
-- **Retained Markdown AST**: `LibraryView` stores `Entity<TextViewState>` and calls `state.set_text(&stripped_body, cx)` only when selection or saved file changes. Never call `TextView::markdown(...)` inside `render()`.
-- **Zero-Clone Filtering**: `LibraryView` and `DiscoverView` maintain `filtered_indices: Vec<usize>`, recomputed on `InputEvent::Change` and `WorkspaceEvent::Reloaded`. `render()` indexes directly into `&[Skill]` / `&[AdoptCandidate]` without cloning vectors.
-- **List Virtualization**: All lists that can grow beyond ~25 items (`Library`, `Marketplace`, `Adopt`) use `uniform_list` + `UniformListScrollHandle` + `.vertical_scrollbar(&handle)`.
-- **Smooth Dev Builds**: Workspace `Cargo.toml` sets `[profile.dev.package."*"] opt-level = 2` so GPUI, Taffy, cosmic-text, and wgpu run smoothly even in debug builds.
-
-### 2. Overflow & Scrollbar Hygiene
-- Every variable-length text column inside `h_flex()` carries `.flex_1().min_w_0()` (and `.truncate()` for single-line text), while action buttons, badges, and `TabBar`s carry `.flex_shrink_0()`.
-- Scrollbars (`.overflow_y_scrollbar()`) live on the full-viewport element with `.flex_1().min_h_0()`; content padding (`p_4`/`p_5`) goes on an inner container so scrollbars anchor cleanly flush against panel edges.
-- Every ancestor above a scrollable container or `uniform_list` includes `.min_h_0().overflow_hidden()`.
-
-### 3. Concurrency & Race-Condition Safety
-- Blocking filesystem, Git, and HTTP calls always run on `cx.background_executor()`.
-- Concurrent tasks register via `begin_busy(label, cx) -> u64` and release via `end_busy(token, cx)` so overlapping operations never prematurely dismiss the TitleBar spinner.
-- Async leaderboard/search requests in `DiscoverView` carry a monotonic `market_req_seq: u64` so slow out-of-order responses are ignored instead of overwriting newer results.
-
-### 4. Theme, Fonts, Assets & i18n
-- **Appearance + Fonts**: `WorkspaceState::set_theme_mode` persists `"dark"`/`"light"` in SQLite, calls `Theme::change`, and immediately re-applies `fonts::apply_fonts_to_theme` because `Theme::change` reloads theme defaults.
-- **Language-Aware Auto Fonts**: When UI font is `"auto"`, `fonts.rs` queries `cx.text_system().all_font_names()` and picks the sharpest installed font for the active locale (`zh-CN` / `ja` / `en`).
-- **Component Locale Sync**: Switching language calls `gpui_kit::component::set_locale(lang.code())` so built-in GPUI Kit controls (search inputs, dialogs, empty states) translate in lockstep.
-- **Custom Brand Icons**: `UnoAssets` implements `AssetSource`, serving embedded brand SVGs first and delegating all other paths to `gpui_kit::assets::Assets`.
+- [NSH v0.6.1 guide](https://github.com/longbridge/nsh/tree/v0.6.1/website/docs)
+- [NSH v0.6.1 controls](https://github.com/longbridge/nsh/tree/v0.6.1/website/elements)
+- [NSH v0.6.1 base API](https://github.com/longbridge/nsh/blob/v0.6.1/website/modules/nsh-base.md)
 
 ---
 
@@ -146,9 +103,9 @@ All UI code follows the official GPUI Kit guides (`docs/style`, `docs/design-gui
 2. Run `cargo test -p unoskills-core` (`loads_declarative_builtin_agents` validates TOML parsing).
 
 ### Add a New Language (Locale)
-1. Copy `crates/unoskills-app/src/i18n/en.rs` to `crates/unoskills-app/src/i18n/<locale>.rs` and translate every field of `Strings` (the Rust compiler enforces 100% key parity).
-2. Register the new `Lang` variant in `crates/unoskills-app/src/i18n/mod.rs` (`ALL`, `code`, `display_name`, `short_label`, `next`, `index`, `from_code`, `t`, and dynamic formatters).
-3. Add preferred default system fonts for that language in `crates/unoskills-app/src/fonts.rs` (`resolve_ui_font`).
+1. Add the translated keys in `crates/unoskills-app/ui/src/i18n.ts` and the Library/Discover and Projects/Stacks locale tables.
+2. Update the locale type in `ui/src/shared.ts` and the language choices in Settings.
+3. Add the locale's automatic font choices in `ui/src/theme.ts`.
 
 ### Add a New Featured Stack
 1. Append a `[[stack]]` entry to `crates/unoskills-core/data/featured_stacks.toml` (following [STACKS_SPEC.md](./STACKS_SPEC.md)).
@@ -159,5 +116,7 @@ All UI code follows the official GPUI Kit guides (`docs/style`, `docs/design-gui
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo build -p unoskills-app
+cargo build -p unoskills-app --locked
+nsh check crates/unoskills-app/ui
+nsh build crates/unoskills-app/ui --release
 ```

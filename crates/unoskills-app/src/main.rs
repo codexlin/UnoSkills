@@ -1,51 +1,54 @@
-mod assets;
-mod components;
-mod features;
-mod fonts;
-mod i18n;
-mod shell;
-mod state;
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-use gpui_kit::{
-    AppContext, Bounds, KeyBinding, WindowBounds, WindowOptions, component::TitleBar, px, size,
-};
-use shell::{CancelEdit, FocusSearch, SaveSkill, UnoSkillsShell};
+mod nsh;
+#[cfg(test)]
+mod smoke;
 
-fn main() {
-    gpui_kit::application()
-        .with_assets(assets::UnoAssets)
-        .run(|cx| {
-            gpui_kit::init(cx);
-            // Stable platform identity (notifications, taskbar/app grouping).
-            // Must match the bundle/installer identifiers in packaging/.
-            cx.set_app_identity("dev.unoskills.UnoSkills", "UnoSkills");
-            #[cfg(target_os = "macos")]
-            cx.bind_keys([
-                KeyBinding::new("cmd-k", FocusSearch, None),
-                KeyBinding::new("cmd-s", SaveSkill, None),
-                KeyBinding::new("escape", CancelEdit, None),
-            ]);
-            #[cfg(not(target_os = "macos"))]
-            cx.bind_keys([
-                KeyBinding::new("ctrl-k", FocusSearch, None),
-                KeyBinding::new("ctrl-s", SaveSkill, None),
-                KeyBinding::new("escape", CancelEdit, None),
-            ]);
+#[cfg(target_os = "linux")]
+use nsh_platform_linux as desktop;
+#[cfg(target_os = "macos")]
+use nsh_platform_macos as desktop;
+#[cfg(target_os = "windows")]
+use nsh_platform_windows as desktop;
 
-            let bounds = Bounds::centered(None, size(px(1240.), px(780.)), cx);
-            let mut titlebar = TitleBar::title_bar_options();
-            titlebar.title = Some("UnoSkills".into());
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(960.), px(600.))),
-                titlebar: Some(titlebar),
-                app_id: Some("dev.unoskills.UnoSkills".to_string()),
-                ..Default::default()
-            };
+use std::process::ExitCode;
 
-            gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| UnoSkillsShell::new(window, cx))
-            })
-            .expect("Failed to open UnoSkills window");
-        });
+use nsh_engine::Bundle;
+
+const APP_ID: &str = "dev.unoskills.UnoSkills";
+
+fn main() -> ExitCode {
+    env_logger::init();
+    match run() {
+        Ok(exit) => exit,
+        Err(error) => {
+            eprintln!("UnoSkills: {error:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn bundle() -> anyhow::Result<Bundle> {
+    let config: serde_json::Value = serde_json::from_str(include_str!("../ui/nsh.json"))?;
+    Bundle::source(include_str!(concat!(env!("OUT_DIR"), "/ui.js")).to_owned())
+        .with_app_id(Some(APP_ID))
+        .with_main_window(Some(&config["window"].to_string()))
+        .with_capabilities_json(Some(&config["capabilities"].to_string()))
+        .map_err(anyhow::Error::msg)
+}
+
+fn run() -> anyhow::Result<ExitCode> {
+    let bundle = bundle()?;
+    desktop::set_ui_sets(vec![nsh_base::registry(), nsh::dialogs::registry()]);
+    let options = desktop::AppOptions {
+        app_id: APP_ID.to_owned(),
+        title: "UnoSkills".to_owned(),
+        size: (1240, 780),
+        host: nsh::channel()?,
+        ..Default::default()
+    };
+    let exit = desktop::run_app(desktop::AppSource::Bundle(bundle), options);
+    #[cfg(target_os = "linux")]
+    let exit = ExitCode::from(exit);
+    Ok(exit)
 }

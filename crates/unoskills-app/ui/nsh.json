@@ -1,0 +1,10 @@
+{
+  "id": "dev.unoskills.UnoSkills",
+  "name": "UnoSkills",
+  "capabilities": {
+    "host": ["unoskills.command"],
+    "clipboard": true,
+    "openUrl": { "schemes": ["https"] }
+  },
+  "window": { "minSize": { "width": 960, "height": 600 } }
+}
