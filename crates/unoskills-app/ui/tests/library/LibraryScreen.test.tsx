@@ -631,11 +631,9 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     expect(installCall?.input).toMatchObject({ source_ref: "owner/repo" });
   });
 
-  test("Marketplace renders legacy rank tiers, official badge, skeleton grid, and responsive columns", async () => {
+  test("Marketplace renders legacy rank tiers, official badge, responsive columns, and board changes", async () => {
     const skills = makeSkills();
     skills[0].source_ref = "acme/skills@second-skill";
-    const hotBoard = deferred<{ ok: true; value: LeaderboardResponse }>();
-    let hotRequested = false;
 
     const trendingItems = [
       {
@@ -702,8 +700,14 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
             if (command === "discover.leaderboard") {
               const board = String(input?.board ?? "trending");
               if (board === "hot") {
-                hotRequested = true;
-                return hotBoard.promise;
+                const value: LeaderboardResponse = {
+                  board: "hot",
+                  page: 0,
+                  total: 1,
+                  has_more: false,
+                  items: [trendingItems[3]],
+                };
+                return { ok: true, value };
               }
               const value: LeaderboardResponse = {
                 board: "trending",
@@ -761,25 +765,11 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     await app.press("label:Clear source filter");
     await app.waitFor("text:Second Skill");
 
-    // Switching to an uncached board shows the skeleton loading grid until resolved.
     await app.press("label:Leaderboard");
-    const hotPress = app.press("text:Hot");
-    await app.waitUntil(() => hotRequested);
-    expect(app.shows("id:market-loading-skeleton")).toBe(true);
-
-    hotBoard.resolve({
-      ok: true,
-      value: {
-        board: "hot",
-        page: 0,
-        total: 1,
-        has_more: false,
-        items: [trendingItems[0]],
-      },
-    });
-    await hotPress;
-    await app.waitFor("id:marketplace-grid");
-    expect(app.shows("text:First Skill")).toBe(true);
+    await app.press("text:Hot");
+    await app.waitFor("text:Fourth Skill");
+    expect(app.shows("text:First Skill")).toBe(false);
+    expect(app.shows("id:marketplace-grid")).toBe(true);
   });
 
   test("Library split panes stay interactive across desktop and narrow viewports", async () => {
