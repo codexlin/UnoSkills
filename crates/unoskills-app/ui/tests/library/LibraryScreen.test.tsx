@@ -630,4 +630,226 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     const installCall = recorded.find((entry) => entry.command === "discover.install");
     expect(installCall?.input).toMatchObject({ source_ref: "owner/repo" });
   });
+
+  test("Marketplace renders legacy rank tiers, official badge, skeleton grid, and responsive columns", async () => {
+    const skills = makeSkills();
+    skills[0].source_ref = "acme/skills@second-skill";
+    const hotBoard = deferred<{ ok: true; value: LeaderboardResponse }>();
+    let hotRequested = false;
+
+    const trendingItems = [
+      {
+        id: "mkt-1",
+        skill_id: "first-skill",
+        name: "First Skill",
+        source: "acme/official",
+        installs: 12400,
+        description: "Top ranked official skill",
+        is_official: true,
+        install_ref: "acme/official@first-skill",
+        detail_url: "https://skills.sh/acme/official/first-skill",
+      },
+      {
+        id: "mkt-2",
+        skill_id: "second-skill",
+        name: "Second Skill",
+        source: "acme/skills",
+        installs: 3200,
+        description: "Already installed skill",
+        is_official: false,
+        install_ref: "acme/skills@second-skill",
+        detail_url: "https://skills.sh/acme/skills/second-skill",
+      },
+      {
+        id: "mkt-3",
+        skill_id: "Beta Skill",
+        name: "Beta Skill",
+        source: "other/repo",
+        installs: 890,
+        description: "Conflicts with local skill name",
+        is_official: false,
+        install_ref: "other/repo@beta-skill",
+        detail_url: null,
+      },
+      {
+        id: "mkt-4",
+        skill_id: "fourth-skill",
+        name: "Fourth Skill",
+        source: "acme/official",
+        installs: 450,
+        description: "Standard ranked skill",
+        is_official: false,
+        install_ref: "acme/official@fourth-skill",
+        detail_url: null,
+      },
+    ];
+
+    const app = await open("./LibraryTestHarness.tsx", {
+      platform: "macos",
+      width: 1200,
+      height: 800,
+      host: {
+        params: { initialRoute: { page: "discover", tab: "trending" } },
+        handlers: {
+          "unoskills.command": (raw: unknown) => {
+            const { command, input } = raw as CommandPayload;
+            if (command === "library.state") {
+              return makeLibraryState(skills);
+            }
+            if (command === "discover.scan_adoptable") {
+              return { ok: true, value: { candidates: [] } };
+            }
+            if (command === "discover.leaderboard") {
+              const board = String(input?.board ?? "trending");
+              if (board === "hot") {
+                hotRequested = true;
+                return hotBoard.promise;
+              }
+              const value: LeaderboardResponse = {
+                board: "trending",
+                page: 0,
+                total: 24,
+                has_more: true,
+                items: trendingItems,
+              };
+              return { ok: true, value };
+            }
+            return { ok: false, code: "UNKNOWN", message: command };
+          },
+        },
+      },
+    });
+
+    await app.waitFor("text:First Skill");
+    const initialTexts = app.texts().join("\n");
+    expect(initialTexts).toContain("#1");
+    expect(initialTexts).toContain("#2");
+    expect(initialTexts).toContain("#3");
+    expect(initialTexts).toContain("#4");
+    expect(initialTexts).toContain("4 / 24");
+    expect(app.shows("label:Official")).toBe(true);
+    expect(app.shows("id:marketplace-grid")).toBe(true);
+
+    // Installed card offers View skill; same-name card action is disabled.
+    expect(app.enabled("label:View skill · Second Skill · acme/skills")).toBe(true);
+    expect(app.enabled("label:Name in library · Beta Skill · other/repo")).toBe(false);
+    await expect(app.press("label:Name in library · Beta Skill · other/repo")).rejects.toMatchObject({
+      code: "ERR_NSH_TEST_DISABLED",
+    });
+
+    // Responsive viewport checks: 2-column medium and 1-column narrow layouts stay healthy.
+    await app.setViewport(700, 800);
+    await app.wait(40);
+    expect(app.shows("id:marketplace-grid")).toBe(true);
+    expect(app.shows("text:First Skill")).toBe(true);
+
+    await app.setViewport(480, 800);
+    await app.wait(40);
+    expect(app.shows("id:marketplace-grid")).toBe(true);
+    expect(app.shows("text:First Skill")).toBe(true);
+
+    await app.setViewport(1200, 800);
+    await app.wait(40);
+
+    // Clicking a card's source filters the grid to matching skills and exposes clear button.
+    await app.press("label:Filter loaded results · First Skill · acme/official");
+    await app.wait(40);
+    const filteredTexts = app.texts().join("\n");
+    expect(filteredTexts).toContain("First Skill");
+    expect(filteredTexts).toContain("Fourth Skill");
+    expect(filteredTexts).not.toContain("Second Skill");
+    await app.press("label:Clear source filter");
+    await app.waitFor("text:Second Skill");
+
+    // Switching to an uncached board shows the skeleton loading grid until resolved.
+    await app.press("label:Leaderboard");
+    const hotPress = app.press("text:Hot");
+    await app.waitUntil(() => hotRequested);
+    expect(app.shows("id:market-loading-skeleton")).toBe(true);
+
+    hotBoard.resolve({
+      ok: true,
+      value: {
+        board: "hot",
+        page: 0,
+        total: 1,
+        has_more: false,
+        items: [trendingItems[0]],
+      },
+    });
+    await hotPress;
+    await app.waitFor("id:marketplace-grid");
+    expect(app.shows("text:First Skill")).toBe(true);
+  });
+
+  test("Library split panes stay interactive across desktop and narrow viewports", async () => {
+    const skills = makeSkills();
+    const recorded: CommandPayload[] = [];
+    let alphaDeployed = false;
+
+    const app = await open("./LibraryTestHarness.tsx", {
+      platform: "macos",
+      width: 1200,
+      height: 800,
+      host: {
+        params: { initialRoute: { page: "library" } },
+        handlers: {
+          "unoskills.command": (raw: unknown) => {
+            const payload = raw as CommandPayload;
+            recorded.push(payload);
+            const { command, input } = payload;
+            if (command === "library.state") {
+              const current = makeSkills();
+              if (alphaDeployed) {
+                current[0].deployments = [
+                  {
+                    id: "gdep-1",
+                    skill_id: "skill-a",
+                    agent_key: "claude-code",
+                    target_path: "/tmp/home/.claude/skills/alpha",
+                    mode: "symlink",
+                    synced_at: 1743465600,
+                  },
+                ];
+              }
+              return makeLibraryState(current);
+            }
+            if (command === "library.get_markdown") {
+              const id = String(input?.skill_id ?? "skill-a");
+              return makeMarkdownReply(id, `# ${id}`, `# ${id}`);
+            }
+            if (command === "library.deploy_skill") {
+              alphaDeployed = true;
+              return {
+                ok: true,
+                value: {
+                  id: "gdep-1",
+                  skill_id: "skill-a",
+                  agent_key: "claude-code",
+                  target_path: "/tmp/home/.claude/skills/alpha",
+                  mode: "symlink",
+                  synced_at: 1743465600,
+                },
+              };
+            }
+            return { ok: false, code: "UNKNOWN", message: command };
+          },
+        },
+      },
+    });
+
+    await app.waitFor("text:Alpha Skill");
+    await app.press("label:Deployments · Claude Code · Global");
+    await app.waitUntil(() => recorded.some((entry) => entry.command === "library.deploy_skill"));
+    expect(app.texts()).toContain("1 / 1");
+
+    // Shrink viewport to narrow split and verify selection + Preview remain usable.
+    await app.setViewport(680, 720);
+    await app.wait(40);
+    await app.press("Beta Skill");
+    await app.press("Preview");
+    await app.waitFor("text:skill-b");
+    expect(app.enabled("Edit SKILL.md")).toBe(true);
+    void skills;
+  });
 });

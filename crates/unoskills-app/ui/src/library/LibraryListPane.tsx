@@ -1,8 +1,7 @@
 import { List, Text, View } from "nsh";
 import { Button } from "nsh/base";
-import { Label } from "../controls";
 import type { Theme } from "../shared";
-import { ActionButton, AlertBanner, EmptyState, TokenBadge } from "./controls";
+import { ActionButton, AlertBanner, EmptyState, LoadingLine, TokenBadge } from "./controls";
 import { compactSource } from "./format";
 import { type Locale, getStrings } from "./strings";
 import type { AgentInfo, Skill } from "./types";
@@ -100,7 +99,7 @@ export function LibraryListPane(props: {
                 each={props.filteredSkills}
                 keyExtractor={(skill) => skill.id}
                 estimatedItemSize={52}
-                contentStyle={{ paddingVertical: 6 }}
+                contentStyle={{ paddingVertical: 4 }}
                 style={{ flex: 1, minHeight: 0 }}
               >
                 {(skill) => (
@@ -109,27 +108,43 @@ export function LibraryListPane(props: {
                       selected={props.selectedSkillId === skill().id}
                       accessibilityLabel={skill().name}
                       onPress={() => props.onSelectSkill(skill().id)}
+                      class="transition-colors"
                       style={{
                         height: 48,
                         flexDirection: "row",
                         alignItems: "center",
                         gap: 8,
-                        paddingHorizontal: 10,
+                        paddingHorizontal: 8,
                         borderRadius: props.theme.radius ?? 8,
+                        borderWidth: 1,
+                        borderColor:
+                          props.selectedSkillId === skill().id
+                            ? props.theme.primary
+                            : "transparent",
                         backgroundColor:
                           props.selectedSkillId === skill().id
                             ? props.theme.accent
                             : props.theme.background,
                       }}
-                      hoverStyle={{ backgroundColor: props.theme.accent }}
-                      selectedStyle={{ backgroundColor: props.theme.accent }}
+                      hoverStyle={{
+                        backgroundColor:
+                          props.selectedSkillId === skill().id
+                            ? props.theme.accent
+                            : props.theme.surface,
+                      }}
+                      activeStyle={{ backgroundColor: props.theme.accent }}
+                      selectedStyle={{
+                        backgroundColor: props.theme.accent,
+                        borderColor: props.theme.primary,
+                      }}
+                      focusVisibleStyle={{ borderColor: props.theme.primary }}
                     >
                       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                         <Text
                           style={{
                             numberOfLines: 1,
                             textOverflow: "ellipsis",
-                            fontSize: 13,
+                            fontSize: 14,
                             fontWeight: "600",
                             color: props.theme.foreground,
                             fontFamily: props.theme.fontFamily,
@@ -141,7 +156,7 @@ export function LibraryListPane(props: {
                           style={{
                             numberOfLines: 1,
                             textOverflow: "ellipsis",
-                            fontSize: 11,
+                            fontSize: 12,
                             color: props.theme.muted,
                             fontFamily: props.theme.fontFamily,
                           }}
@@ -159,7 +174,7 @@ export function LibraryListPane(props: {
                           textOverflow: "ellipsis",
                           width: 76,
                           textAlign: "right",
-                          fontSize: 13,
+                          fontSize: 14,
                           color: props.theme.foreground,
                           fontFamily: props.theme.fontFamily,
                           flexShrink: 0,
@@ -192,6 +207,7 @@ export function LibraryListPane(props: {
           >
             <EmptyState
               theme={props.theme}
+              icon="▤"
               title={
                 props.skills.length === 0 ? s().empty_library_title : s().empty_search_title
               }
@@ -221,20 +237,25 @@ export function LibraryListPane(props: {
         </View>
       }
     >
-      <View style={{ padding: 16 }}>
-        <If
-          when={Boolean(props.projectStatusError)}
-          else={
-            <View role="summary" accessibilityState={{ busy: true }}>
-              <Label theme={props.theme} muted size={13}>
-                {s().stack_project_checking}
-              </Label>
-            </View>
-          }
-        >
+      <If
+        when={Boolean(props.projectStatusError)}
+        else={
+          <View
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 16,
+            }}
+          >
+            <LoadingLine theme={props.theme} label={s().stack_project_checking} />
+          </View>
+        }
+      >
+        <View style={{ padding: 16 }}>
           <AlertBanner theme={props.theme} tone="error" message={props.projectStatusError ?? ""} />
-        </If>
-      </View>
+        </View>
+      </If>
     </If>
   );
 }

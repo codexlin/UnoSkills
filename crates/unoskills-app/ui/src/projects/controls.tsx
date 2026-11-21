@@ -56,10 +56,10 @@ export function Label(props: { theme: Theme; label: string; muted?: boolean; lin
 
 export function Action(props: {
   theme: Theme; label: string; run: () => void | Promise<void>;
-  disabled?: boolean; selected?: boolean; primary?: boolean; danger?: boolean;
+  accessibilityLabel?: string; disabled?: boolean; selected?: boolean; primary?: boolean; danger?: boolean;
   ghost?: boolean; compact?: boolean; glyph?: IconName; iconOnly?: boolean; pending?: boolean;
 }) {
-  return <Button accessibilityLabel={props.label} disabled={props.disabled || props.pending} selected={props.selected} onPress={props.run}
+  return <Button accessibilityLabel={props.accessibilityLabel ?? props.label} disabled={props.disabled || props.pending} selected={props.selected} onPress={props.run}
     tooltip={props.iconOnly ? <Hint theme={props.theme} text={props.label} /> : undefined}
     hoverStyle={{ backgroundColor: props.primary ? props.theme.primary : props.theme.accent }}
     activeStyle={{ opacity: 0.8 }}

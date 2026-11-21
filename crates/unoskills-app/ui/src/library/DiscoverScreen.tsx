@@ -1,7 +1,6 @@
 import {
   type InputRef,
   type ListRef,
-  Text,
   View,
   batch,
   cleanup,
@@ -10,12 +9,12 @@ import {
   keymap,
   signal,
 } from "nsh";
-import { AlertDialog, Tab, Tabs } from "nsh/base";
+import { AlertDialog } from "nsh/base";
 import type { ScreenProps } from "../shared";
 import { type AdoptGroup, type AdoptRow, AdoptTab } from "./AdoptTab";
 import { ALL_SOURCES_VALUE, MarketplaceTab } from "./MarketplaceTab";
 import { QuickInstallDialog } from "./QuickInstallDialog";
-import { ActionButton, PageHeader } from "./controls";
+import { ActionButton, PageHeader, PageTabs } from "./controls";
 import { marketInstallStatus } from "./format";
 import {
   adoptLocalSkills,
@@ -648,7 +647,8 @@ export function Discover(props: ScreenProps) {
           <ActionButton
             theme={props.theme}
             kind="outline"
-            label={`+ ${s().btn_install_from_link}`}
+            icon="+"
+            label={s().btn_install_from_link}
             onPress={() => {
               installDialogInitialSource.set(undefined);
               installDialogOpen.set(true);
@@ -658,59 +658,30 @@ export function Discover(props: ScreenProps) {
       />
 
       {/* Sub-tabs: Marketplace | Local skills (count) */}
-      <View
-        style={{
-          paddingHorizontal: 20,
-          borderBottomWidth: 1,
-          borderColor: props.theme.border,
-          backgroundColor: props.theme.background,
-          flexShrink: 0,
+      <PageTabs
+        theme={props.theme}
+        accessibilityLabel={s().discover_title}
+        selectedId={subTab()}
+        paddingHorizontal={20}
+        tabs={[
+          { id: "marketplace", icon: "◇", label: s().discover_market_tab },
+          {
+            id: "adopt",
+            icon: "◫",
+            label: labelWithCount(props.locale, s().discover_adopt_tab, adoptCandidates().length),
+          },
+        ]}
+        onSelect={(id) => {
+          if (id === "marketplace") {
+            subTab.set("marketplace");
+            if (!marketLoading() && !marketSearchActive() && !marketCache.has(marketBoard())) {
+              void loadMarketBoard(marketBoard(), false);
+            }
+          } else {
+            subTab.set("adopt");
+          }
         }}
-      >
-        <Tabs
-          accessibilityLabel={s().discover_title}
-          style={{ flexDirection: "row", gap: 20 }}
-          indicatorStyle={{ bottom: 0, height: 2, backgroundColor: props.theme.primary }}
-        >
-          <Tab
-            selected={subTab() === "marketplace"}
-            onPress={() => {
-              subTab.set("marketplace");
-              if (!marketLoading() && !marketSearchActive() && !marketCache.has(marketBoard())) {
-                void loadMarketBoard(marketBoard(), false);
-              }
-            }}
-            style={{ paddingVertical: 10 }}
-          >
-            <Text
-              style={{
-                fontSize: 13,
-                fontWeight: subTab() === "marketplace" ? "600" : "500",
-                color: subTab() === "marketplace" ? props.theme.foreground : props.theme.muted,
-                fontFamily: props.theme.fontFamily,
-              }}
-            >
-              {s().discover_market_tab}
-            </Text>
-          </Tab>
-          <Tab
-            selected={subTab() === "adopt"}
-            onPress={() => subTab.set("adopt")}
-            style={{ paddingVertical: 10 }}
-          >
-            <Text
-              style={{
-                fontSize: 13,
-                fontWeight: subTab() === "adopt" ? "600" : "500",
-                color: subTab() === "adopt" ? props.theme.foreground : props.theme.muted,
-                fontFamily: props.theme.fontFamily,
-              }}
-            >
-              {labelWithCount(props.locale, s().discover_adopt_tab, adoptCandidates().length)}
-            </Text>
-          </Tab>
-        </Tabs>
-      </View>
+      />
 
       <If
         when={subTab() === "marketplace"}

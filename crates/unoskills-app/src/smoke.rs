@@ -191,7 +191,7 @@ fn native_folder_pick_leads_from_scoped_project_to_stack_preview_and_library() {
         EventKind::FileRequest,
         EventPayload::file_answer(request, vec![project_dir]),
     );
-    wait_for(&engine, &rx, &mut items, "Project root", visible_text);
+    wait_for(&engine, &rx, &mut items, "Project Root", visible_text);
     let projects = manager.list_projects().unwrap();
     assert_eq!(projects.len(), 1);
     let project = &projects[0];
@@ -201,9 +201,10 @@ fn native_folder_pick_leads_from_scoped_project_to_stack_preview_and_library() {
             .unwrap()
             .contains(&scope)
     );
-    open(&mut items, "Scope");
+    open(&mut items, "Scan Scope");
     open(&mut items, &scope.to_string_lossy());
-    open(&mut items, "Save selection as a stack");
+    wait_for(&engine, &rx, &mut items, "2 selected", visible_text);
+    open(&mut items, "Save as Stack");
     wait_for(&engine, &rx, &mut items, "Deployment preview", visible_text);
     let stack_name = format!("{} · {}", project.name, scope.display());
     wait_for(&engine, &rx, &mut items, &stack_name, visible_text);
@@ -252,6 +253,7 @@ fn unreadable_skill_cannot_open_another_skills_editor() {
 
     let (engine, rx) = start(&root);
     let mut items = Vec::new();
+    wait_for(&engine, &rx, &mut items, "Added in the last 7 days", button);
     let good_link = wait_for(&engine, &rx, &mut items, &good.name, button);
     press(&engine, good_link);
     let preview = wait_for(&engine, &rx, &mut items, "Preview", visible_text);

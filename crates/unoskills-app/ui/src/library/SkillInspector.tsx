@@ -1,8 +1,15 @@
 import { Clipboard, Scroll, Text, View, openUrl } from "nsh";
-import { Input, Menu, MenuItem, MenuSeparator, Switch, Tab, Tabs, TextView } from "nsh/base";
+import { Input, Menu, MenuItem, MenuSeparator, Switch, TextView } from "nsh/base";
 import { Label } from "../controls";
 import type { Theme } from "../shared";
-import { ActionButton, AlertBanner, EmptyState, hintTooltip } from "./controls";
+import {
+  ActionButton,
+  AlertBanner,
+  EmptyState,
+  LoadingLine,
+  PageTabs,
+  hintTooltip,
+} from "./controls";
 import { isSkillDeployedTo, joinPath } from "./format";
 import { errorMessage, revealPath } from "./host";
 import { type Locale, getStrings } from "./strings";
@@ -63,12 +70,18 @@ export function SkillInspector(props: {
     return props.scopePath ? joinPath(project.path, props.scopePath) : project.path;
   };
 
+  const inspectorTabs = () => [
+    { id: "deployments", icon: "◈", label: s().library_deployment },
+    { id: "preview", icon: "≡", label: s().library_preview },
+  ];
+
   return (
     <If
       when={props.skill}
       else={
         <EmptyState
           theme={props.theme}
+          icon="≡"
           title={s().empty_select_skill_title}
           description={s().empty_select_skill_desc}
         />
@@ -81,14 +94,14 @@ export function SkillInspector(props: {
             style={{
               flexDirection: "row",
               alignItems: "center",
-              gap: 10,
+              gap: 8,
               paddingHorizontal: 16,
               paddingVertical: 12,
               flexShrink: 0,
             }}
           >
-            <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-              <Label theme={props.theme} heading size={17} truncate>
+            <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+              <Label theme={props.theme} heading size={18} truncate>
                 {skill().name}
               </Label>
               <Text
@@ -141,16 +154,17 @@ export function SkillInspector(props: {
                           () => props.theme,
                           () => s().library_skill_actions,
                         )}
+                        class="items-center justify-center transition-colors"
                         style={{
-                          paddingHorizontal: 10,
-                          paddingVertical: 6,
+                          width: 32,
+                          height: 32,
                           borderRadius: props.theme.radius ?? 8,
-                          borderWidth: 1,
-                          borderColor: props.theme.border,
-                          backgroundColor: props.theme.background,
+                          backgroundColor: "transparent",
                         }}
+                        hoverStyle={{ backgroundColor: props.theme.accent }}
+                        focusVisibleStyle={{ borderWidth: 1, borderColor: props.theme.primary }}
                       >
-                        <Text style={{ fontSize: 14, color: props.theme.foreground }}>⋯</Text>
+                        <Text style={{ fontSize: 15, color: props.theme.foreground }}>⋯</Text>
                       </View>
                     }
                   >
@@ -243,59 +257,15 @@ export function SkillInspector(props: {
 
           {/* Sub-tabs: Deployments | Preview */}
           <If when={!props.editing}>
-            <View
-              style={{
-                paddingHorizontal: 16,
-                borderBottomWidth: 1,
-                borderColor: props.theme.border,
-                flexShrink: 0,
-              }}
-            >
-              <Tabs
-                accessibilityLabel={s().nav_library}
-                style={{ flexDirection: "row", gap: 16 }}
-                indicatorStyle={{ bottom: 0, height: 2, backgroundColor: props.theme.primary }}
-              >
-                <Tab
-                  selected={props.inspectorTab === "deployments"}
-                  onPress={() => props.onTabChange("deployments")}
-                  style={{ paddingVertical: 9 }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      fontWeight: props.inspectorTab === "deployments" ? "600" : "500",
-                      color:
-                        props.inspectorTab === "deployments"
-                          ? props.theme.foreground
-                          : props.theme.muted,
-                      fontFamily: props.theme.fontFamily,
-                    }}
-                  >
-                    {s().library_deployment}
-                  </Text>
-                </Tab>
-                <Tab
-                  selected={props.inspectorTab === "preview"}
-                  onPress={() => props.onTabChange("preview")}
-                  style={{ paddingVertical: 9 }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      fontWeight: props.inspectorTab === "preview" ? "600" : "500",
-                      color:
-                        props.inspectorTab === "preview"
-                          ? props.theme.foreground
-                          : props.theme.muted,
-                      fontFamily: props.theme.fontFamily,
-                    }}
-                  >
-                    {s().library_preview}
-                  </Text>
-                </Tab>
-              </Tabs>
-            </View>
+            <PageTabs
+              theme={props.theme}
+              accessibilityLabel={s().nav_library}
+              tabs={inspectorTabs()}
+              selectedId={props.inspectorTab}
+              paddingHorizontal={16}
+              backgroundColor={props.theme.surface}
+              onSelect={(id) => props.onTabChange(id === "preview" ? "preview" : "deployments")}
+            />
           </If>
 
           {/* Inspector Body */}
@@ -306,7 +276,7 @@ export function SkillInspector(props: {
                 <If
                   when={props.inspectorTab === "preview"}
                   else={
-                    <View style={{ gap: 10 }}>
+                    <View style={{ gap: 8 }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <Label theme={props.theme} heading size={14}>
                           {s().library_deployment_targets}
@@ -316,7 +286,7 @@ export function SkillInspector(props: {
                           style={{
                             numberOfLines: 1,
                             textOverflow: "ellipsis",
-                            maxWidth: 260,
+                            maxWidth: 240,
                             fontSize: 12,
                             color: props.theme.muted,
                             fontFamily: props.theme.fontFamily,
@@ -334,7 +304,6 @@ export function SkillInspector(props: {
                               flexDirection: "row",
                               alignItems: "center",
                               gap: 8,
-                              paddingVertical: 4,
                             }}
                           >
                             <Text
@@ -354,7 +323,9 @@ export function SkillInspector(props: {
                               theme={props.theme}
                               kind="ghost"
                               compact
-                              label={s().tooltip_reveal_folder}
+                              icon="◫"
+                              accessibilityLabel={s().tooltip_reveal_folder}
+                              tooltip={s().tooltip_reveal_folder}
                               onPress={() => {
                                 void revealPath(projectDisplayPath()).catch((error) => {
                                   props.onNotify(errorMessage(error), "error");
@@ -373,17 +344,13 @@ export function SkillInspector(props: {
                       </If>
 
                       <If when={props.activeAgents.length === 0}>
-                        <Label theme={props.theme} muted size={13}>
+                        <Label theme={props.theme} muted size={14}>
                           {s().no_installed_agents}
                         </Label>
                       </If>
 
                       <If when={Boolean(props.activeProject && props.projectStatusLoading)}>
-                        <View role="summary" accessibilityState={{ busy: true }}>
-                          <Label theme={props.theme} muted size={12}>
-                            {s().stack_project_checking}
-                          </Label>
-                        </View>
+                        <LoadingLine theme={props.theme} label={s().stack_project_checking} />
                       </If>
 
                       <If when={Boolean(props.activeProject && props.projectStatusError)}>
@@ -399,13 +366,13 @@ export function SkillInspector(props: {
                           {(agent) => (
                             <View
                               style={{
-                                minHeight: 42,
+                                minHeight: 36,
                                 flexDirection: "row",
                                 alignItems: "center",
-                                gap: 10,
+                                gap: 8,
                                 borderBottomWidth: 1,
                                 borderColor: props.theme.border,
-                                paddingVertical: 6,
+                                paddingVertical: 4,
                               }}
                             >
                               <Text
@@ -414,7 +381,7 @@ export function SkillInspector(props: {
                                   textOverflow: "ellipsis",
                                   flex: 1,
                                   minWidth: 0,
-                                  fontSize: 13,
+                                  fontSize: 14,
                                   color: props.theme.foreground,
                                   fontFamily: props.theme.fontFamily,
                                 }}
@@ -425,52 +392,45 @@ export function SkillInspector(props: {
                               <If
                                 when={props.activeProject}
                                 else={
-                                  <View
-                                    style={{
-                                      flexDirection: "row",
-                                      alignItems: "center",
-                                      gap: 8,
-                                      flexShrink: 0,
+                                  <Switch
+                                    checked={isSkillDeployedTo(skill(), agent().key)}
+                                    disabled={props.deploying}
+                                    accessibilityLabel={`${s().library_deployment} · ${agent().display_name} · ${s().scope_global}`}
+                                    tooltip={hintTooltip(
+                                      () => props.theme,
+                                      () =>
+                                        `${
+                                          isSkillDeployedTo(skill(), agent().key)
+                                            ? s().library_deployed
+                                            : s().library_not_deployed
+                                        } · ${s().scope_global}`,
+                                    )}
+                                    onChange={({ checked }) => {
+                                      const current = isSkillDeployedTo(skill(), agent().key);
+                                      if (checked !== current) {
+                                        props.onGlobalDeployToggle(skill(), agent(), current);
+                                      }
                                     }}
-                                  >
-                                    <Label
-                                      theme={props.theme}
-                                      size={12}
-                                      muted={!isSkillDeployedTo(skill(), agent().key)}
-                                    >
-                                      {isSkillDeployedTo(skill(), agent().key)
-                                        ? s().library_deployed
-                                        : s().library_not_deployed}
-                                    </Label>
-                                    <Switch
-                                      checked={isSkillDeployedTo(skill(), agent().key)}
-                                      disabled={props.deploying}
-                                      accessibilityLabel={`${s().library_deployment} · ${agent().display_name} · ${s().scope_global}`}
-                                      onChange={({ checked }) => {
-                                        const current = isSkillDeployedTo(skill(), agent().key);
-                                        if (checked !== current) {
-                                          props.onGlobalDeployToggle(skill(), agent(), current);
-                                        }
-                                      }}
-                                      trackStyle={{
-                                        width: 38,
-                                        padding: 2,
-                                        borderRadius: 999,
-                                        backgroundColor: isSkillDeployedTo(skill(), agent().key)
-                                          ? props.theme.primary
-                                          : props.theme.border,
-                                      }}
-                                      thumbStyle={{
-                                        width: 16,
-                                        height: 16,
-                                        borderRadius: 999,
-                                        backgroundColor: props.theme.background,
-                                        transform: isSkillDeployedTo(skill(), agent().key)
-                                          ? [{ translateX: 18 }]
-                                          : [{ translateX: 0 }],
-                                      }}
-                                    />
-                                  </View>
+                                    trackClass="transition-colors"
+                                    trackStyle={{
+                                      width: 36,
+                                      height: 20,
+                                      padding: 2,
+                                      borderRadius: 999,
+                                      backgroundColor: isSkillDeployedTo(skill(), agent().key)
+                                        ? props.theme.primary
+                                        : props.theme.border,
+                                    }}
+                                    thumbStyle={{
+                                      width: 16,
+                                      height: 16,
+                                      borderRadius: 999,
+                                      backgroundColor: props.theme.background,
+                                      transform: isSkillDeployedTo(skill(), agent().key)
+                                        ? [{ translateX: 16 }]
+                                        : [{ translateX: 0 }],
+                                    }}
+                                  />
                                 }
                               >
                                 {(project) => (
@@ -529,8 +489,10 @@ export function SkillInspector(props: {
                                                 );
                                               }
                                             }}
+                                            trackClass="transition-colors"
                                             trackStyle={{
-                                              width: 38,
+                                              width: 36,
+                                              height: 20,
                                               padding: 2,
                                               borderRadius: 999,
                                               backgroundColor: props.theme.primary,
@@ -540,7 +502,7 @@ export function SkillInspector(props: {
                                               height: 16,
                                               borderRadius: 999,
                                               backgroundColor: props.theme.background,
-                                              transform: [{ translateX: 18 }],
+                                              transform: [{ translateX: 16 }],
                                             }}
                                           />
                                         </If>
@@ -610,6 +572,10 @@ export function SkillInspector(props: {
                       />
                     </If>
 
+                    <If when={props.markdownLoading && props.previewMarkdown.length === 0}>
+                      <LoadingLine theme={props.theme} label={s().library_preview} />
+                    </If>
+
                     <If
                       when={Boolean(
                         skill().description && skill().description!.trim().length > 0,
@@ -624,7 +590,7 @@ export function SkillInspector(props: {
                       >
                         <Text
                           style={{
-                            fontSize: 13,
+                            fontSize: 14,
                             lineHeight: 20,
                             color: props.theme.foreground,
                             fontFamily: props.theme.fontFamily,
@@ -678,6 +644,7 @@ export function SkillInspector(props: {
                 placeholder={s().ph_skill_md}
                 accessibilityLabel={s().btn_edit_skill}
                 disabled={props.savingMarkdown}
+                focusStyle={{ borderColor: props.theme.primary }}
                 style={{
                   flex: 1,
                   minHeight: 0,

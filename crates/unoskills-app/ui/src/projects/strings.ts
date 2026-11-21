@@ -36,6 +36,7 @@ const rows = {
   project_local: ["Added in project", "项目手动添加", "プロジェクトで手動追加"],
   global: ["Global", "全局", "グローバル"],
   openLibrary: ["Library", "技能库", "ライブラリ"],
+  openInLibrary: ["Open in Library", "在技能库中打开", "ライブラリで開く"],
   openProject: ["Open project", "打开项目", "プロジェクトを開く"],
   stacks: ["Skill Stacks", "技能组合", "スキルスタック"],
   Featured: ["Featured", "社区推荐", "おすすめ"],

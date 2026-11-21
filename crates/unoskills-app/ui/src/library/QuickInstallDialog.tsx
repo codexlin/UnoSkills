@@ -1,7 +1,7 @@
 import { type InputRef, Text, View, effect, signal } from "nsh";
 import { Dialog, Input } from "nsh/base";
 import type { Theme } from "../shared";
-import { ActionButton, AlertBanner } from "./controls";
+import { ActionButton, AlertBanner, LoadingLine } from "./controls";
 import { errorMessage, installFromSource, pickFolder } from "./host";
 import { type Locale, busyInstalling, getStrings, toastInstalled } from "./strings";
 import type { Skill } from "./types";
@@ -91,15 +91,15 @@ export function QuickInstallDialog(props: {
           props.onOpenChange(open);
         }
       }}
-      backdropClass="bg-black/45"
+      backdropStyle={{ backgroundColor: props.theme.modalBackdrop ?? "#00000072" }}
       style={{
         margin: "auto",
-        width: 500,
+        width: 480,
         maxWidth: "92%",
-        borderRadius: 12,
+        borderRadius: props.theme.radius ?? 8,
         borderWidth: 1,
         borderColor: props.theme.border,
-        backgroundColor: props.theme.surface,
+        backgroundColor: props.theme.background,
         padding: 20,
         gap: 14,
       }}
@@ -133,14 +133,15 @@ export function QuickInstallDialog(props: {
         autoCorrect={false}
         returnKeyType="done"
         submitBehavior="submit"
+        focusStyle={{ borderColor: props.theme.primary }}
         style={{
           fontSize: 13,
           paddingHorizontal: 12,
           paddingVertical: 9,
-          borderRadius: 8,
+          borderRadius: props.theme.radius ?? 8,
           borderWidth: 1,
           borderColor: props.theme.border,
-          backgroundColor: props.theme.background,
+          backgroundColor: props.theme.surface,
           color: props.theme.foreground,
           placeholderColor: props.theme.muted,
           fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
@@ -148,17 +149,11 @@ export function QuickInstallDialog(props: {
       />
 
       <If when={installing()}>
-        <Text
-          role="summary"
-            accessibilityState={{ busy: true }}
-          style={{
-            fontSize: 12,
-            color: props.theme.muted,
-            fontFamily: props.theme.fontFamily,
-          }}
-        >
-          {busyInstalling(props.locale, source().trim())}
-        </Text>
+        <LoadingLine
+          theme={props.theme}
+          compact
+          label={busyInstalling(props.locale, source().trim())}
+        />
       </If>
 
       <If when={Boolean(inlineError())}>
@@ -177,6 +172,7 @@ export function QuickInstallDialog(props: {
         <ActionButton
           theme={props.theme}
           kind="outline"
+          icon="◫"
           label={s().btn_browse_folder}
           disabled={installing()}
           onPress={() => {

@@ -1,5 +1,5 @@
-import { type JSX, Text, View } from "nsh";
-import { Button, Tooltip } from "nsh/base";
+import { type InputRef, type JSX, Text, View } from "nsh";
+import { Button, Input, Progress, Tab, Tabs, Tooltip } from "nsh/base";
 import { InlineError, Label } from "../controls";
 import type { Theme } from "../shared";
 import { TOKEN_BUDGET_WARN_THRESHOLD, formatTokensShort } from "./format";
@@ -27,7 +27,8 @@ export function hintTooltip(theme: () => Theme, text: () => string): JSX.Element
 
 export function ActionButton(props: {
   theme: Theme;
-  label: string;
+  label?: string;
+  icon?: string;
   onPress: () => void;
   kind?: ButtonKind;
   compact?: boolean;
@@ -40,6 +41,7 @@ export function ActionButton(props: {
   const kind = () => props.kind ?? "outline";
   const isDisabled = () => Boolean(props.disabled || props.loading);
   const radius = () => props.theme.radius ?? 8;
+  const hasLabel = () => Boolean(props.label && props.label.length > 0);
 
   const bg = () => {
     switch (kind()) {
@@ -48,7 +50,7 @@ export function ActionButton(props: {
       case "danger":
         return props.theme.danger;
       case "outline":
-        return props.theme.surface;
+        return props.theme.background;
       case "ghost":
       default:
         return "transparent";
@@ -65,12 +67,24 @@ export function ActionButton(props: {
     }
   };
 
+  const iconColor = () => {
+    switch (kind()) {
+      case "primary":
+      case "danger":
+        return props.theme.onPrimary;
+      case "ghost":
+        return hasLabel() ? props.theme.muted : props.theme.foreground;
+      default:
+        return props.theme.muted;
+    }
+  };
+
   return (
     <Button
       onPress={props.onPress}
       disabled={isDisabled()}
       selected={props.selected}
-      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      accessibilityLabel={props.accessibilityLabel ?? props.label ?? props.icon ?? ""}
       tooltip={
         props.tooltip
           ? hintTooltip(
@@ -79,20 +93,23 @@ export function ActionButton(props: {
             )
           : undefined
       }
+      class="transition-colors"
       style={{
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
+        minHeight: props.compact ? 28 : 34,
+        minWidth: hasLabel() ? undefined : props.compact ? 28 : 34,
         borderRadius: radius(),
         borderWidth: kind() === "outline" ? 1 : 0,
         borderColor: kind() === "outline" ? props.theme.border : "transparent",
         backgroundColor: bg(),
-        paddingHorizontal: props.compact ? 10 : 12,
-        paddingVertical: props.compact ? 5 : 7,
+        paddingHorizontal: hasLabel() ? (props.compact ? 10 : 12) : props.compact ? 6 : 8,
+        paddingVertical: props.compact ? 4 : 6,
         flexShrink: 0,
       }}
-      focusVisibleStyle={{ borderColor: props.theme.primary }}
+      focusVisibleStyle={{ borderWidth: 1, borderColor: props.theme.primary }}
       hoverStyle={{
         backgroundColor: kind() === "primary" || kind() === "danger" ? bg() : props.theme.accent,
         opacity: kind() === "primary" || kind() === "danger" ? 0.92 : 1,
@@ -104,19 +121,152 @@ export function ActionButton(props: {
       }}
       disabledStyle={{ opacity: 0.48 }}
     >
-      <Text
+      <If when={Boolean(props.icon)}>
+        <Text
+          accessibilityElementsHidden={hasLabel()}
+          style={{
+            fontSize: props.compact ? 12 : 13,
+            color: iconColor(),
+            fontFamily: props.theme.fontFamily,
+          }}
+        >
+          {props.loading && !hasLabel() ? "…" : (props.icon ?? "")}
+        </Text>
+      </If>
+      <If when={hasLabel()}>
+        <Text
+          style={{
+            numberOfLines: 1,
+            textOverflow: "ellipsis",
+            fontSize: props.compact ? 12 : 13,
+            fontWeight: kind() === "primary" || kind() === "danger" ? "600" : "500",
+            color: fg(),
+            fontFamily: props.theme.fontFamily,
+          }}
+        >
+          {props.loading ? `${props.label ?? ""}…` : (props.label ?? "")}
+        </Text>
+      </If>
+    </Button>
+  );
+}
+
+export function SearchField(props: {
+  theme: Theme;
+  value: string;
+  placeholder: string;
+  accessibilityLabel?: string;
+  clearLabel: string;
+  inputRef?: (ref: InputRef) => void;
+  minWidth?: number;
+  maxWidth?: number;
+  returnKeyType?: "search" | "done" | "default";
+  submitBehavior?: "submit" | "blurAndSubmit" | "newline";
+  onChange: (value: string) => void;
+  onSubmit?: (text: string) => void;
+  onClear?: () => void;
+}) {
+  return (
+    <View
+      class="flex-row items-center transition-colors"
+      style={{
+        flex: 1,
+        minWidth: props.minWidth ?? 160,
+        maxWidth: props.maxWidth ?? 280,
+        minHeight: 34,
+        borderRadius: props.theme.radius ?? 8,
+        borderWidth: 1,
+        borderColor: props.theme.border,
+        backgroundColor: props.theme.background,
+        paddingLeft: 10,
+        paddingRight: props.value.length > 0 ? 4 : 10,
+        gap: 4,
+      }}
+      focusWithinStyle={{ borderColor: props.theme.primary }}
+    >
+      <Input
+        ref={props.inputRef}
+        value={props.value}
+        onChange={({ value }) => props.onChange(value)}
+        onSubmit={props.onSubmit ? ({ text }) => props.onSubmit?.(text) : undefined}
+        placeholder={props.placeholder}
+        accessibilityLabel={props.accessibilityLabel ?? props.placeholder}
+        returnKeyType={props.returnKeyType}
+        submitBehavior={props.submitBehavior}
         style={{
-          numberOfLines: 1,
-          textOverflow: "ellipsis",
-          fontSize: props.compact ? 12 : 13,
-          fontWeight: kind() === "primary" || kind() === "danger" ? "600" : "500",
-          color: fg(),
+          flex: 1,
+          minWidth: 0,
+          fontSize: 13,
+          paddingVertical: 6,
+          color: props.theme.foreground,
+          placeholderColor: props.theme.muted,
           fontFamily: props.theme.fontFamily,
         }}
+      />
+      <If when={props.value.length > 0}>
+        <Button
+          accessibilityLabel={props.clearLabel}
+          onPress={() => {
+            if (props.onClear) {
+              props.onClear();
+            } else {
+              props.onChange("");
+            }
+          }}
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 4,
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+          hoverStyle={{ backgroundColor: props.theme.accent }}
+          focusVisibleStyle={{ borderWidth: 1, borderColor: props.theme.primary }}
+        >
+          <Text style={{ fontSize: 12, color: props.theme.muted }}>×</Text>
+        </Button>
+      </If>
+    </View>
+  );
+}
+
+export function LoadingLine(props: {
+  theme: Theme;
+  label: string;
+  compact?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        flexShrink: 1,
+      }}
+    >
+      <Progress
+        indeterminate
+        accessibilityLabel={props.label}
+        style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+        trackStyle={{
+          width: props.compact ? 40 : 56,
+          height: 4,
+          borderRadius: 999,
+          overflow: "hidden",
+          backgroundColor: props.theme.border,
+          flexShrink: 0,
+        }}
+        indicatorClass="h-full w-1/3 rounded-full animate-pulse motion-reduce:animate-none"
+        indicatorStyle={{
+          backgroundColor: props.theme.primary,
+        }}
       >
-        {props.loading ? `${props.label}…` : props.label}
-      </Text>
-    </Button>
+        <Label theme={props.theme} muted size={props.compact ? 12 : 13} truncate>
+          {props.label}
+        </Label>
+      </Progress>
+    </View>
   );
 }
 
@@ -129,37 +279,36 @@ export function PageHeader(props: {
   return (
     <View
       style={{
+        minHeight: 56,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         gap: 12,
         paddingHorizontal: 20,
-        paddingVertical: 14,
+        paddingVertical: 8,
         borderBottomWidth: 1,
         borderColor: props.theme.border,
         backgroundColor: props.theme.background,
         flexShrink: 0,
       }}
     >
-      <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <Label theme={props.theme} heading size={18} truncate>
+      <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <Label theme={props.theme} heading size={20} truncate>
           {props.title}
         </Label>
         <If when={Boolean(props.busyText)}>
           <View
-            role="summary"
-            accessibilityState={{ busy: true }}
             style={{
               paddingHorizontal: 8,
               paddingVertical: 3,
               borderRadius: 999,
-              backgroundColor: props.theme.accent,
+              backgroundColor: props.theme.surface,
+              borderWidth: 1,
+              borderColor: props.theme.border,
               flexShrink: 1,
             }}
           >
-            <Label theme={props.theme} muted size={12} truncate>
-              {props.busyText ?? ""}
-            </Label>
+            <LoadingLine theme={props.theme} compact label={props.busyText ?? ""} />
           </View>
         </If>
       </View>
@@ -168,6 +317,76 @@ export function PageHeader(props: {
           {props.right}
         </View>
       </If>
+    </View>
+  );
+}
+
+export interface PageTabItem {
+  id: string;
+  icon: string;
+  label: string;
+}
+
+export function PageTabs(props: {
+  theme: Theme;
+  accessibilityLabel: string;
+  tabs: PageTabItem[];
+  selectedId: string;
+  paddingHorizontal?: number;
+  backgroundColor?: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <View
+      style={{
+        minHeight: 36,
+        paddingHorizontal: props.paddingHorizontal ?? 20,
+        borderBottomWidth: 1,
+        borderColor: props.theme.border,
+        backgroundColor: props.backgroundColor ?? props.theme.background,
+        flexShrink: 0,
+      }}
+    >
+      <Tabs
+        accessibilityLabel={props.accessibilityLabel}
+        style={{ flexDirection: "row", gap: 18 }}
+        indicatorStyle={{ bottom: 0, height: 2, backgroundColor: props.theme.primary }}
+      >
+        <Each of={props.tabs} key={(tab) => tab.id}>
+          {(tab) => (
+            <Tab
+              selected={props.selectedId === tab().id}
+              onPress={() => props.onSelect(tab().id)}
+              class="flex-row items-center gap-1.5 py-2 transition-colors"
+              hoverStyle={{ opacity: 0.85 }}
+              focusVisibleStyle={{ borderRadius: 4, borderWidth: 1, borderColor: props.theme.primary }}
+            >
+              <Text
+                accessibilityElementsHidden
+                style={{
+                  fontSize: 13,
+                  color:
+                    props.selectedId === tab().id ? props.theme.foreground : props.theme.muted,
+                  fontFamily: props.theme.fontFamily,
+                }}
+              >
+                {tab().icon}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: props.selectedId === tab().id ? "600" : "500",
+                  color:
+                    props.selectedId === tab().id ? props.theme.foreground : props.theme.muted,
+                  fontFamily: props.theme.fontFamily,
+                }}
+              >
+                {tab().label}
+              </Text>
+            </Tab>
+          )}
+        </Each>
+      </Tabs>
     </View>
   );
 }
@@ -224,6 +443,7 @@ export function AlertBanner(props: {
 
 export function EmptyState(props: {
   theme: Theme;
+  icon?: string;
   title: string;
   description: string;
   actions?: JSX.Element;
@@ -238,6 +458,32 @@ export function EmptyState(props: {
         gap: 8,
       }}
     >
+      <If when={Boolean(props.icon)}>
+        <View
+          accessibilityElementsHidden
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: Math.max((props.theme.radius ?? 8) + 2, 10),
+            borderWidth: 1,
+            borderColor: props.theme.border,
+            backgroundColor: props.theme.surface,
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 4,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 20,
+              color: props.theme.muted,
+              fontFamily: props.theme.fontFamily,
+            }}
+          >
+            {props.icon ?? ""}
+          </Text>
+        </View>
+      </If>
       <Text
         style={{
           fontSize: 15,

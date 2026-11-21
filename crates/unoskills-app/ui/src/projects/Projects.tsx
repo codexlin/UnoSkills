@@ -144,7 +144,7 @@ function ProjectDetail(props: {
 
   return <>
     <Header theme={screen.theme} title={props.project.name}>
-      <Action theme={screen.theme} label={t().openLibrary} glyph="arrow-left" ghost
+      <Action theme={screen.theme} label={t().openLibrary} accessibilityLabel={t().openInLibrary} glyph="arrow-left" ghost
         run={() => screen.navigate({ page: "library", ...target(), scopePath: module()?.path ?? screen.route.scopePath ?? "" })} />
       <Action theme={screen.theme} label={t().rescan} glyph="refresh-cw"
         disabled={op.busy()} pending={projectsScan().pending} run={rescanProject} />

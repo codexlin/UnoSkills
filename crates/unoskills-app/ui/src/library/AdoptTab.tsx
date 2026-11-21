@@ -1,8 +1,15 @@
 import { type InputRef, List, type ListRef, Text, View } from "nsh";
-import { Button, Checkbox, Input } from "nsh/base";
+import { Button, Checkbox } from "nsh/base";
 import { Label } from "../controls";
 import type { Theme } from "../shared";
-import { ActionButton, AlertBanner, EmptyState, TokenBadge, hintTooltip } from "./controls";
+import {
+  ActionButton,
+  AlertBanner,
+  EmptyState,
+  SearchField,
+  TokenBadge,
+  hintTooltip,
+} from "./controls";
 import { type Locale, adoptSelectedCount, getStrings, labelWithCount } from "./strings";
 import type { AdoptCandidate } from "./types";
 
@@ -44,62 +51,34 @@ export function AdoptTab(props: {
     <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
       <View
         style={{
+          minHeight: 48,
           flexDirection: "row",
           flexWrap: "wrap",
           alignItems: "center",
           gap: 8,
           paddingHorizontal: 20,
-          paddingVertical: 10,
+          paddingVertical: 8,
           borderBottomWidth: 1,
           borderColor: props.theme.border,
           flexShrink: 0,
         }}
       >
-        <View
-          style={{
-            flex: 1,
-            minWidth: 180,
-            maxWidth: 360,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          <Input
-            ref={props.onSearchInputRef}
-            value={props.searchQuery}
-            onChange={({ value }) => props.onSearchChange(value)}
-            placeholder={s().ph_adopt_search}
-            accessibilityLabel={s().ph_adopt_search}
-            style={{
-              flex: 1,
-              fontSize: 13,
-              paddingHorizontal: 10,
-              paddingVertical: 6,
-              borderRadius: props.theme.radius ?? 8,
-              borderWidth: 1,
-              borderColor: props.theme.border,
-              backgroundColor: props.theme.surface,
-              color: props.theme.foreground,
-              placeholderColor: props.theme.muted,
-              fontFamily: props.theme.fontFamily,
-            }}
-          />
-          <If when={props.searchQuery.length > 0}>
-            <ActionButton
-              theme={props.theme}
-              kind="ghost"
-              compact
-              label="×"
-              accessibilityLabel={s().adopt_clear_selection}
-              onPress={() => props.onSearchChange("")}
-            />
-          </If>
-        </View>
+        <SearchField
+          theme={props.theme}
+          inputRef={props.onSearchInputRef}
+          value={props.searchQuery}
+          placeholder={s().ph_adopt_search}
+          accessibilityLabel={s().ph_adopt_search}
+          clearLabel={s().adopt_clear_selection}
+          minWidth={180}
+          maxWidth={360}
+          onChange={props.onSearchChange}
+        />
 
         <ActionButton
           theme={props.theme}
           kind="outline"
+          icon="↻"
           label={s().btn_rescan}
           loading={props.scanning}
           disabled={props.adopting}
@@ -120,7 +99,7 @@ export function AdoptTab(props: {
             ref={props.onListRef}
             each={props.rows}
             keyExtractor={(row) => row.id}
-            estimatedItemSize={42}
+            estimatedItemSize={40}
             style={{ flex: 1, minHeight: 0 }}
           >
             {(row) => (
@@ -130,16 +109,17 @@ export function AdoptTab(props: {
                   else={
                     <View
                       style={{
-                        height: 42,
+                        height: 40,
                         flexDirection: "row",
                         alignItems: "center",
-                        gap: 10,
+                        gap: 8,
                         paddingHorizontal: 8,
                         borderBottomWidth: 1,
                         borderColor: props.theme.border,
                       }}
                     >
                       <Checkbox
+                        hitSlop={8}
                         checked={Boolean(
                           row().kind === "candidate" &&
                             props.selectedPaths[
@@ -158,6 +138,8 @@ export function AdoptTab(props: {
                             props.onToggleCandidateSelected(current.candidate.path, checked);
                           }
                         }}
+                        focusVisibleStyle={{ borderRadius: 4, borderWidth: 1, borderColor: props.theme.primary }}
+                        indicatorClass="transition-colors"
                         indicatorStyle={{
                           width: 16,
                           height: 16,
@@ -202,9 +184,9 @@ export function AdoptTab(props: {
                         style={{
                           numberOfLines: 1,
                           textOverflow: "ellipsis",
-                          width: "32%",
+                          width: "33%",
                           minWidth: 0,
-                          fontSize: 13,
+                          fontSize: 14,
                           color: props.theme.foreground,
                           fontFamily: props.theme.fontFamily,
                         }}
@@ -229,7 +211,7 @@ export function AdoptTab(props: {
                           minWidth: 0,
                           fontSize: 12,
                           color: props.theme.muted,
-                          fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
+                          fontFamily: props.theme.fontFamily,
                         }}
                       >
                         {row().kind === "candidate"
@@ -237,15 +219,17 @@ export function AdoptTab(props: {
                           : ""}
                       </Text>
 
-                      <TokenBadge
-                        theme={props.theme}
-                        tokens={
-                          row().kind === "candidate"
-                            ? (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate
-                                .estimated_tokens
-                            : 0
-                        }
-                      />
+                      <View style={{ flexShrink: 0 }}>
+                        <TokenBadge
+                          theme={props.theme}
+                          tokens={
+                            row().kind === "candidate"
+                              ? (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate
+                                  .estimated_tokens
+                              : 0
+                          }
+                        />
+                      </View>
                     </View>
                   }
                 >
@@ -256,11 +240,9 @@ export function AdoptTab(props: {
                       alignItems: "center",
                       justifyContent: "space-between",
                       gap: 8,
-                      paddingHorizontal: 10,
+                      paddingHorizontal: 8,
                       borderRadius: 6,
                       backgroundColor: props.theme.surface,
-                      borderBottomWidth: 1,
-                      borderColor: props.theme.border,
                     }}
                   >
                     <Button
@@ -270,14 +252,13 @@ export function AdoptTab(props: {
                           props.onToggleGroupExpanded(current.group.key);
                         }
                       }}
+                      class="flex-row items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors"
                       style={{
-                        flex: 1,
+                        flexShrink: 1,
                         minWidth: 0,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 6,
-                        paddingVertical: 4,
                       }}
+                      hoverStyle={{ backgroundColor: props.theme.accent }}
+                      focusVisibleStyle={{ borderWidth: 1, borderColor: props.theme.primary }}
                     >
                       <Text style={{ fontSize: 12, color: props.theme.muted }}>
                         {row().kind === "group" &&
@@ -289,7 +270,7 @@ export function AdoptTab(props: {
                         style={{
                           numberOfLines: 1,
                           textOverflow: "ellipsis",
-                          flex: 1,
+                          flexShrink: 1,
                           minWidth: 0,
                           fontSize: 13,
                           fontWeight: "600",
@@ -304,6 +285,8 @@ export function AdoptTab(props: {
                           : ""}
                       </Text>
                     </Button>
+
+                    <View style={{ flex: 1 }} />
 
                     <ActionButton
                       theme={props.theme}
@@ -334,6 +317,7 @@ export function AdoptTab(props: {
       >
         <EmptyState
           theme={props.theme}
+          icon="✓"
           title={
             props.totalCandidates === 0 ? s().empty_adopt_done_title : s().empty_adopt_filter_title
           }
@@ -346,20 +330,20 @@ export function AdoptTab(props: {
       <If when={props.selectedCount > 0}>
         <View
           style={{
-            minHeight: 52,
+            minHeight: 48,
             flexDirection: "row",
             alignItems: "center",
-            gap: 10,
+            gap: 8,
             paddingHorizontal: 20,
-            paddingVertical: 10,
+            paddingVertical: 8,
             borderTopWidth: 1,
             borderColor: props.theme.border,
-            backgroundColor: props.theme.surface,
+            backgroundColor: props.theme.background,
             flexShrink: 0,
           }}
         >
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Label theme={props.theme} size={13}>
+            <Label theme={props.theme} size={14}>
               {adoptSelectedCount(props.locale, props.selectedCount)}
             </Label>
           </View>

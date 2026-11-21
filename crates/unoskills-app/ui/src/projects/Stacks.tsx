@@ -145,7 +145,7 @@ export function Stacks(props: ScreenProps) {
           <ResizablePanelGroup axis="horizontal" handleStyle={{ backgroundColor: props.theme.border }}
             handleAccessibilityLabel={t().stacks}>
             <ResizablePanel size={width()} minSize={240} maxSize={500} onResize={({ size }) => width.set(size)}
-              style={{ ...viewport, backgroundColor: props.theme.background }}>
+              style={{ minHeight: 0, minWidth: 0, overflow: "hidden", backgroundColor: props.theme.background }}>
               <If when={tab() === "catalog"}>
                 <View style={{ padding: 12, gap: 8, flexShrink: 0, borderBottomWidth: 1, borderColor: props.theme.border }}>
                   <View style={row}>
@@ -191,7 +191,7 @@ export function Stacks(props: ScreenProps) {
                 </List>
               </If>
             </ResizablePanel>
-            <ResizablePanel minSize={240} style={{ ...viewport, backgroundColor: props.theme.surface }}>
+            <ResizablePanel minSize={240} style={{ minHeight: 0, minWidth: 0, overflow: "hidden", backgroundColor: props.theme.surface }}>
               <If when={selected()} else={
                 <CatalogEmpty theme={props.theme} title={t().selectStack} description={t().selectStackDescription} />
               }>

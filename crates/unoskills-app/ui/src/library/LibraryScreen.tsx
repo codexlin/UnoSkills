@@ -8,10 +8,10 @@ import {
   effect,
   keymap,
   signal,
+  windowSize,
 } from "nsh";
 import {
   AlertDialog,
-  Input,
   Menu,
   MenuItem,
   MenuSeparator,
@@ -23,7 +23,7 @@ import { Label } from "../controls";
 import type { ScreenProps } from "../shared";
 import { LibraryListPane } from "./LibraryListPane";
 import { SkillInspector } from "./SkillInspector";
-import { ActionButton, AlertBanner, PageHeader, hintTooltip } from "./controls";
+import { ActionButton, AlertBanner, PageHeader, SearchField, hintTooltip } from "./controls";
 import { isProjectSkillAvailable, isSkillDeployedTo, joinPath } from "./format";
 import {
   attachProject,
@@ -832,6 +832,7 @@ export function Library(props: ScreenProps) {
               <ActionButton
                 theme={props.theme}
                 kind="outline"
+                icon="◫"
                 label={s().project_overview}
                 onPress={() => {
                   const project = activeProject();
@@ -850,7 +851,8 @@ export function Library(props: ScreenProps) {
             <ActionButton
               theme={props.theme}
               kind="outline"
-              label={`+ ${s().btn_install}`}
+              icon="+"
+              label={s().btn_install}
               onPress={() => props.navigate({ page: "discover", tab: "install" })}
             />
           </>
@@ -860,59 +862,32 @@ export function Library(props: ScreenProps) {
       {/* Library Toolbar */}
       <View
         style={{
+          minHeight: 48,
           flexDirection: "row",
           flexWrap: "wrap",
           alignItems: "center",
           gap: 8,
           paddingHorizontal: 20,
-          paddingVertical: 10,
+          paddingVertical: 8,
           borderBottomWidth: 1,
           borderColor: props.theme.border,
           backgroundColor: props.theme.background,
           flexShrink: 0,
         }}
       >
-        <View
-          style={{
-            flex: 1,
-            minWidth: 160,
-            maxWidth: 280,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
+        <SearchField
+          theme={props.theme}
+          inputRef={(ref) => {
+            searchInputRef = ref;
           }}
-        >
-          <Input
-            ref={searchInputRef}
-            value={searchQuery()}
-            onChange={({ value }) => searchQuery.set(value)}
-            placeholder={s().ph_search_skills}
-            accessibilityLabel={s().ph_search_skills}
-            style={{
-              flex: 1,
-              fontSize: 13,
-              paddingHorizontal: 10,
-              paddingVertical: 6,
-              borderRadius: props.theme.radius ?? 8,
-              borderWidth: 1,
-              borderColor: props.theme.border,
-              backgroundColor: props.theme.surface,
-              color: props.theme.foreground,
-              placeholderColor: props.theme.muted,
-              fontFamily: props.theme.fontFamily,
-            }}
-          />
-          <If when={searchQuery().length > 0}>
-            <ActionButton
-              theme={props.theme}
-              kind="ghost"
-              compact
-              label="×"
-              accessibilityLabel={s().adopt_clear_selection}
-              onPress={() => searchQuery.set("")}
-            />
-          </If>
-        </View>
+          value={searchQuery()}
+          placeholder={s().ph_search_skills}
+          accessibilityLabel={s().ph_search_skills}
+          clearLabel={s().adopt_clear_selection}
+          minWidth={160}
+          maxWidth={280}
+          onChange={(value) => searchQuery.set(value)}
+        />
 
         {/* Scope dropdown Menu */}
         <Menu
@@ -932,7 +907,9 @@ export function Library(props: ScreenProps) {
                 () => props.theme,
                 () => s().library_scope,
               )}
+              class="transition-colors"
               style={{
+                minHeight: 34,
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
@@ -942,8 +919,10 @@ export function Library(props: ScreenProps) {
                 borderRadius: props.theme.radius ?? 8,
                 borderWidth: 1,
                 borderColor: props.theme.border,
-                backgroundColor: props.theme.surface,
+                backgroundColor: props.theme.background,
               }}
+              hoverStyle={{ backgroundColor: props.theme.accent }}
+              focusVisibleStyle={{ borderColor: props.theme.primary }}
             >
               <Text
                 style={{
@@ -1100,7 +1079,9 @@ export function Library(props: ScreenProps) {
                 () => props.theme,
                 () => s().library_agent_filter,
               )}
+              class="transition-colors"
               style={{
+                minHeight: 34,
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
@@ -1110,8 +1091,10 @@ export function Library(props: ScreenProps) {
                 borderRadius: props.theme.radius ?? 8,
                 borderWidth: 1,
                 borderColor: props.theme.border,
-                backgroundColor: props.theme.surface,
+                backgroundColor: props.theme.background,
               }}
+              hoverStyle={{ backgroundColor: props.theme.accent }}
+              focusVisibleStyle={{ borderColor: props.theme.primary }}
             >
               <Text
                 style={{
@@ -1135,7 +1118,7 @@ export function Library(props: ScreenProps) {
         <ActionButton
           theme={props.theme}
           kind="ghost"
-          label="↻"
+          icon="↻"
           loading={loadingState()}
           accessibilityLabel={s().tooltip_refresh}
           tooltip={s().tooltip_refresh}
@@ -1157,14 +1140,16 @@ export function Library(props: ScreenProps) {
         <ResizablePanelGroup
           axis="horizontal"
           handleStyle={{ backgroundColor: props.theme.border }}
+          handleThumbClass="h-11 w-[3px] rounded-full opacity-0 scale-y-0 transition group-hover:opacity-60 group-hover:scale-y-[0.5] group-active:opacity-100 group-active:scale-y-100"
+          handleThumbStyle={{ backgroundColor: props.theme.primary }}
           handleAccessibilityLabel={s().nav_library}
         >
           <ResizablePanel
             size={listPaneWidth()}
-            minSize={320}
-            maxSize={560}
+            minSize={windowSize().width < 780 ? 240 : 330}
+            maxSize={windowSize().width < 780 ? 380 : 560}
             onResize={({ size }) => listPaneWidth.set(size)}
-            style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: props.theme.background }}
+            style={{ minHeight: 0, minWidth: 0, backgroundColor: props.theme.background }}
           >
             <LibraryListPane
               locale={props.locale}
@@ -1188,8 +1173,8 @@ export function Library(props: ScreenProps) {
           </ResizablePanel>
 
           <ResizablePanel
-            minSize={384}
-            style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: props.theme.surface }}
+            minSize={windowSize().width < 780 ? 280 : 384}
+            style={{ minHeight: 0, minWidth: 0, backgroundColor: props.theme.surface }}
           >
             <SkillInspector
               locale={props.locale}

@@ -226,7 +226,7 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Label theme={theme()} truncate weight="500">{entry().name}</Label>
-                      <Label theme={theme()} truncate muted size={textSize(theme(), 12)}>{entry().source}</Label>
+                      <Label theme={theme()} truncate muted size={textSize(theme(), 12)}>{entry().source.split("@", 1)[0]}</Label>
                     </View>
                     <Label theme={theme()} weight="500">{formatInstalls(entry().installs, props.locale)}</Label>
                     <View style={{ width: 24, flexShrink: 0 }}>
@@ -236,7 +236,7 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                     </View>
                   </View>
                 }</Each>
-                <View style={{ alignItems: "flex-end", borderTopWidth: 1, borderColor: theme().border, paddingTop: 8 }}>
+                <View style={{ ...row, justifyContent: "flex-end", borderTopWidth: 1, borderColor: theme().border, paddingTop: 8 }}>
                   <Action theme={theme()} variant="ghost" height={24} glyph="arrow-right" label={t().home_view_market}
                     onPress={() => props.navigate({ page: "discover", tab: board() })} />
                 </View>

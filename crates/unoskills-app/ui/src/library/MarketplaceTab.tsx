@@ -1,14 +1,33 @@
-import { type InputRef, List, type ListRef, Text, View, openUrl } from "nsh";
-import { Button, Input, Menu, MenuItem, Select } from "nsh/base";
+import {
+  type InputRef,
+  List,
+  type ListRef,
+  Text,
+  View,
+  computed,
+  openUrl,
+  signal,
+  windowSize,
+} from "nsh";
+import { Button, Menu, MenuItem, Select } from "nsh/base";
 import { Label } from "../controls";
 import type { Theme } from "../shared";
-import { ActionButton, AlertBanner, EmptyState, hintTooltip } from "./controls";
+import {
+  ActionButton,
+  AlertBanner,
+  EmptyState,
+  LoadingLine,
+  SearchField,
+  hintTooltip,
+} from "./controls";
 import { formatInstallCount, marketInstallStatus } from "./format";
 import { type Locale, boardLabel, getStrings } from "./strings";
 import type { MarketBoard, MarketplaceSkillItem } from "./types";
 
 export const ALL_SOURCES_VALUE = "__all_sources__";
 export const MARKET_BOARDS: MarketBoard[] = ["trending", "hot", "all-time"];
+
+const SKELETON_ROWS = [0, 1, 2, 3];
 
 export interface RankedMarketEntry {
   item: MarketplaceSkillItem;
@@ -46,6 +65,22 @@ export function MarketplaceTab(props: {
   onItemAction: (item: MarketplaceSkillItem) => void;
 }) {
   const s = () => getStrings(props.locale);
+  const containerWidth = signal(0);
+
+  // Match legacy 3-column desktop grid while adapting cleanly on narrower viewports.
+  const gridColumns = computed(() => {
+    const measured = containerWidth();
+    const width = measured > 0 ? measured : windowSize().width;
+    if (width >= 860) {
+      return 3;
+    }
+    if (width >= 540) {
+      return 2;
+    }
+    return 1;
+  });
+
+  const skeletonCols = computed(() => Array.from({ length: gridColumns() }, (_, i) => i));
 
   const actionLabelFor = (item: MarketplaceSkillItem): string => {
     const status = marketInstallStatus(item, props.installedSourceRefs, props.installedSkillNames);
@@ -56,6 +91,17 @@ export function MarketplaceTab(props: {
       return s().market_same_name;
     }
     return s().market_add_to_library;
+  };
+
+  const actionIconFor = (item: MarketplaceSkillItem): string => {
+    const status = marketInstallStatus(item, props.installedSourceRefs, props.installedSkillNames);
+    if (status === "installed") {
+      return "✓";
+    }
+    if (status === "same_name") {
+      return "!";
+    }
+    return "+";
   };
 
   const actionTooltipFor = (item: MarketplaceSkillItem): string => {
@@ -69,69 +115,44 @@ export function MarketplaceTab(props: {
     return s().market_add_to_library;
   };
 
+  const cardRadius = () => Math.max(props.theme.radius ?? 8, 8);
+
   return (
     <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
       {/* Marketplace Toolbar */}
       <View
         style={{
+          minHeight: 48,
           flexDirection: "row",
           flexWrap: "wrap",
           alignItems: "center",
           gap: 8,
           paddingHorizontal: 20,
-          paddingVertical: 10,
+          paddingVertical: 8,
           flexShrink: 0,
         }}
       >
-        <View
-          style={{
-            flex: 1,
-            minWidth: 160,
-            maxWidth: 360,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          <Input
-            ref={props.onSearchInputRef}
-            value={props.searchQuery}
-            onChange={({ value }) => props.onSearchChange(value)}
-            onSubmit={({ text }) => props.onSearchSubmit(text)}
-            placeholder={s().ph_market_search}
-            accessibilityLabel={s().ph_market_search}
-            returnKeyType="search"
-            submitBehavior="submit"
-            style={{
-              flex: 1,
-              fontSize: 13,
-              paddingHorizontal: 10,
-              paddingVertical: 6,
-              borderRadius: props.theme.radius ?? 8,
-              borderWidth: 1,
-              borderColor: props.theme.border,
-              backgroundColor: props.theme.surface,
-              color: props.theme.foreground,
-              placeholderColor: props.theme.muted,
-              fontFamily: props.theme.fontFamily,
-            }}
-          />
-          <If when={props.searchQuery.length > 0}>
-            <ActionButton
-              theme={props.theme}
-              kind="ghost"
-              compact
-              label="×"
-              accessibilityLabel={s().adopt_clear_selection}
-              onPress={props.onClearSearch}
-            />
-          </If>
-        </View>
+        <SearchField
+          theme={props.theme}
+          inputRef={props.onSearchInputRef}
+          value={props.searchQuery}
+          placeholder={s().ph_market_search}
+          accessibilityLabel={s().ph_market_search}
+          clearLabel={s().adopt_clear_selection}
+          minWidth={160}
+          maxWidth={360}
+          returnKeyType="search"
+          submitBehavior="submit"
+          onChange={props.onSearchChange}
+          onSubmit={props.onSearchSubmit}
+          onClear={props.onClearSearch}
+        />
 
         <ActionButton
           theme={props.theme}
           kind="ghost"
-          label={s().btn_search}
+          icon="⌕"
+          accessibilityLabel={s().btn_search}
           tooltip={s().market_search_hint}
           onPress={() => props.onSearchSubmit(props.searchQuery)}
         />
@@ -154,7 +175,9 @@ export function MarketplaceTab(props: {
                 () => props.theme,
                 () => s().market_sort,
               )}
+              class="transition-colors"
               style={{
+                minHeight: 34,
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
@@ -163,8 +186,10 @@ export function MarketplaceTab(props: {
                 borderRadius: props.theme.radius ?? 8,
                 borderWidth: 1,
                 borderColor: props.theme.border,
-                backgroundColor: props.theme.surface,
+                backgroundColor: props.theme.background,
               }}
+              hoverStyle={{ backgroundColor: props.theme.accent }}
+              focusVisibleStyle={{ borderColor: props.theme.primary }}
             >
               <Label theme={props.theme} size={13}>
                 {props.searchActive
@@ -248,8 +273,10 @@ export function MarketplaceTab(props: {
             }}
             trigger={
               <View
+                class="transition-colors"
                 style={{
                   width: 176,
+                  minHeight: 34,
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "space-between",
@@ -259,8 +286,10 @@ export function MarketplaceTab(props: {
                   borderRadius: props.theme.radius ?? 8,
                   borderWidth: 1,
                   borderColor: props.theme.border,
-                  backgroundColor: props.theme.surface,
+                  backgroundColor: props.theme.background,
                 }}
+                hoverStyle={{ backgroundColor: props.theme.accent }}
+                focusVisibleStyle={{ borderColor: props.theme.primary }}
               >
                 <Text
                   style={{
@@ -285,7 +314,7 @@ export function MarketplaceTab(props: {
               theme={props.theme}
               kind="ghost"
               compact
-              label="×"
+              icon="×"
               accessibilityLabel={s().market_clear_source_filter}
               tooltip={s().market_clear_source_filter}
               onPress={() => props.onSelectSourceFilter(null)}
@@ -296,7 +325,7 @@ export function MarketplaceTab(props: {
         <ActionButton
           theme={props.theme}
           kind="ghost"
-          label="↻"
+          icon="↻"
           loading={props.loading}
           accessibilityLabel={props.loading ? s().market_loading : s().btn_trending}
           tooltip={props.loading ? s().market_loading : s().btn_trending}
@@ -318,158 +347,328 @@ export function MarketplaceTab(props: {
         </View>
       </If>
 
-      {/* Marketplace Grid / Loading / Empty */}
-      <If
-        when={props.loading && props.entries.length === 0}
-        else={
-          <If
-            when={props.entries.length === 0}
-            else={
-              <List
-                ref={props.onListRef}
-                each={props.entries}
-                keyExtractor={(entry) => entry.item.id}
-                numColumns={3}
-                estimatedItemSize={116}
-                loadMoreThreshold={1}
-                onLoadMore={() => {
-                  if (!props.loadMoreFailed) {
-                    props.onLoadMore();
-                  }
-                }}
-                contentStyle={{ paddingHorizontal: 20, paddingVertical: 8, gap: 12 }}
-                style={{ flex: 1, minHeight: 0 }}
-                footer={
-                  <If when={props.showFooter}>
-                    <View
-                      style={{
-                        height: 64,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <If
-                        when={props.loadingMore}
-                        else={
-                          <ActionButton
-                            theme={props.theme}
-                            kind="outline"
-                            compact
-                            label={s().btn_load_more}
-                            onPress={props.onLoadMore}
-                          />
-                        }
-                      >
-                        <View role="summary" accessibilityState={{ busy: true }}>
-                          <Label theme={props.theme} muted size={12}>
-                            {s().market_loading_more}
-                          </Label>
-                        </View>
-                      </If>
-                    </View>
-                  </If>
-                }
-              >
-                {(entry) => (
-                  <View
-                    style={{
-                      height: 108,
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                      justifyContent: "space-between",
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor:
-                        !props.searchActive && entry().rankIndex === 0
-                          ? props.theme.primary
-                          : props.theme.border,
-                      backgroundColor: props.theme.surface,
-                    }}
-                  >
-                    {/* Row 1: Name, Official badge, Rank */}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Text
-                        tooltip={hintTooltip(
-                          () => props.theme,
-                          () => entry().item.name,
-                        )}
+      {/* Marketplace Responsive Virtual Grid / Skeleton / Empty */}
+      <View
+        style={{ flex: 1, minHeight: 0, minWidth: 0 }}
+        onLayout={({ bounds }) => {
+          if (bounds.size.width > 0) {
+            containerWidth.set(bounds.size.width);
+          }
+        }}
+      >
+        <If
+          when={props.loading && props.entries.length === 0}
+          else={
+            <If
+              when={props.entries.length === 0}
+              else={
+                <List
+                  testID="marketplace-grid"
+                  ref={props.onListRef}
+                  each={props.entries}
+                  keyExtractor={(entry) => entry.item.id}
+                  numColumns={gridColumns()}
+                  estimatedItemSize={112}
+                  loadMoreThreshold={1}
+                  onLoadMore={() => {
+                    if (!props.loadMoreFailed) {
+                      props.onLoadMore();
+                    }
+                  }}
+                  contentStyle={{
+                    paddingHorizontal: 20,
+                    paddingVertical: 8,
+                    rowGap: 12,
+                    columnGap: 12,
+                  }}
+                  style={{ flex: 1, minHeight: 0 }}
+                  footer={
+                    <If when={props.showFooter}>
+                      <View
                         style={{
-                          numberOfLines: 1,
-                          textOverflow: "ellipsis",
-                          flex: 1,
-                          minWidth: 0,
-                          fontSize: 13,
-                          fontWeight: "600",
-                          color: props.theme.foreground,
-                          fontFamily: props.theme.fontFamily,
+                          height: 84,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 8,
                         }}
                       >
-                        {entry().item.name}
-                      </Text>
-
-                      <If when={entry().item.is_official}>
-                        <View
-                          accessibilityLabel={s().market_official}
+                        <If
+                          when={props.loadingMore}
+                          else={
+                            <ActionButton
+                              theme={props.theme}
+                              kind="outline"
+                              compact
+                              icon="↻"
+                              label={s().btn_load_more}
+                              onPress={props.onLoadMore}
+                            />
+                          }
+                        >
+                          <LoadingLine
+                            theme={props.theme}
+                            compact
+                            label={s().market_loading_more}
+                          />
+                        </If>
+                      </View>
+                    </If>
+                  }
+                >
+                  {(entry) => (
+                    <View
+                      style={{
+                        height: 100,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        gap: 4,
+                        justifyContent: "space-between",
+                        borderRadius: cardRadius(),
+                        borderWidth: 1,
+                        borderColor:
+                          !props.searchActive && entry().rankIndex === 0
+                            ? props.theme.primary
+                            : props.theme.border,
+                        backgroundColor: props.theme.surface,
+                      }}
+                    >
+                      {/* Row 1: Name, Official verified badge, 3-tier Rank */}
+                      <View
+                        style={{
+                          height: 20,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <Text
                           tooltip={hintTooltip(
                             () => props.theme,
-                            () => s().market_official,
+                            () => entry().item.name,
                           )}
                           style={{
-                            paddingHorizontal: 5,
-                            paddingVertical: 1,
-                            borderRadius: 4,
-                            backgroundColor: props.theme.accent,
-                            flexShrink: 0,
+                            numberOfLines: 1,
+                            textOverflow: "ellipsis",
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 14,
+                            fontWeight: "600",
+                            color: props.theme.foreground,
+                            fontFamily: props.theme.fontFamily,
                           }}
                         >
-                          <Text
+                          {entry().item.name}
+                        </Text>
+
+                        <If when={entry().item.is_official}>
+                          <View
+                            accessibilityLabel={s().market_official}
+                            tooltip={hintTooltip(
+                              () => props.theme,
+                              () => s().market_official,
+                            )}
                             style={{
-                              fontSize: 10,
-                              fontWeight: "600",
-                              color: props.theme.primary,
-                              fontFamily: props.theme.fontFamily,
+                              width: 16,
+                              height: 16,
+                              borderRadius: 999,
+                              backgroundColor: props.theme.accent,
+                              borderWidth: 1,
+                              borderColor: props.theme.primary,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
                             }}
                           >
-                            {s().market_official}
-                          </Text>
-                        </View>
-                      </If>
+                            <Text
+                              accessibilityElementsHidden
+                              style={{
+                                fontSize: 10,
+                                fontWeight: "700",
+                                color: props.theme.primary,
+                              }}
+                            >
+                              ✓
+                            </Text>
+                          </View>
+                        </If>
 
-                      <If when={!props.searchActive}>
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontWeight: entry().rankIndex < 3 ? "600" : "400",
-                            color:
-                              entry().rankIndex === 0 ? props.theme.primary : props.theme.muted,
-                            fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {`#${entry().rankIndex + 1}`}
-                        </Text>
-                      </If>
-                    </View>
+                        <If when={!props.searchActive}>
+                          <If
+                            when={entry().rankIndex === 0}
+                            else={
+                              <If
+                                when={entry().rankIndex === 1 || entry().rankIndex === 2}
+                                else={
+                                  <Text
+                                    style={{
+                                      fontSize: 12,
+                                      color: props.theme.muted,
+                                      fontFamily: props.theme.monoFamily ?? props.theme.fontFamily,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {`#${entry().rankIndex + 1}`}
+                                  </Text>
+                                }
+                              >
+                                <View
+                                  style={{
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 1,
+                                    borderRadius: 4,
+                                    borderWidth: 1,
+                                    borderColor: props.theme.border,
+                                    backgroundColor: props.theme.accent,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <Text
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: "600",
+                                      color: props.theme.foreground,
+                                      fontFamily: props.theme.fontFamily,
+                                    }}
+                                  >
+                                    {`#${entry().rankIndex + 1}`}
+                                  </Text>
+                                </View>
+                              </If>
+                            }
+                          >
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 4,
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Text
+                                accessibilityElementsHidden
+                                style={{ fontSize: 12, color: props.theme.primary }}
+                              >
+                                ★
+                              </Text>
+                              <Text
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: "600",
+                                  color: props.theme.foreground,
+                                  fontFamily: props.theme.fontFamily,
+                                }}
+                              >
+                                #1
+                              </Text>
+                            </View>
+                          </If>
+                        </If>
+                      </View>
 
-                    {/* Row 2: Source repo filter + external link */}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <If when={entry().item.source.length > 0}>
-                        <Button
-                          onPress={() => props.onSelectSourceFilter(entry().item.source)}
-                          accessibilityLabel={`${s().market_filter_scope} · ${entry().item.name} · ${entry().item.source}`}
+                      {/* Row 2: Source repo filter + external link */}
+                      <View
+                        style={{
+                          height: 20,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <If when={entry().item.source.length > 0}>
+                          <Button
+                            onPress={() => props.onSelectSourceFilter(entry().item.source)}
+                            accessibilityLabel={`${s().market_filter_scope} · ${entry().item.name} · ${entry().item.source}`}
+                            tooltip={hintTooltip(
+                              () => props.theme,
+                              () => `${s().market_filter_scope} · ${entry().item.source}`,
+                            )}
+                            class="flex-row items-center gap-1 transition-colors"
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              borderRadius: 4,
+                            }}
+                            hoverStyle={{ opacity: 0.8 }}
+                            focusVisibleStyle={{ borderWidth: 1, borderColor: props.theme.primary }}
+                          >
+                            <Text
+                              accessibilityElementsHidden
+                              style={{
+                                fontSize: 11,
+                                color:
+                                  props.sourceFilter === entry().item.source
+                                    ? props.theme.primary
+                                    : props.theme.muted,
+                              }}
+                            >
+                              ↳
+                            </Text>
+                            <Text
+                              style={{
+                                numberOfLines: 1,
+                                textOverflow: "ellipsis",
+                                flex: 1,
+                                minWidth: 0,
+                                fontSize: 12,
+                                color:
+                                  props.sourceFilter === entry().item.source
+                                    ? props.theme.primary
+                                    : props.theme.muted,
+                                fontFamily: props.theme.fontFamily,
+                              }}
+                            >
+                              {entry().item.source}
+                            </Text>
+                          </Button>
+                        </If>
+
+                        <If when={Boolean(entry().item.detail_url)}>
+                          <ActionButton
+                            theme={props.theme}
+                            kind="ghost"
+                            compact
+                            icon="↗"
+                            accessibilityLabel={`${s().market_view_details} · ${entry().item.name} · ${entry().item.source}`}
+                            tooltip={s().market_view_details}
+                            onPress={() => {
+                              const url = entry().item.detail_url;
+                              if (url) {
+                                void openUrl(url);
+                              }
+                            }}
+                          />
+                        </If>
+                      </View>
+
+                      {/* Row 3: Installs count + Primary action */}
+                      <View
+                        style={{
+                          height: 26,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <View
                           tooltip={hintTooltip(
                             () => props.theme,
-                            () => `${s().market_filter_scope} · ${entry().item.source}`,
+                            () => `${entry().item.installs} ${s().installs_unit}`,
                           )}
                           style={{
                             flex: 1,
                             minWidth: 0,
                             flexDirection: "row",
                             alignItems: "center",
+                            gap: 6,
                           }}
                         >
+                          <Text
+                            accessibilityElementsHidden
+                            style={{ fontSize: 11, color: props.theme.muted, flexShrink: 0 }}
+                          >
+                            ↓
+                          </Text>
                           <Text
                             style={{
                               numberOfLines: 1,
@@ -477,98 +676,114 @@ export function MarketplaceTab(props: {
                               flex: 1,
                               minWidth: 0,
                               fontSize: 12,
-                              color:
-                                props.sourceFilter === entry().item.source
-                                  ? props.theme.primary
-                                  : props.theme.muted,
+                              color: props.theme.muted,
                               fontFamily: props.theme.fontFamily,
                             }}
                           >
-                            {entry().item.source}
+                            {`${formatInstallCount(entry().item.installs)} ${s().installs_unit}`}
                           </Text>
-                        </Button>
-                      </If>
+                        </View>
 
-                      <If when={Boolean(entry().item.detail_url)}>
                         <ActionButton
                           theme={props.theme}
-                          kind="ghost"
+                          kind="outline"
                           compact
-                          label="↗"
-                          accessibilityLabel={`${s().market_view_details} · ${entry().item.name}`}
-                          tooltip={s().market_view_details}
-                          onPress={() => {
-                            const url = entry().item.detail_url;
-                            if (url) {
-                              void openUrl(url);
-                            }
-                          }}
+                          icon={actionIconFor(entry().item)}
+                          loading={Boolean(props.installingRefs[entry().item.install_ref.trim()])}
+                          disabled={
+                            marketInstallStatus(
+                              entry().item,
+                              props.installedSourceRefs,
+                              props.installedSkillNames,
+                            ) === "same_name"
+                          }
+                          label={actionLabelFor(entry().item)}
+                          tooltip={actionTooltipFor(entry().item)}
+                          accessibilityLabel={`${actionLabelFor(entry().item)} · ${entry().item.name} · ${entry().item.source}`}
+                          onPress={() => props.onItemAction(entry().item)}
                         />
-                      </If>
+                      </View>
                     </View>
-
-                    {/* Row 3: Installs count + Primary action */}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Text
-                        tooltip={hintTooltip(
-                          () => props.theme,
-                          () => `${entry().item.installs} ${s().installs_unit}`,
-                        )}
+                  )}
+                </List>
+              }
+            >
+              <EmptyState
+                theme={props.theme}
+                icon="◇"
+                title={s().empty_market_title}
+                description={s().empty_market_desc}
+              />
+            </If>
+          }
+        >
+          {/* Legacy 4-row Skeleton Card Grid */}
+          <View
+            testID="market-loading-skeleton"
+            role="summary"
+            accessibilityState={{ busy: true }}
+            accessibilityLabel={s().market_loading}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflow: "hidden",
+              paddingHorizontal: 20,
+              paddingVertical: 8,
+              gap: 12,
+            }}
+          >
+            <Each of={SKELETON_ROWS} key={(row) => String(row)}>
+              {() => (
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  <Each of={skeletonCols()} key={(col) => String(col)}>
+                    {() => (
+                      <View
                         style={{
-                          numberOfLines: 1,
-                          textOverflow: "ellipsis",
                           flex: 1,
                           minWidth: 0,
-                          fontSize: 12,
-                          color: props.theme.muted,
-                          fontFamily: props.theme.fontFamily,
+                          height: 100,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          justifyContent: "space-between",
+                          borderRadius: cardRadius(),
+                          borderWidth: 1,
+                          borderColor: props.theme.border,
+                          backgroundColor: props.theme.surface,
                         }}
                       >
-                        {`${formatInstallCount(entry().item.installs)} ${s().installs_unit}`}
-                      </Text>
-
-                      <ActionButton
-                        theme={props.theme}
-                        kind="outline"
-                        compact
-                        loading={Boolean(props.installingRefs[entry().item.install_ref.trim()])}
-                        disabled={
-                          marketInstallStatus(
-                            entry().item,
-                            props.installedSourceRefs,
-                            props.installedSkillNames,
-                          ) === "same_name"
-                        }
-                        label={actionLabelFor(entry().item)}
-                        tooltip={actionTooltipFor(entry().item)}
-                        accessibilityLabel={`${actionLabelFor(entry().item)} · ${entry().item.name} · ${entry().item.source}`}
-                        onPress={() => props.onItemAction(entry().item)}
-                      />
-                    </View>
-                  </View>
-                )}
-              </List>
-            }
-          >
-            <EmptyState
-              theme={props.theme}
-              title={s().empty_market_title}
-              description={s().empty_market_desc}
-            />
-          </If>
-        }
-      >
-        <View
-          role="summary"
-          accessibilityState={{ busy: true }}
-          accessibilityLabel={s().market_loading}
-          style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}
-        >
-          <Label theme={props.theme} muted size={13}>
-            {s().market_loading}
-          </Label>
-        </View>
-      </If>
+                        <View
+                          class="h-3 w-1/2 rounded-sm animate-pulse motion-reduce:animate-none"
+                          style={{ backgroundColor: props.theme.border }}
+                        />
+                        <View
+                          class="h-2.5 w-2/5 rounded-sm animate-pulse motion-reduce:animate-none"
+                          style={{ backgroundColor: props.theme.border }}
+                        />
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <View
+                            class="h-2.5 w-1/4 rounded-sm animate-pulse motion-reduce:animate-none"
+                            style={{ backgroundColor: props.theme.border }}
+                          />
+                          <View
+                            class="h-6 w-1/4 rounded-sm animate-pulse motion-reduce:animate-none"
+                            style={{ backgroundColor: props.theme.border }}
+                          />
+                        </View>
+                      </View>
+                    )}
+                  </Each>
+                </View>
+              )}
+            </Each>
+          </View>
+        </If>
+      </View>
     </View>
   );
 }
