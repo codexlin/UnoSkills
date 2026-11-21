@@ -1,11 +1,11 @@
 import { computed, List, Scroll, signal, View } from "nsh";
 import type { ScreenProps } from "../shared";
 import {
-  Action, Check, Choice, Feedback, Heading, Label, RowButton, SidebarPane, WorkspacePane,
-  actions, confirm, load, operation, padding, toggle, viewport,
+  Action, Check, Choice, Feedback, Footer, Header, Heading, Label, MenuAction, OverflowMenu,
+  actions, confirm, load, operation, row, toggle, viewport,
 } from "./controls";
 import { request, type Agent, type Project } from "./host";
-import { strings } from "./strings";
+import { projectRecommendationReason, projectSelectionCount, strings } from "./strings";
 
 export function Projects(props: ScreenProps) {
   const t = () => strings(props.locale);
@@ -29,33 +29,41 @@ export function Projects(props: ScreenProps) {
     });
   }
 
-  return <WorkspacePane theme={props.theme}>
-    <SidebarPane theme={props.theme}>
-      <View style={{ padding: 16, gap: 12 }}>
-        <Heading theme={props.theme} label={t().projects} level={1} />
-        <Action theme={props.theme} label={t().attach} primary disabled={op.busy()} run={attach} />
-        <Feedback theme={props.theme} label={t().loading} pending={targets().pending}
-          error={targets().error ?? op.error()} />
-        <If when={targets().error}>
-          <Action theme={props.theme} label={t().refresh} run={() => props.refresh()} />
-        </If>
-      </View>
-      <List each={projects()} keyExtractor={(project) => project.id} estimatedItemSize={50}
-        style={viewport} contentStyle={{ paddingHorizontal: 8, paddingBottom: 12 }}>
-        {(project) => <RowButton theme={props.theme} title={project().name} detail={project().path}
-          selected={selected()?.id === project().id}
-          run={() => props.navigate({ page: "projects", projectId: project().id, scopePath: "" })} />}
-      </List>
-    </SidebarPane>
-    <If when={selected()} else={<View style={{ ...viewport, ...padding }}>
-      <If when={!targets().pending && !targets().error}><Label theme={props.theme} label={t().noProjects} muted /></If>
-    </View>}>
-      {(project) => <ProjectDetail screen={props} project={project()} agents={targets().data?.agents ?? []} />}
+  return <View style={{ ...viewport, backgroundColor: props.theme.background }}>
+    <If when={props.route.tab !== "choose" ? selected() : undefined} else={
+      <>
+        <Header theme={props.theme} title={t().projects}>
+          <Action theme={props.theme} label={t().attach} glyph="plus" pending={op.busy()} run={attach} />
+        </Header>
+        <View style={{ padding: 20, gap: 12 }}>
+          <Feedback theme={props.theme} label={t().loading} pending={targets().pending}
+            error={targets().error ?? op.error()} />
+          <If when={targets().error}>
+            <Action theme={props.theme} label={t().refresh} run={() => props.refresh()} />
+          </If>
+          <If when={projects().length > 0} else={
+            <If when={!targets().pending && !targets().error}><Label theme={props.theme} label={t().noProjects} muted /></If>
+          }>
+            <View style={{ width: 304, maxWidth: "100%" }}>
+              <Choice theme={props.theme} label={t().selectProject} searchable value={null}
+                options={projects().map((project) => ({ value: project.id, title: project.name, detail: project.path }))}
+                choose={(projectId) => props.navigate({ page: "projects", projectId, scopePath: "" })} />
+            </View>
+          </If>
+        </View>
+      </>
+    }>
+      {(project) => <ProjectDetail screen={props} project={project()} agents={targets().data?.agents ?? []}
+        attach={attach} attaching={op.busy()} canSwitch={projects().length > 1}
+        listError={targets().error ?? op.error()} />}
     </If>
-  </WorkspacePane>;
+  </View>;
 }
 
-function ProjectDetail(props: { screen: ScreenProps; project: Project; agents: Agent[] }) {
+function ProjectDetail(props: {
+  screen: ScreenProps; project: Project; agents: Agent[];
+  attach: () => Promise<void>; attaching: boolean; canSwitch: boolean; listError?: string;
+}) {
   const screen = props.screen;
   const t = () => strings(screen.locale);
   const rescan = signal(0);
@@ -127,78 +135,125 @@ function ProjectDetail(props: { screen: ScreenProps; project: Project; agents: A
     });
   }
 
-  return <Scroll style={viewport} contentStyle={padding}>
-    <View style={{ gap: 8, minWidth: 0 }}>
-      <Heading theme={screen.theme} label={props.project.name} level={1} />
-      <Label theme={screen.theme} label={props.project.path} muted />
-      <View style={actions}>
-        <Action theme={screen.theme} label={t().rescan} disabled={op.busy() || projectsScan().pending}
-          run={rescanProject} />
-        <Action theme={screen.theme} label={t().openLibrary} disabled={!module()}
-          run={() => screen.navigate({ page: "library", ...target() })} />
-        <Action theme={screen.theme} label={t().detach} danger disabled={op.busy()} run={detach} />
+  const statusLabel = (installedSlug: string | null) => {
+    if (inventory().data?.some((skill) => skill.name === installedSlug && skill.location === "project_deployment")) {
+      return t().deployed;
+    }
+    return installedSlug ? t().inLibrary : t().installFirst;
+  };
+
+  return <>
+    <Header theme={screen.theme} title={props.project.name}>
+      <Action theme={screen.theme} label={t().openLibrary} glyph="arrow-left" ghost
+        run={() => screen.navigate({ page: "library", ...target(), scopePath: module()?.path ?? screen.route.scopePath ?? "" })} />
+      <Action theme={screen.theme} label={t().rescan} glyph="refresh-cw"
+        disabled={op.busy()} pending={projectsScan().pending} run={rescanProject} />
+      <OverflowMenu theme={screen.theme} label={t().projectActions}>
+        <MenuAction theme={screen.theme} label={t().attach} disabled={props.attaching || op.busy()} run={props.attach} />
+        <If when={props.canSwitch}>
+          <MenuAction theme={screen.theme} label={t().switchProject} disabled={op.busy()}
+            run={() => screen.navigate({ page: "projects", tab: "choose" })} />
+        </If>
+        <MenuAction theme={screen.theme} label={t().detach} danger disabled={props.attaching || op.busy()} run={detach} />
+      </OverflowMenu>
+    </Header>
+    <View style={{ ...viewport, flexDirection: "row" }}>
+      <Scroll style={viewport} contentStyle={{ padding: 16, gap: 12 }}>
+        <View style={{ gap: 8 }}>
+          <If when={module()}>{(scope) => <View style={actions}>
+            <Label theme={screen.theme} label={t().scope} muted size={screen.theme.fontSize} />
+            <If when={modules().length > 1} else={<Label theme={screen.theme} label={scope().path || t().root} lines={1} />}>
+              <View style={{ width: 176, maxWidth: "100%", minWidth: 0 }}>
+                <Choice theme={screen.theme} label={t().scope} compact searchable menuHeight={280}
+                  options={modules().map(({ path }) => ({ value: path, title: path || t().root }))}
+                  value={scope().path} disabled={op.busy()} choose={chooseScope} />
+              </View>
+            </If>
+          </View>}</If>
+          <View style={actions}>
+            <Label theme={screen.theme} label={t().defaultFolder} muted size={screen.theme.fontSize} />
+            <View style={{ flex: 1, minWidth: 0, flexBasis: 120 }}>
+              <Label theme={screen.theme} label={props.project.path} title={props.project.path} lines={1} />
+            </View>
+          </View>
+        </View>
+        <Heading theme={screen.theme} label={t().technologies} size={16} />
+        <Feedback theme={screen.theme} label={t().loading} pending={projectsScan().pending}
+          error={op.error() ?? projectsScan().error ?? props.listError} />
+        <If when={module()}>{(scope) => <>
+          <View style={{ gap: 4 }}>
+            <If when={scope().evidence.length === 0}><Label theme={screen.theme} label={t().noTechnologies} muted /></If>
+            <Each of={scope().evidence} key={(item) => item.technology}>
+              {(item) => <View style={{ ...row, minWidth: 0 }}>
+                <Label theme={screen.theme} label={item().technology} weight="500" />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Label theme={screen.theme} label={item().path} title={item().path} muted lines={1} />
+                </View>
+                <If when={item().added}><Label theme={screen.theme} label={t().newTechnology} color={screen.theme.primary} size={12} /></If>
+              </View>}
+            </Each>
+          </View>
+          <View style={{ gap: 8, paddingTop: 12, borderTopWidth: 1, borderColor: screen.theme.border }}>
+            <Heading theme={screen.theme} label={t().recommendations} size={16} />
+            <If when={scope().recommendations.length === 0}><Label theme={screen.theme} label={t().noRecommendations} muted /></If>
+            <Each of={scope().recommendations} key={(item) => item.member.source}>
+              {(item) => <View style={{ borderWidth: 1, borderRadius: screen.theme.radius, borderColor: screen.theme.border,
+                paddingHorizontal: 12, paddingVertical: 8, gap: 4 }}>
+                <View style={row}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Check theme={screen.theme} label={item().member.name} compact checked={selection().has(item().member.source)}
+                      disabled={op.busy()} update={(checked) => pickMembers(scope().path, toggle(selection(), item().member.source, checked))} />
+                  </View>
+                  <Label theme={screen.theme} label={statusLabel(item().installed_slug)} muted size={12} lines={1} />
+                </View>
+                <Label theme={screen.theme} label={projectRecommendationReason(screen.locale, item().technology, item().purpose)} muted size={12} />
+                <Label theme={screen.theme} label={item().member.source} title={item().member.source} muted size={12} lines={1} />
+              </View>}
+            </Each>
+          </View>
+        </>}</If>
+      </Scroll>
+
+      <View style={{ width: "40%", flexShrink: 0, minWidth: 0, minHeight: 0, overflow: "hidden",
+        borderLeftWidth: 1, borderColor: screen.theme.border, backgroundColor: screen.theme.surface }}>
+        <View style={{ ...actions, padding: 12, borderBottomWidth: 1, borderColor: screen.theme.border }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label theme={screen.theme} label={t().inventory} weight="600" />
+          </View>
+          <View style={{ width: 168, maxWidth: "100%", minWidth: 0 }}>
+            <Choice theme={screen.theme} label={t().selectAgent} compact
+              options={props.agents.map((item) => ({ value: item.key, title: item.display_name }))}
+              value={agent()?.key ?? null} disabled={op.busy()}
+              choose={(agentKey) => screen.navigate({ page: "projects", ...target(), agentKey })} />
+          </View>
+        </View>
+        <If when={inventory().pending || inventory().error || !agent() || inventory().data?.length === 0}>
+          <View style={{ padding: 12, gap: 8 }}>
+            <If when={!agent()}><Label theme={screen.theme} label={t().noAgents} muted /></If>
+            <Feedback theme={screen.theme} label={t().loading} pending={inventory().pending} error={inventory().error} />
+            <If when={inventory().data?.length === 0}><Label theme={screen.theme} label={t().emptyInventory} muted /></If>
+          </View>
+        </If>
+        <List each={inventory().data ?? []} estimatedItemSize={48} style={viewport} keyExtractor={(skill) => skill.path}>
+          {(skill) => <View style={{ height: 48, paddingHorizontal: 12, justifyContent: "center", gap: 2,
+            borderBottomWidth: 1, borderColor: screen.theme.border }}>
+            <View style={row}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Label theme={screen.theme} label={skill().name} weight="500" lines={1} />
+              </View>
+              <Label theme={screen.theme} label={t()[skill().location]} muted size={12} lines={1} />
+            </View>
+            <Label theme={screen.theme} label={skill().path} title={skill().path} muted size={12} lines={1} />
+          </View>}
+        </List>
       </View>
     </View>
-    <View style={actions}>
-      <Choice fill theme={screen.theme} label={t().scope}
-        options={modules().map(({ path }) => ({ value: path, title: path || t().root }))}
-        value={module()?.path ?? null} disabled={op.busy()}
-        choose={chooseScope} />
-      <Choice fill theme={screen.theme} label={t().agent}
-        options={props.agents.map((item) => ({ value: item.key, title: item.display_name }))}
-        value={agent()?.key ?? null} disabled={op.busy()}
-        choose={(agentKey) => screen.navigate({ page: "projects", ...target(), agentKey })} />
-    </View>
-    <Feedback theme={screen.theme} label={op.busy() ? t().working : t().loading}
-      pending={op.busy() || projectsScan().pending} error={op.error() ?? projectsScan().error} />
-    <If when={module()}>
-      {(scope) => <>
-        <View style={{ gap: 8 }}>
-          <Heading theme={screen.theme} label={t().technologies} />
-          <If when={scope().evidence.length === 0}><Label theme={screen.theme} label={t().noTechnologies} muted /></If>
-          <Each of={scope().evidence} key={(item) => item.technology}>
-            {(item) => <View style={{ ...actions, minWidth: 0 }}>
-              <Label theme={screen.theme} label={item().technology} />
-              <Label theme={screen.theme} label={item().path} muted />
-              <If when={item().added}><Label theme={screen.theme} label={t().newTechnology} /></If>
-            </View>}
-          </Each>
-        </View>
-        <View style={{ gap: 8 }}>
-          <Heading theme={screen.theme} label={t().recommendations} />
-          <If when={scope().recommendations.length === 0}><Label theme={screen.theme} label={t().noRecommendations} muted /></If>
-          <Each of={scope().recommendations} key={(item) => item.member.source}>
-            {(item) => <View style={{ borderTopWidth: 1, borderColor: screen.theme.border, paddingTop: 8, gap: 4 }}>
-              <Check theme={screen.theme} label={item().member.name} checked={selection().has(item().member.source)}
-                disabled={op.busy()} update={(checked) => pickMembers(scope().path, toggle(selection(), item().member.source, checked))} />
-              <Label theme={screen.theme} label={`${item().technology} · ${t()[item().purpose]} · ${
-                inventory().data?.some((skill) => skill.name === item().installed_slug && skill.location === "project_deployment")
-                  ? t().deployed : item().installed_slug ? t().inLibrary : t().missing
-              }`} muted />
-              <Label theme={screen.theme} label={item().member.source} muted />
-            </View>}
-          </Each>
-          <If when={scope().recommendations.length > 0}>
-            <View style={actions}>
-              <Action theme={screen.theme} label={t().saveRecommendations} primary
-                disabled={op.busy() || members().length === 0} run={saveStack} />
-            </View>
-          </If>
-        </View>
-        <View style={{ gap: 8 }}>
-          <Heading theme={screen.theme} label={t().inventory} />
-          <If when={!agent()}><Label theme={screen.theme} label={t().noAgents} muted /></If>
-          <Feedback theme={screen.theme} label={t().loading} pending={inventory().pending} error={inventory().error} />
-          <If when={inventory().data?.length === 0}><Label theme={screen.theme} label={t().emptyInventory} muted /></If>
-          <List each={inventory().data ?? []} viewport="parent" estimatedItemSize={50}
-            keyExtractor={(skill) => skill.path}>
-            {(skill) => <View style={{ borderTopWidth: 1, borderColor: screen.theme.border, gap: 2, paddingVertical: 8 }}>
-              <Label theme={screen.theme} label={`${skill().name} · ${t()[skill().location]}`} />
-              <Label theme={screen.theme} label={skill().path} muted />
-            </View>}
-          </List>
-        </View>
-      </>}
-    </If>
-  </Scroll>;
+    <Footer theme={screen.theme}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Label theme={screen.theme} label={projectSelectionCount(screen.locale, members().length)} />
+      </View>
+      <Action theme={screen.theme} label={t().saveRecommendations} glyph="plus" primary pending={op.busy()}
+        disabled={projectsScan().pending || members().length === 0} run={saveStack} />
+    </Footer>
+  </>;
 }

@@ -1,6 +1,6 @@
-import { computed, effect, keymap, List, Scroll, signal, View } from "nsh";
+import { cleanup, effect, keymap, List, Scroll, signal, View, type InputRef } from "nsh";
 import type { ScreenProps } from "../shared";
-import { Action, Check, Feedback, Field, Heading, Label, actions, confirm, load, operation, padding, toggle, viewport } from "./controls";
+import { Action, Check, Feedback, Field, Header, Label, actions, confirm, load, operation, padding, toggle, viewport } from "./controls";
 import { request, type Stack, type StackFormData } from "./host";
 import { stackMemberRows } from "./members";
 import { strings } from "./strings";
@@ -34,7 +34,7 @@ export function StackEditor(props: FormProps & { stack?: Stack }) {
     screen.navigate(original ? {
       page: "stacks", stackId: original.id, source: "Local",
       projectId: screen.route.projectId, scopePath: screen.route.scopePath, agentKey: screen.route.agentKey,
-    } : { page: "stacks" });
+    } : { page: "stacks", source: "Local" });
   }
 
   function save() {
@@ -52,48 +52,62 @@ export function StackEditor(props: FormProps & { stack?: Stack }) {
     });
   }
 
+  let search: InputRef | undefined;
   effect(() => {
     if (!screen.active) return;
-    const unbindSave = keymap.bind("mod+s", () => { void save(); }, { when: "always" });
-    const unbindCancel = keymap.bind("escape", cancel, { when: "notEditing" });
-    return () => {
-      unbindSave();
-      unbindCancel();
-    };
+    cleanup(keymap.bind({
+      "mod+s": () => { void save(); },
+      "mod+k": () => search?.focus(),
+    }, { when: "always" }));
+    cleanup(keymap.bind("escape", cancel, { when: "notEditing" }));
   });
 
-  return <Scroll style={viewport} contentStyle={padding}>
-    <Heading theme={screen.theme} label={original ? t().edit : t().create} level={1} />
-    <Field theme={screen.theme} label={t().name} value={name()} update={name.set} />
-    <Field theme={screen.theme} label={t().author} value={author()} update={author.set} />
-    <Field theme={screen.theme} label={t().description} value={description()} update={description.set} multiline />
-    <Field theme={screen.theme} label={t().tags} value={tags()} update={tags.set} />
-    <If when={original?.skills.length}>
-      <Heading theme={screen.theme} label={t().keepMembers} />
-      <List each={originalRows} keyExtractor={(row) => row.key} viewport="parent" estimatedItemSize={46}>
-        {(row) => <View style={{ gap: 2, paddingVertical: 4 }}>
-          <Check theme={screen.theme} label={row().item.name} checked={!removed().has(row().originalIndex)}
-            disabled={op.busy()} update={(checked) => removed.set(toggle(removed(), row().originalIndex, !checked))} />
-          <Label theme={screen.theme} label={row().item.source} muted />
-        </View>}
-      </List>
-    </If>
-    <Heading theme={screen.theme} label={`${t().selectSkills} (${added().size})`} />
-    <Field theme={screen.theme} label={t().searchSkills} value={query()} update={query.set} search />
-    <Feedback theme={screen.theme} label={op.busy() ? t().working : t().loading}
-      pending={op.busy() || library().pending} error={op.error() ?? library().error} />
-    <If when={!library().pending && !library().error && skills().length === 0}>
-      <Label theme={screen.theme} label={t().noSkills} muted />
-    </If>
-    <List each={skills()} viewport="parent" estimatedItemSize={32} keyExtractor={(skill) => skill.id}>
-      {(skill) => <Check theme={screen.theme} label={skill().name} checked={added().has(skill().id)}
-        disabled={op.busy()} update={(checked) => added.set(toggle(added(), skill().id, checked))} />}
-    </List>
-    <View style={actions}>
-      <Action theme={screen.theme} label={t().saveStack} primary disabled={!ready()} run={save} />
-      <Action theme={screen.theme} label={t().cancel} disabled={op.busy()} run={cancel} />
-    </View>
-  </Scroll>;
+  return <>
+    <Header theme={screen.theme} title={original ? t().edit : t().create}>
+      <Action theme={screen.theme} label={t().cancel} ghost disabled={op.busy()} run={cancel} />
+    </Header>
+    <Scroll style={viewport}>
+      <View style={{ width: "100%", maxWidth: 720, minWidth: 0, ...padding }}>
+        <If when={!original}><Label theme={screen.theme} label={t().createDescription} muted size={screen.theme.fontSize} /></If>
+        <Field theme={screen.theme} label={t().name} placeholder={t().namePlaceholder} value={name()} update={name.set} />
+        <Field theme={screen.theme} label={t().author} placeholder={t().authorPlaceholder} value={author()} update={author.set} />
+        <Field theme={screen.theme} label={t().description} placeholder={t().descriptionPlaceholder} value={description()} update={description.set} />
+        <Field theme={screen.theme} label={t().tags} value={tags()} update={tags.set} />
+        <If when={originalRows.length > 0}>
+          <Label theme={screen.theme} label={t().keepMembers} weight="600" />
+          <List each={originalRows} keyExtractor={(row) => row.key} viewport="parent" estimatedItemSize={46}>
+            {(row) => <View style={{ gap: 2, paddingVertical: 4 }}>
+              <Check theme={screen.theme} label={row().item.name} checked={!removed().has(row().originalIndex)}
+                disabled={op.busy()} update={(checked) => removed.set(toggle(removed(), row().originalIndex, !checked))} />
+              <Label theme={screen.theme} label={row().item.source} title={row().item.source} muted lines={1} />
+            </View>}
+          </List>
+        </If>
+        <View style={{ minWidth: 0, gap: 8 }}>
+          <Label theme={screen.theme} label={`${t().selectSkills} (${added().size})`} weight="600" />
+          <Field theme={screen.theme} label={t().searchSkills} value={query()} update={query.set} search
+            receiveRef={(element) => { search = element; }} />
+          <Feedback theme={screen.theme} label={t().working} pending={library().pending} error={op.error() ?? library().error} />
+          <If when={skills().length > 0} else={
+            <If when={!library().pending && !library().error}>
+              <Label theme={screen.theme} label={library().data?.length ? t().noSkills : t().noLibrarySkills} muted />
+            </If>
+          }>
+            <List each={skills()} estimatedItemSize={36} keyExtractor={(skill) => skill.id}
+              style={{ height: Math.min(5, skills().length) * 36, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+              {(skill) => <View style={{ height: 36, justifyContent: "center", paddingHorizontal: 8 }}>
+                <Check theme={screen.theme} label={skill().name} compact checked={added().has(skill().id)}
+                  disabled={op.busy()} update={(checked) => added.set(toggle(added(), skill().id, checked))} />
+              </View>}
+            </List>
+          </If>
+        </View>
+        <View style={{ ...actions, justifyContent: "flex-end" }}>
+          <Action theme={screen.theme} label={t().saveStack} glyph="check" primary pending={op.busy()} disabled={!ready()} run={save} />
+        </View>
+      </View>
+    </Scroll>
+  </>;
 }
 
 export function StackImport(props: FormProps) {
@@ -101,34 +115,32 @@ export function StackImport(props: FormProps) {
   const t = () => strings(screen.locale);
   const op = operation(screen);
   const toml = signal("");
-  const staged = signal<{ stack: Stack; previous: string | null; raw: string } | undefined>(undefined);
-  const stagedRows = computed(() => stackMemberRows(staged()?.stack.skills ?? [], (member) => member));
 
-  function update(text: string) {
-    toml.set(text);
-    staged.set(undefined);
+  function cancel() {
+    if (!op.busy()) screen.navigate({ page: "stacks", source: "Local" });
   }
 
   function chooseFile() {
     return op.run(async () => {
       const path = await request("dialog.open", { title: t().openFile, extensions: ["toml"] });
       return path ? request("stack.read_toml", { path }) : null;
-    }, (text) => { if (text !== null) update(text); });
+    }, (text) => { if (text !== null) toml.set(text); });
   }
 
   function preview() {
     const raw = toml();
-    return op.run(() => request("stack.preview_import", { toml: raw }), (result) => {
-      if (toml() === raw) staged.set({ ...result, raw });
-    });
-  }
-
-  function finish() {
-    const preview = staged();
-    if (!preview || preview.raw !== toml()) return;
+    if (!raw.trim()) return;
     return op.run(async () => {
-      if (preview.previous && !await confirm(screen, preview.stack.name, t().import, t().replaceImport, true)) return;
-      return request("stack.import", { toml: preview.raw, previous: preview.previous });
+      const { stack, previous } = await request("stack.preview_import", { toml: raw });
+      if (toml() !== raw || !screen.active) return;
+      const description = [
+        `${t().includedSkills} (${stack.skills.length})`,
+        ...stack.skills.slice(0, 5).map((member) => member.name),
+        ...(stack.skills.length > 5 ? ["…"] : []),
+        ...(previous ? ["", t().replaceImport] : []),
+      ].join("\n");
+      if (!await confirm(screen, stack.name, t().import, description, previous !== null)) return;
+      return request("stack.import", { toml: raw, previous });
     }, (stack) => {
       if (!stack) return;
       props.saved(stack);
@@ -136,30 +148,25 @@ export function StackImport(props: FormProps) {
     });
   }
 
-  return <Scroll style={viewport} contentStyle={padding}>
-    <Heading theme={screen.theme} label={t().import} level={1} />
-    <View style={actions}>
-      <Action theme={screen.theme} label={t().openFile} run={chooseFile} disabled={op.busy()} />
-    </View>
-    <Field theme={screen.theme} label={t().pasteToml} value={toml()} update={update} multiline mono />
-    <Feedback theme={screen.theme} label={t().working} pending={op.busy()} error={op.error()} />
-    <View style={actions}>
-      <Action theme={screen.theme} label={t().previewImport} primary
-        disabled={op.busy() || !toml().trim()} run={preview} />
-      <Action theme={screen.theme} label={t().cancel} disabled={op.busy()} run={() => screen.navigate({ page: "stacks" })} />
-    </View>
-    <If when={staged()}>
-      {(preview) => <View style={{ gap: 8, borderTopWidth: 1, borderColor: screen.theme.border, paddingTop: 12 }}>
-        <Heading theme={screen.theme} label={preview().stack.name} />
-        <Label theme={screen.theme} label={`${t().includedSkills} (${preview().stack.skills.length})`} />
-        <List each={stagedRows()} keyExtractor={(row) => row.key} viewport="parent" estimatedItemSize={24}>
-          {(row) => <Label theme={screen.theme} label={row().item.name} />}
-        </List>
-        <If when={preview().previous}><Label theme={screen.theme} label={t().replaceImport} danger /></If>
+  return <>
+    <Header theme={screen.theme} title={t().import}>
+      <Action theme={screen.theme} label={t().cancel} ghost disabled={op.busy()} run={cancel} />
+    </Header>
+    <Scroll style={viewport}>
+      <View style={{ width: "100%", maxWidth: 720, minWidth: 0, ...padding }}>
         <View style={actions}>
-          <Action theme={screen.theme} label={t().import} primary disabled={op.busy()} run={finish} />
+          <View style={{ flex: 1, minWidth: 0, flexBasis: 180 }}>
+            <Label theme={screen.theme} label={t().importDescription} muted size={screen.theme.fontSize} />
+          </View>
+          <Action theme={screen.theme} label={t().openFile} compact run={chooseFile} disabled={op.busy()} />
         </View>
-      </View>}
-    </If>
-  </Scroll>;
+        <Field theme={screen.theme} label={t().pasteToml} placeholder={t().pasteToml} hideLabel
+          value={toml()} update={toml.set} multiline mono height={280} />
+        <Feedback theme={screen.theme} label={t().working} error={op.error()} />
+        <View style={{ ...actions, justifyContent: "flex-end" }}>
+          <Action theme={screen.theme} label={t().previewImport} primary pending={op.busy()} disabled={!toml().trim()} run={preview} />
+        </View>
+      </View>
+    </Scroll>
+  </>;
 }

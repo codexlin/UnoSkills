@@ -1,33 +1,45 @@
-import { Clipboard, computed, effect, keymap, List, Scroll, signal, View, type InputRef } from "nsh";
-import type { ScreenProps } from "../shared";
+import { Clipboard, cleanup, computed, effect, keymap, List, Scroll, signal, Text, View, type InputRef, type JSX } from "nsh";
+import { Button, MenuSeparator, ResizablePanel, ResizablePanelGroup, Tab, Tabs } from "nsh/base";
+import { Icon } from "../controls";
+import type { IconName } from "../icons";
+import type { ScreenProps, Theme } from "../shared";
 import {
-  Action, Choice, Feedback, Field, Heading, Label, RowButton, SidebarPane, WorkspacePane,
-  actions, confirm, load, operation, padding, viewport,
+  Action, Choice, Feedback, Field, Footer, Header, Heading, Label, MenuAction, OverflowMenu,
+  confirm, load, operation, padding, row, viewport,
 } from "./controls";
 import { StackDeploy } from "./deploy";
 import { StackEditor, StackImport } from "./editor";
 import { InstallReport } from "./reports";
 import { request, stackRef, type InstallResult, type Stack, type StackSource } from "./host";
 import { stackMemberRows } from "./members";
-import { strings } from "./strings";
+import { installCounts, stackSize, strings } from "./strings";
 
-const sources = ["all", "Local", "Featured", "Community"] as const;
-type Filter = typeof sources[number];
+const sourceFilters = ["all", "Featured", "Community"] as const;
+type SourceFilter = typeof sourceFilters[number];
 
 export function Stacks(props: ScreenProps) {
   const t = () => strings(props.locale);
-  const catalogRoute = computed(() => props.route.stackId ? undefined : props.route.source as Filter | undefined);
-  const filter = signal<Filter>("all");
+  const tab = signal<"Local" | "catalog">("Local");
+  const source = signal<SourceFilter>("all");
   const query = signal("");
   const tag = signal("");
+  const width = signal(304);
+  const reloadCommunity = signal(0);
+  const mode = () => props.route.tab;
+  const editorOpen = () => ["create", "edit", "import"].includes(mode() ?? "");
+  const catalogRoute = computed(() => props.route.source);
   effect(() => {
-    const source = catalogRoute();
-    if (source && sources.includes(source)) {
-      filter.set(source);
-      tag.set("");
+    const catalogSource = catalogRoute();
+    if (catalogSource === "Local") {
+      tab.set("Local");
+    } else if (catalogSource && sourceFilters.includes(catalogSource as SourceFilter)) {
+      tab.set("catalog");
+      if (!props.route.stackId) {
+        source.set(catalogSource as SourceFilter);
+        tag.set("");
+      }
     }
   });
-  const reloadCommunity = signal(0);
   const catalog = load(() => {
     void props.revision;
     return request("stack.list", null);
@@ -37,121 +49,226 @@ export function Stacks(props: ScreenProps) {
     return request("stack.community", null);
   }, true);
   const local = () => catalog().data?.local ?? [];
-  const featured = () => catalog().data?.featured ?? [];
-  const remote = () => community().data ?? [];
-  const all = () => [...featured(), ...remote().filter((stack) => !featured().some((builtIn) => builtIn.id === stack.id))];
-  const stacks = () => {
-    switch (filter()) {
-      case "Local": return local();
-      case "Featured": return featured();
-      case "Community": return remote();
-      case "all": return all();
+  const available = computed(() => {
+    const builtIn = catalog().data?.featured ?? [];
+    const remote = community().data ?? [];
+    if (source() === "Featured") return builtIn;
+    if (source() === "Community") return remote;
+    const merged = new Map<string, Stack>();
+    for (const stack of [...builtIn, ...remote]) {
+      if (!merged.has(stack.id)) merged.set(stack.id, stack);
     }
-  };
-  const tags = () => Array.from(new Set(stacks().flatMap((stack) => stack.tags))).sort();
-  const filtered = () => {
+    return [...merged.values()];
+  });
+  const tags = () => Array.from(new Set(available().flatMap((stack) => stack.tags))).sort();
+  const filtered = computed(() => {
+    if (tab() === "Local") return local();
     const term = query().trim().toLocaleLowerCase();
-    const activeTag = tag();
-    return stacks().filter((stack) =>
-      (!activeTag || stack.tags.includes(activeTag)) &&
+    const activeTag = tag().toLocaleLowerCase();
+    return available().filter((stack) =>
+      (!activeTag || stack.tags.some((value) => value.toLocaleLowerCase() === activeTag)) &&
       (!term || [stack.name, stack.id, stack.author, stack.description, ...stack.tags].some((field) => field.toLocaleLowerCase().includes(term)))
     );
-  };
-  const selected = () => {
+  });
+  const selected = computed(() => {
     const id = props.route.stackId;
-    const source = props.route.source;
-    if (!id) return (props.route.source === "Local" ? local() : filtered())[0];
-    const candidates = [...local(), ...featured(), ...remote()];
-    return candidates.find((stack) => stack.id === id && (!source || source === stack.source));
-  };
-  const mode = () => props.route.tab;
-  const isBrowse = () => !["create", "edit", "import", "deploy"].includes(mode() ?? "");
+    const origin = props.route.source;
+    const matching = (stack: Stack) => stack.id === id && (!origin || origin === stack.source);
+    if (mode() === "edit" || mode() === "deploy") return local().find(matching);
+    return filtered().find(matching) ?? filtered()[0];
+  });
   let search: InputRef | undefined;
+  let pendingSearchFocus = false;
+
+  function registerSearch(element: InputRef) {
+    search = element;
+    if (pendingSearchFocus) {
+      pendingSearchFocus = false;
+      queueMicrotask(() => { if (props.active && tab() === "catalog") search?.focus(); });
+    }
+  }
+
+  function pickTab(next: "Local" | "catalog") {
+    tab.set(next);
+    props.navigate({ page: "stacks", source: next === "Local" ? "Local" : source() });
+  }
+
   effect(() => {
-    if (!props.active) return;
-    return keymap.bind("mod+k", () => search?.focus());
+    if (!props.active || editorOpen() || mode() === "deploy") return;
+    cleanup(keymap.bind("mod+k", () => {
+      if (tab() === "catalog") {
+        search?.focus();
+      } else {
+        pendingSearchFocus = true;
+        pickTab("catalog");
+      }
+    }, { when: "always" }));
   });
 
-  function open(stack: Stack, tab?: string) {
+  function open(stack: Stack, nextMode?: string) {
     props.navigate({
-      page: "stacks", stackId: stack.id, source: stack.source, tab,
+      page: "stacks", stackId: stack.id, source: stack.source, tab: nextMode,
       projectId: props.route.projectId, scopePath: props.route.scopePath, agentKey: props.route.agentKey,
     });
   }
 
   function openLocal(stack: Stack) {
-    filter.set("Local");
     open({ ...stack, source: "Local" });
     props.refresh();
   }
 
-  function changeFilter(value: string) {
-    filter.set(value as Filter);
-    tag.set("");
-    props.navigate({ page: "stacks" });
+  function chooseFilter(value: string) {
+    if (value.startsWith("tag:")) {
+      tag.set(value.slice(4));
+    } else if (sourceFilters.includes(value as SourceFilter)) {
+      source.set(value as SourceFilter);
+      if (!tags().includes(tag())) tag.set("");
+    }
   }
 
-  return <WorkspacePane theme={props.theme}>
-    <SidebarPane theme={props.theme}>
-      <View style={{ padding: 16, gap: 8 }}>
-        <Heading theme={props.theme} label={t().stacks} level={1} />
-        <View style={actions}>
-          <Action theme={props.theme} label={t().create} primary
-            run={() => props.navigate({ page: "stacks", tab: "create" })} />
+  return <View style={{ ...viewport, backgroundColor: props.theme.background }}>
+    <If when={editorOpen()} else={
+      <>
+        <Header theme={props.theme} title={t().stacks}>
           <Action theme={props.theme} label={t().import}
             run={() => props.navigate({ page: "stacks", tab: "import" })} />
+          <Action theme={props.theme} label={t().create} glyph="plus"
+            run={() => props.navigate({ page: "stacks", tab: "create" })} />
+        </Header>
+        <Tabs accessibilityLabel={t().stacks} indicatorStyle={{ bottom: 0, height: 2, backgroundColor: props.theme.primary }}
+          style={{ ...row, minHeight: 36, paddingHorizontal: 20, borderBottomWidth: 1,
+            borderColor: props.theme.border, flexShrink: 0, gap: 16 }}>
+          <CatalogTab theme={props.theme} label={t().Local} glyph="layers" selected={tab() === "Local"} run={() => pickTab("Local")} />
+          <CatalogTab theme={props.theme} label={t().Featured} glyph="users" selected={tab() === "catalog"} run={() => pickTab("catalog")} />
+        </Tabs>
+        <View style={viewport}>
+          <ResizablePanelGroup axis="horizontal" handleStyle={{ backgroundColor: props.theme.border }}
+            handleAccessibilityLabel={t().stacks}>
+            <ResizablePanel size={width()} minSize={240} maxSize={500} onResize={({ size }) => width.set(size)}
+              style={{ ...viewport, backgroundColor: props.theme.background }}>
+              <If when={tab() === "catalog"}>
+                <View style={{ padding: 12, gap: 8, flexShrink: 0, borderBottomWidth: 1, borderColor: props.theme.border }}>
+                  <View style={row}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Field theme={props.theme} label={t().searchStacks} search compact value={query()}
+                        update={query.set} receiveRef={registerSearch}
+                        submit={() => { const stack = filtered()[0]; if (stack) open(stack); }} />
+                    </View>
+                    <Action theme={props.theme} label={t().refreshCommunity} glyph="refresh-cw" iconOnly compact
+                      pending={community().pending} run={() => reloadCommunity.update((value) => value + 1)} />
+                  </View>
+                  <View style={{ width: 168, maxWidth: "100%" }}>
+                    <Choice theme={props.theme} label={t().filterTag} compact menuWidth={240} menuHeight={360}
+                      options={[
+                        { value: "tag:", title: t().allTags },
+                        ...tags().map((value) => ({ value: `tag:${value}`, title: value })),
+                        ...sourceFilters.map((value) => ({ value, title: t()[value], group: t().catalogSource })),
+                      ]}
+                      value={tag() ? `tag:${tag()}` : source() === "all" ? "tag:" : source()}
+                      displayValue={tag() || (source() === "all" ? t().allTags : t()[source()])}
+                      choose={chooseFilter} />
+                  </View>
+                  <Feedback theme={props.theme} label={t().loading} error={community().error} />
+                </View>
+              </If>
+              <If when={catalog().pending || catalog().error}>
+                <View style={{ padding: 12 }}>
+                  <Feedback theme={props.theme} label={t().loading} pending={catalog().pending} error={catalog().error} />
+                </View>
+              </If>
+              <If when={filtered().length > 0} else={
+                <If when={!catalog().pending && (tab() === "Local" || !community().pending)}>
+                  <CatalogEmpty theme={props.theme} title={tab() === "Local" ? t().noLocalStacks : t().noFeaturedStacks}
+                    description={t().emptyStacksDescription} showIcon>
+                    <Action theme={props.theme} label={t().createFirst} primary compact
+                      run={() => props.navigate({ page: "stacks", tab: "create" })} />
+                  </CatalogEmpty>
+                </If>
+              }>
+                <List each={filtered()} keyExtractor={(stack) => `${stack.source}:${stack.id}`} estimatedItemSize={68} style={viewport}>
+                  {(stack) => <StackCard theme={props.theme} stack={stack()} locale={props.locale}
+                    selected={selected()?.id === stack().id && selected()?.source === stack().source} run={() => open(stack())} />}
+                </List>
+              </If>
+            </ResizablePanel>
+            <ResizablePanel minSize={240} style={{ ...viewport, backgroundColor: props.theme.surface }}>
+              <If when={selected()} else={
+                <CatalogEmpty theme={props.theme} title={t().selectStack} description={t().selectStackDescription} />
+              }>
+                {(stack) => <StackDetail screen={props} stack={stack()} local={local()} open={open} />}
+              </If>
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </View>
-        <Choice theme={props.theme} label={t().catalogSource}
-          options={sources.map((source) => ({ value: source, title: t()[source] }))}
-          value={filter()} choose={changeFilter} />
-        <Field theme={props.theme} label={t().searchStacks} search value={query()}
-          update={query.set} receiveRef={(element) => { search = element; }}
-          submit={() => { const stack = filtered()[0]; if (stack) open(stack); }} />
-        <If when={tags().length > 0}>
-          <Choice theme={props.theme} label={t().filterTag}
-            options={[{ value: "", title: t().allTags }, ...tags().map((value) => ({ value, title: value }))]}
-            value={tag()} choose={tag.set} />
-        </If>
-        <Feedback theme={props.theme} label={t().loading} pending={catalog().pending}
-          error={catalog().error} />
-        <If when={filter() === "all" || filter() === "Community"}>
-          <Feedback theme={props.theme} label={t().Community} pending={community().pending} error={community().error} />
-          <Action theme={props.theme} label={t().refresh} disabled={community().pending}
-            run={() => reloadCommunity.update((value) => value + 1)} />
-        </If>
-      </View>
-      <If when={filtered().length === 0 && !catalog().pending && !community().pending}>
-        <View style={{ paddingHorizontal: 16 }}><Label theme={props.theme} label={t().noStacks} muted /></View>
-      </If>
-      <List each={filtered()} keyExtractor={(stack) => `${stack.source}:${stack.id}`} estimatedItemSize={50}
-        style={viewport} contentStyle={{ paddingHorizontal: 8, paddingBottom: 12 }}>
-        {(stack) => <RowButton theme={props.theme} title={stack().name}
-          detail={stack().author ? `${t()[stack().source]} · ${stack().author}` : t()[stack().source]}
-          selected={isBrowse() && selected()?.id === stack().id && selected()?.source === stack().source}
-          run={() => open(stack())} />}
-      </List>
-    </SidebarPane>
-    <View style={viewport}>
+      </>
+    }>
       <If when={mode() === "create"}><StackEditor screen={props} saved={openLocal} /></If>
       <If when={mode() === "import"}><StackImport screen={props} saved={openLocal} /></If>
-      <If when={selected()}>
-        {(stack) => <>
-          <If when={mode() === "edit" && stack().source === "Local"}>
-            <StackEditor screen={props} stack={stack()} saved={openLocal} />
-          </If>
-          <If when={mode() === "deploy" && stack().source === "Local"}>
-            <StackDeploy screen={props} stack={stack()} back={() => open(stack())} />
-          </If>
-          <If when={isBrowse()}>
-            <StackDetail screen={props} stack={stack()} local={local()} open={open} />
-          </If>
-        </>}
+      <If when={mode() === "edit"}>
+        <If when={selected()} else={
+          <Header theme={props.theme} title={t().edit}>
+            <Action theme={props.theme} label={t().cancel} ghost run={() => props.navigate({ page: "stacks", source: "Local" })} />
+          </Header>
+        }>
+          {(stack) => <StackEditor screen={props} stack={stack()} saved={openLocal} />}
+        </If>
       </If>
-      <If when={!selected() && !["create", "import"].includes(mode() ?? "") && !catalog().pending}>
-        <View style={padding}><Heading theme={props.theme} label={t().selectStack} /></View>
-      </If>
-    </View>
-  </WorkspacePane>;
+    </If>
+    <If when={mode() === "deploy" ? selected() : undefined}>
+      {(stack) => <StackDeploy screen={props} stack={stack()} back={() => open(stack())} />}
+    </If>
+  </View>;
+}
+
+function CatalogTab(props: { theme: Theme; label: string; glyph: IconName; selected: boolean; run: () => void }) {
+  return <Tab accessibilityLabel={props.label} selected={props.selected} onPress={props.run}
+    style={{ ...row, gap: 4, height: 35 }} hoverStyle={{ opacity: 0.84 }}>
+    <Icon name={props.glyph} color={props.selected ? props.theme.foreground : props.theme.muted} size={14} />
+    <Label theme={props.theme} label={props.label} muted={!props.selected} size={props.theme.fontSize} />
+  </Tab>;
+}
+
+function CatalogEmpty(props: { theme: Theme; title: string; description: string; showIcon?: boolean; children?: JSX.Element }) {
+  return <View style={{ ...viewport, alignItems: "center", justifyContent: "center", padding: 16, gap: 8 }}>
+    <If when={props.showIcon}><Icon name="layout-dashboard" color={props.theme.muted} size={24} /></If>
+    <Heading theme={props.theme} label={props.title} />
+    <Text style={{ fontFamily: props.theme.fontFamily, fontSize: props.theme.fontSize - 2, color: props.theme.muted,
+      textAlign: "center", maxWidth: "100%" }}>{props.description}</Text>
+    {props.children}
+  </View>;
+}
+
+function StackBadge(props: { theme: Theme; label: string; variant: "verified" | "community" | "local" }) {
+  return <View style={{ flexShrink: 0, paddingHorizontal: 6, borderWidth: 1, borderRadius: 4,
+    borderColor: props.variant === "verified" ? props.theme.success : props.theme.border,
+    backgroundColor: props.variant === "local" ? props.theme.surface : "transparent" }}>
+    <Label theme={props.theme} label={props.label} size={11} lines={1}
+      color={props.variant === "verified" ? props.theme.success : props.theme.foreground} />
+  </View>;
+}
+
+function StackCard(props: { theme: Theme; stack: Stack; locale: ScreenProps["locale"]; selected: boolean; run: () => void }) {
+  const t = () => strings(props.locale);
+  return <View style={{ paddingHorizontal: 12, paddingVertical: 4 }}>
+    <Button accessibilityLabel={props.stack.name} selected={props.selected} onPress={props.run}
+      style={{ height: 60, minWidth: 0, overflow: "hidden", justifyContent: "center", gap: 4,
+        paddingHorizontal: 12, borderWidth: 1, borderColor: props.theme.border, borderRadius: props.theme.radius,
+        backgroundColor: props.theme.background }}
+      hoverStyle={{ backgroundColor: props.theme.accent }}
+      selectedStyle={{ backgroundColor: props.theme.accent, borderColor: props.theme.primary }}
+      focusVisibleStyle={{ borderColor: props.theme.primary }} activeStyle={{ opacity: 0.82 }}>
+      <View style={row}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label theme={props.theme} label={props.stack.name} weight="600" lines={1} />
+        </View>
+        <StackBadge theme={props.theme}
+          variant={props.stack.verified ? "verified" : props.stack.source === "Community" ? "community" : "local"}
+          label={props.stack.verified ? t().verified : props.stack.source === "Community" ? t().Community : t().localBadge} />
+      </View>
+      <Label theme={props.theme} label={[stackSize(props.locale, props.stack.skills.length), props.stack.description].filter(Boolean).join(" · ")}
+        muted size={12} lines={1} />
+    </Button>
+  </View>;
 }
 
 function StackDetail(props: {
@@ -223,65 +340,102 @@ function StackDetail(props: {
     });
   }
 
-  return <Scroll style={viewport} contentStyle={padding}>
-    <View style={{ gap: 8, minWidth: 0 }}>
-      <Heading theme={screen.theme} label={props.stack.name} level={1} />
-      <Label theme={screen.theme} label={[t()[props.stack.source], props.stack.author, props.stack.verified ? t().verified : ""].filter(Boolean).join(" · ")} muted />
-      <If when={props.stack.description}><Label theme={screen.theme} label={props.stack.description} /></If>
-      <If when={props.stack.tags.length > 0}><Label theme={screen.theme} label={props.stack.tags.join(", ")} muted /></If>
+  const allInstalled = () => !members().pending && !members().error && missing() === 0;
+  const pendingMember = signal<string | undefined>(undefined);
+
+  function installMember(status: ReturnType<typeof memberRows>[number]) {
+    pendingMember.set(status.key);
+    return op.run(() => request("stack.install_member", {
+      ...stackRef(props.stack), member_name: status.item.member.name, member_source: status.item.member.source,
+    }), () => {
+      outcome.set(undefined);
+      screen.refresh();
+      screen.notify(t().installed, "success");
+    }).finally(() => pendingMember.set(undefined));
+  }
+
+  return <View style={viewport}>
+    <Scroll style={viewport} contentStyle={{ ...padding, gap: 16 }}>
+      <View style={row}>
+        <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
+          <View style={row}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Heading theme={screen.theme} label={props.stack.name} lines={1} />
+            </View>
+            <If when={props.stack.verified}><StackBadge theme={screen.theme} variant="verified" label={t().verified} /></If>
+          </View>
+          <If when={props.stack.description}><Label theme={screen.theme} label={props.stack.description} /></If>
+        </View>
+        <View style={{ alignSelf: "flex-start", flexShrink: 0 }}>
+          <OverflowMenu theme={screen.theme} label={t().stackActions}>
+            <MenuAction theme={screen.theme} label={t().copyToml} disabled={op.busy()} run={copyToml} />
+            <MenuAction theme={screen.theme} label={t().export} disabled={op.busy()} run={exportToml} />
+            <MenuAction theme={screen.theme} label={t().share} disabled={op.busy()} run={share} />
+            <If when={isLocal()} else={
+              <If when={hasLocal()}>
+                <MenuAction theme={screen.theme} label={t().Local} disabled={op.busy()} run={() => {
+                  const stack = props.local.find(({ id }) => id === props.stack.id);
+                  if (stack) props.open(stack);
+                }} />
+              </If>
+            }>
+              <MenuSeparator style={{ height: 1, backgroundColor: screen.theme.border, marginVertical: 4 }} />
+              <MenuAction theme={screen.theme} label={t().edit} disabled={op.busy()} run={() => props.open(props.stack, "edit")} />
+              <MenuAction theme={screen.theme} label={t().delete} danger disabled={op.busy()} run={remove} />
+            </If>
+          </OverflowMenu>
+        </View>
+      </View>
       <If when={props.stack.recommended_agents.length > 0}>
-        <Label theme={screen.theme} muted label={`${t().recommendedAgents} · ${props.stack.recommended_agents.join(", ")}`} />
+        <Label theme={screen.theme} muted label={`${t().recommendedAgents}  ${props.stack.recommended_agents.join(", ")}`} />
       </If>
-    </View>
-    <View style={actions}>
+      <Label theme={screen.theme} label={`${t().includedSkills} (${props.stack.skills.length})`} weight="600" />
+      <Feedback theme={screen.theme} label={t().loading} pending={members().pending} error={op.error() ?? members().error} />
+      <If when={installedResult()}>{(result) => <InstallReport screen={screen} result={result()} />}</If>
+      <View style={{ borderTopWidth: 1, borderColor: screen.theme.border }}>
+        <List each={memberRows()} keyExtractor={(row) => row.key} viewport="parent" estimatedItemSize={56}>
+          {(item) => {
+            const status = () => item().item;
+            return <View style={{ ...row, minHeight: 40, borderBottomWidth: 1, borderColor: screen.theme.border, paddingVertical: 8 }}>
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <Label theme={screen.theme} label={status().member.name} weight="600" lines={1} />
+                <Label theme={screen.theme} label={status().member.source}
+                  title={[status().member.source, status().member.note].filter(Boolean).join("\n")} muted size={12} lines={1} />
+              </View>
+              <If when={status().installed} else={
+                <Action theme={screen.theme} label={t().install} compact glyph="arrow-down"
+                  disabled={op.busy()} pending={op.busy() && pendingMember() === item().key} run={() => installMember(item())} />
+              }>
+                {(skill) => <Button
+                  accessibilityLabel={status().source_conflict ? t().sourceConflict : t().inLibrary}
+                  onPress={() => screen.navigate({ page: "library", skillId: skill().id })}
+                  focusVisibleStyle={{ borderColor: screen.theme.primary }}
+                  style={{ flexShrink: 0, minHeight: 24, maxWidth: "46%", justifyContent: "center", borderWidth: 1,
+                    borderColor: "transparent", borderRadius: screen.theme.radius }}>
+                  <Label theme={screen.theme} label={status().source_conflict ? t().sourceConflict : t().inLibrary}
+                    color={status().source_conflict ? screen.theme.warning : screen.theme.success} size={12} lines={1} />
+                </Button>}
+              </If>
+            </View>;
+          }}
+        </List>
+      </View>
+    </Scroll>
+    <Footer theme={screen.theme}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <If when={members().data}>
+          <Label theme={screen.theme} label={installCounts(screen.locale, missing(), props.stack.skills.length - missing())} muted size={12} />
+        </If>
+      </View>
+      <If when={isLocal() && props.stack.skills.length > 0}>
+        <Action theme={screen.theme} label={t().deploy} glyph="folder-open" primary={allInstalled()}
+          disabled={op.busy()} run={() => props.open(props.stack, "deploy")} />
+      </If>
       <If when={!members().pending && !members().error && (missing() > 0 || !hasLocal())}>
         <Action theme={screen.theme} label={missing() > 0 ? t().installMissing : t().saveStack}
-          primary disabled={op.busy()} run={install} />
+          glyph={missing() > 0 ? "arrow-down" : "check"} primary pending={op.busy() && pendingMember() === undefined}
+          disabled={op.busy()} run={install} />
       </If>
-      <If when={isLocal()}>
-        <Action theme={screen.theme} label={t().deploy} primary={missing() === 0}
-          disabled={op.busy() || props.stack.skills.length === 0} run={() => props.open(props.stack, "deploy")} />
-        <Action theme={screen.theme} label={t().edit} disabled={op.busy()} run={() => props.open(props.stack, "edit")} />
-        <Action theme={screen.theme} label={t().delete} danger disabled={op.busy()} run={remove} />
-      </If>
-      <If when={!isLocal() && hasLocal()}>
-        <Action theme={screen.theme} label={t().Local} disabled={op.busy()} run={() => {
-          const stack = props.local.find(({ id }) => id === props.stack.id);
-          if (stack) props.open(stack);
-        }} />
-      </If>
-      <Action theme={screen.theme} label={t().export} disabled={op.busy()} run={exportToml} />
-      <Action theme={screen.theme} label={t().copyToml} disabled={op.busy()} run={copyToml} />
-      <Action theme={screen.theme} label={t().share} disabled={op.busy()} run={share} />
-    </View>
-    <Feedback theme={screen.theme} label={op.busy() ? t().working : t().loading}
-      pending={members().pending || op.busy()} error={op.error() ?? members().error} />
-    <If when={installedResult()}>{(result) => <InstallReport screen={screen} result={result()} />}</If>
-    <Heading theme={screen.theme} label={`${t().includedSkills} (${props.stack.skills.length})`} />
-    <List each={memberRows()} keyExtractor={(row) => row.key} viewport="parent" estimatedItemSize={58}>
-      {(row) => {
-        const status = () => row().item;
-        return (
-          <View style={{ ...actions, flexWrap: "nowrap", borderTopWidth: 1, borderColor: screen.theme.border, paddingVertical: 8 }}>
-            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-              <Label theme={screen.theme} label={status().member.name} />
-              <Label theme={screen.theme} label={status().member.source} muted />
-              <If when={status().member.note}><Label theme={screen.theme} label={status().member.note} muted /></If>
-            </View>
-            <If when={status().installed} else={<Action theme={screen.theme} label={t().install}
-              disabled={op.busy()} run={() => op.run(() => request("stack.install_member", {
-                ...stackRef(props.stack), member_name: status().member.name, member_source: status().member.source,
-              }), () => {
-                outcome.set(undefined);
-                screen.refresh();
-                screen.notify(t().installed, "success");
-              })} />}>
-              {(skill) => <Action theme={screen.theme} label={status().source_conflict ? t().sourceConflict : t().inLibrary}
-                danger={status().source_conflict} run={() => screen.navigate({ page: "library", skillId: skill().id })} />}
-            </If>
-          </View>
-        );
-      }}
-    </List>
-  </Scroll>;
+    </Footer>
+  </View>;
 }

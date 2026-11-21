@@ -53,13 +53,14 @@ async function openEditor() {
   await app.press("label:My Stacks");
   await app.waitFor("text:Duplicate member");
   expect(app.count("text:Duplicate member")).toBe(2);
+  await app.press("label:Stack actions");
   await app.press("label:Edit stack");
-  await app.waitFor("label:Name");
-  await app.clear("label:Name");
-  await app.type("label:Name", "Edited stack");
-  await app.submit("label:Name");
+  await app.waitFor("label:Stack Name");
+  await app.clear("label:Stack Name");
+  await app.type("label:Stack Name", "Edited stack");
+  await app.submit("label:Stack Name");
   await app.press("text:Duplicate member >> nth=1");
-  expect(app.enabled("label:Save stack")).toBe(true);
+  expect(app.enabled("label:Save to My Stacks")).toBe(true);
   await app.press("label:Home");
   await app.waitFor("text:Local workspace");
   return { app, edits };
@@ -73,13 +74,13 @@ test("only the visible stack editor handles save and retains duplicate member in
   expect(app.shows("text:Local workspace")).toBe(true);
 
   await app.press("label:Stacks");
-  expect(app.value("label:Name")).toBe("Edited stack");
+  expect(app.value("label:Stack Name")).toBe("Edited stack");
   await app.keyboard.press("mod+s");
   await app.waitUntil(() => edits.length === 1);
   expect(edits[0].name).toBe("Edited stack");
   expect(edits[0].previous.skills).toEqual(stack.skills);
   expect(edits[0].remove_indices).toEqual([1]);
-  await app.waitFor("label:Name", { state: "gone" });
+  await app.waitFor("label:Stack Name", { state: "gone" });
 });
 
 test("only the visible stack editor handles Escape and a hidden draft survives", async () => {
@@ -90,9 +91,9 @@ test("only the visible stack editor handles Escape and a hidden draft survives",
   expect(edits).toHaveLength(0);
 
   await app.press("label:Stacks");
-  expect(app.value("label:Name")).toBe("Edited stack");
+  expect(app.value("label:Stack Name")).toBe("Edited stack");
   await app.keyboard.press("escape");
-  await app.waitFor("label:Name", { state: "gone" });
-  await app.waitFor("label:Edit stack");
+  await app.waitFor("label:Stack Name", { state: "gone" });
+  await app.waitFor("label:Stack actions");
   expect(edits).toHaveLength(0);
 });
