@@ -1,6 +1,6 @@
 import { Clipboard, cleanup, computed, effect, keymap, List, Scroll, signal, Text, View, type InputRef, type JSX } from "nsh";
-import { Button, MenuSeparator, ResizablePanel, ResizablePanelGroup, Tab, Tabs } from "nsh/base";
-import { Icon } from "../controls";
+import { Button, MenuSeparator, ResizablePanel, ResizablePanelGroup, Tabs } from "nsh/base";
+import { Icon, TabItem } from "../controls";
 import type { IconName } from "../icons";
 import type { ScreenProps, Theme } from "../shared";
 import {
@@ -221,11 +221,11 @@ export function Stacks(props: ScreenProps) {
 }
 
 function CatalogTab(props: { theme: Theme; label: string; glyph: IconName; selected: boolean; run: () => void }) {
-  return <Tab accessibilityLabel={props.label} selected={props.selected} onPress={props.run}
-    style={{ ...row, gap: 4, height: 35 }} hoverStyle={{ opacity: 0.84 }}>
+  return <TabItem theme={props.theme} accessibilityLabel={props.label} selected={props.selected} onPress={props.run}
+    style={{ ...row, gap: 4, height: 35, borderRadius: props.theme.radius }}>
     <Icon name={props.glyph} color={props.selected ? props.theme.foreground : props.theme.muted} size={14} />
-    <Label theme={props.theme} label={props.label} muted={!props.selected} size={props.theme.fontSize} />
-  </Tab>;
+    <Label theme={props.theme} label={props.label} muted={!props.selected} weight={props.selected ? "600" : undefined} />
+  </TabItem>;
 }
 
 function CatalogEmpty(props: { theme: Theme; title: string; description: string; showIcon?: boolean; children?: JSX.Element }) {

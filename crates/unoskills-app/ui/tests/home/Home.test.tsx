@@ -51,10 +51,17 @@ test("Home keeps active metric cards, recent rows, chart, and separate ranked bo
   await app.waitFor("text:Trending fixture");
   expect(app.texts()).toContain("30.5k");
   expect(app.shows(`role:link[${t.home_market_details} · Trending fixture · owner/repo]`)).toBe(true);
-  await app.press(`role:tab[${t.board_all_time}]`);
+  const trending = `role:tab[${t.board_trending}]`;
+  const allTime = `role:tab[${t.board_all_time}]`;
+  await app.hover(allTime);
+  expect(app.viewStyle(allTime)?.backgroundColor).toBe("#262d3aff");
+  expect(app.viewStyle(allTime)?.effectiveOpacity).toBe(1);
+  await app.press(allTime);
   await app.waitFor("text:All time fixture");
   expect(app.shows("text:Trending fixture")).toBe(false);
-  await app.press(`role:tab[${t.board_trending}]`);
+  // Pointer still over the selected tab: its native indicator supplies the fill.
+  expect(app.viewStyle(allTime)?.backgroundColor ?? "#00000000").toBe("#00000000");
+  await app.press(trending);
   await app.waitFor("text:Trending fixture");
   expect(boards).toEqual(["trending", "all-time"]);
 });

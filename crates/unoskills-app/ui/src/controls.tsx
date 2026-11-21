@@ -1,5 +1,5 @@
 import { Image, Text, View, type JSX } from "nsh";
-import { Button, Dialog, Input, Select, Tooltip } from "nsh/base";
+import { Button, Dialog, Input, Select, Tab, Tooltip, type TabProps } from "nsh/base";
 import { iconSource, type IconName } from "./icons";
 import type { Theme } from "./shared";
 
@@ -21,6 +21,30 @@ export function PageHeader(props: { theme: Theme; title: string; children?: JSX.
     </View>
     {props.children ? <View style={{ flexShrink: 0 }}>{props.children}</View> : null}
   </View>;
+}
+
+export function TabItem(props: Pick<TabProps, "accessibilityLabel" | "class" | "style" | "children"> & {
+  theme: Theme;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const hoverColor = () => props.theme.chrome?.hover ?? props.theme.accent;
+  return (
+    <Tab
+      accessibilityLabel={props.accessibilityLabel}
+      selected={props.selected}
+      onPress={props.onPress}
+      class={props.class}
+      style={props.style}
+      hoverStyle={{ backgroundColor: props.selected ? "transparent" : hoverColor() }}
+      activeStyle={{
+        backgroundColor: props.selected ? "transparent" : `color-mix(in srgb, ${hoverColor()} 60%, ${props.theme.background})`,
+      }}
+      focusVisibleStyle={{ outlineWidth: 1, outlineOffset: -1, outlineColor: props.theme.primary }}
+    >
+      {props.children}
+    </Tab>
+  );
 }
 
 export function Label(props: {

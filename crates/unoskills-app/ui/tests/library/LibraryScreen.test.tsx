@@ -266,6 +266,7 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       platform: "macos",
       width: 1200,
       height: 800,
+      clock: {},
       host: {
         params: { initialRoute: { page: "library" } },
         handlers: {
@@ -302,32 +303,31 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     await app.press("Edit SKILL.md");
     await app.type("label:Edit SKILL.md", "\nExtra line");
 
-    // Start async save without waiting for it to finish.
-    const savePress = app.press("Save");
-    await app.waitUntil(() => alphaSaveStarted);
-
-    // Switch to Beta while Alpha's save is still in flight; discard dialog confirms switching.
     app.onDialog(() => "Discard changes");
-    await app.press("Beta Skill");
-    await app.waitFor("text:Beta Original");
-
-    // Resolve Alpha's delayed save now.
-    alphaSave.resolve({
-      ok: true,
-      value: {
-        skill: { ...skills[0], estimated_tokens: 99 },
-        entry_file: "SKILL.md",
-        raw_markdown: alphaMarkdown,
-        preview_markdown: "# Alpha Saved Late",
-        lint: {
-          valid: true,
+    const savePress = app.press("Save");
+    try {
+      await app.waitUntil(() => alphaSaveStarted);
+      await app.press("Beta Skill");
+      await app.waitFor("text:Beta Original");
+    } finally {
+      // Explicitly complete the outstanding host call even if a test step fails.
+      alphaSave.resolve({
+        ok: true,
+        value: {
+          skill: { ...skills[0], estimated_tokens: 99 },
           entry_file: "SKILL.md",
-          estimated_tokens: 99,
-          file_count: 1,
-          warnings: [],
+          raw_markdown: alphaMarkdown,
+          preview_markdown: "# Alpha Saved Late",
+          lint: {
+            valid: true,
+            entry_file: "SKILL.md",
+            estimated_tokens: 99,
+            file_count: 1,
+            warnings: [],
+          },
         },
-      },
-    });
+      });
+    }
     await savePress;
     await app.wait(50);
 

@@ -1,6 +1,6 @@
 import { type InputRef, type JSX, Text, View } from "nsh";
-import { Button, Input, Progress, Tab, Tabs, Tooltip } from "nsh/base";
-import { InlineError, Label } from "../controls";
+import { Button, Input, Progress, Tabs, Tooltip } from "nsh/base";
+import { InlineError, Label, TabItem } from "../controls";
 import type { Theme } from "../shared";
 import { TOKEN_BUDGET_WARN_THRESHOLD, formatTokensShort } from "./format";
 
@@ -354,12 +354,12 @@ export function PageTabs(props: {
       >
         <Each of={props.tabs} key={(tab) => tab.id}>
           {(tab) => (
-            <Tab
+            <TabItem
+              theme={props.theme}
               selected={props.selectedId === tab().id}
               onPress={() => props.onSelect(tab().id)}
-              class="flex-row items-center gap-1.5 py-2 transition-colors"
-              hoverStyle={{ opacity: 0.85 }}
-              focusVisibleStyle={{ borderRadius: 4, borderWidth: 1, borderColor: props.theme.primary }}
+              class="flex-row items-center gap-1.5 py-2"
+              style={{ borderRadius: props.theme.radius }}
             >
               <Text
                 accessibilityElementsHidden
@@ -383,7 +383,7 @@ export function PageTabs(props: {
               >
                 {tab().label}
               </Text>
-            </Tab>
+            </TabItem>
           )}
         </Each>
       </Tabs>

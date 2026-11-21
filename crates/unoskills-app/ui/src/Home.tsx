@@ -1,7 +1,7 @@
 import { Scroll, View, cleanup, computed, effect, openUrl, reduceMotion, signal, windowSize } from "nsh";
-import { Button, Tab, Tabs } from "nsh/base";
+import { Button, Tabs } from "nsh/base";
 import { Bar, Grid, Plot, PlotAxis } from "nsh/base/plot";
-import { Action, Icon, InlineError, Label, PageHeader, textSize } from "./controls";
+import { Action, Icon, InlineError, Label, PageHeader, TabItem, textSize } from "./controls";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps } from "./shared";
 import { request } from "./projects/host";
@@ -191,18 +191,17 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                 backgroundColor: theme().surface, padding: 12 }}>
                 <View style={{ ...row, flexWrap: "wrap", justifyContent: "space-between", gap: 8, paddingBottom: 12 }}>
                   <Tabs accessibilityLabel={t().home_market_rank}
+                    indicatorStyle={{ top: 2, bottom: 2, borderRadius: theme().radius, backgroundColor: theme().accent }}
                     style={{ ...row, alignSelf: "flex-start", padding: 2, borderRadius: radius(),
                       backgroundColor: theme().chrome?.segmented ?? theme().background }}>
-                    {boardItems.map((entry) => <Tab selected={board() === entry}
+                    {boardItems.map((entry) => <TabItem theme={theme()} selected={board() === entry}
                       onPress={() => { board.set(entry); void loadBoard(entry); }}
                       style={{ minHeight: 28, alignItems: "center", justifyContent: "center", paddingHorizontal: 12,
-                        borderWidth: 1, borderColor: "transparent", borderRadius: theme().radius }}
-                      hoverStyle={{ backgroundColor: theme().chrome?.hover ?? theme().accent }}
-                      focusStyle={{ borderColor: theme().primary }}>
-                      <Label theme={theme()} muted={board() !== entry}>
+                        borderRadius: theme().radius }}>
+                      <Label theme={theme()} muted={board() !== entry} weight={board() === entry ? "600" : "400"}>
                         {entry === "trending" ? t().board_trending : t().board_all_time}
                       </Label>
-                    </Tab>)}
+                    </TabItem>)}
                   </Tabs>
                   {activeRows()?.length ? <View style={{ paddingRight: 40 }}>
                     <Label theme={theme()} muted size={textSize(theme(), 12)}>{t().home_market_installs}</Label>
