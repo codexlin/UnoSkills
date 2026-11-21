@@ -441,8 +441,293 @@ fn rejects_invalid_commands_and_payloads() {
         nsh::dispatch(
             &mgr,
             "library.reveal_path",
-            json!({ "path": ws.path().join("does-not-exist").to_string_lossy() })
+            json!({ "path": ws.path().to_string_lossy() })
         )
         .is_err()
+    );
+}
+
+#[test]
+fn library_scoped_monorepo_root_and_subproject_targets_are_independent() {
+    let ws = TempWorkspace::new("monorepo-scope");
+    let mgr = ws.manager();
+
+    let agent_skills = ws.path().join("mono-agent-skills");
+    fs::create_dir_all(&agent_skills).unwrap();
+    mgr.add_custom_agent(&CustomAgentRecord {
+        key: "mono-agent".into(),
+        display_name: "Mono Agent".into(),
+        category: AgentCategory::Coding,
+        skills_dir: agent_skills.to_string_lossy().into_owned(),
+    })
+    .unwrap();
+
+    let src = ws.path().join("delta-skill");
+    write_skill_fixture(&src, "---\nname: Delta Skill\n---\n\n# Delta\n");
+    let installed = nsh::dispatch(
+        &mgr,
+        "discover.install",
+        json!({ "source_ref": src.to_string_lossy() }),
+    )
+    .unwrap();
+    let skill_id = installed["id"].as_str().unwrap().to_string();
+    let slug = installed["slug"].as_str().unwrap().to_string();
+
+    // Create a monorepo with root and nested apps/web subproject
+    let repo_root = ws.path().join("monorepo");
+    let web_dir = repo_root.join("apps").join("web");
+    fs::create_dir_all(&web_dir).unwrap();
+
+    let project = nsh::dispatch(
+        &mgr,
+        "library.attach_project",
+        json!({ "path": repo_root.to_string_lossy(), "name": "Monorepo" }),
+    )
+    .unwrap();
+    let project_id = project["id"].as_str().unwrap().to_string();
+
+    let root_target = repo_root.join(".mono-agent").join("skills").join(&slug);
+    let web_target = web_dir.join(".mono-agent").join("skills").join(&slug);
+
+    // Path traversal scope must be rejected
+    assert!(
+        nsh::dispatch(
+            &mgr,
+            "library.project_statuses",
+            json!({ "project_id": project_id, "scope_path": "../outside" })
+        )
+        .is_err()
+    );
+
+    // Deploy ONLY to apps/web -> root target must remain absent
+    let web_dep = nsh::dispatch(
+        &mgr,
+        "library.deploy_project_skill",
+        json!({
+            "skill_id": skill_id,
+            "project_id": project_id,
+            "scope_path": "apps/web",
+            "agent_key": "mono-agent"
+        }),
+    )
+    .expect("deploy skill to apps/web");
+    assert_eq!(web_dep["scope_path"], "apps/web");
+    assert!(fs::symlink_metadata(&web_target).is_ok());
+    assert!(fs::symlink_metadata(&root_target).is_err());
+
+    // Scoped status queries agree with filesystem: apps/web=managed, root=missing
+    let web_state = nsh::dispatch(
+        &mgr,
+        "library.state",
+        json!({ "project_id": project_id, "scope_path": "apps/web" }),
+    )
+    .unwrap();
+    assert_eq!(web_state["scope_path"], "apps/web");
+    assert_eq!(
+        web_state["project_statuses"]["mono-agent"][&skill_id]["placement"],
+        "managed"
+    );
+
+    let root_statuses = nsh::dispatch(
+        &mgr,
+        "library.project_statuses",
+        json!({ "project_id": project_id, "scope_path": "" }),
+    )
+    .unwrap();
+    assert_eq!(
+        root_statuses["statuses"]["mono-agent"][&skill_id]["placement"],
+        "missing"
+    );
+
+    // Deploy separately to root; both root and apps/web now exist independently
+    nsh::dispatch(
+        &mgr,
+        "library.deploy_project_skill",
+        json!({
+            "skill_id": skill_id,
+            "project_id": project_id,
+            "scope_path": "",
+            "agent_key": "mono-agent"
+        }),
+    )
+    .expect("deploy skill to root");
+    assert!(fs::symlink_metadata(&root_target).is_ok());
+    assert!(fs::symlink_metadata(&web_target).is_ok());
+
+    // Undeploy from apps/web -> removes ONLY apps/web, leaving root intact!
+    nsh::dispatch(
+        &mgr,
+        "library.undeploy_project_skill",
+        json!({
+            "skill_id": skill_id,
+            "project_id": project_id,
+            "scope_path": "apps/web",
+            "agent_key": "mono-agent"
+        }),
+    )
+    .expect("undeploy skill from apps/web");
+    assert!(fs::symlink_metadata(&web_target).is_err());
+    assert!(fs::symlink_metadata(&root_target).is_ok());
+
+    let root_after = nsh::dispatch(
+        &mgr,
+        "library.project_statuses",
+        json!({ "project_id": project_id, "scope_path": "" }),
+    )
+    .unwrap();
+    assert_eq!(
+        root_after["statuses"]["mono-agent"][&skill_id]["placement"],
+        "managed"
+    );
+
+    // Conflict in apps/web must fail without force, and force=true replaces ONLY apps/web
+    fs::create_dir_all(&web_target).unwrap();
+    fs::write(web_target.join("notes.txt"), "unmanaged").unwrap();
+    let conflict_err = nsh::dispatch(
+        &mgr,
+        "library.deploy_project_skill",
+        json!({
+            "skill_id": skill_id,
+            "project_id": project_id,
+            "scope_path": "apps/web",
+            "agent_key": "mono-agent"
+        }),
+    )
+    .expect_err("apps/web conflict must refuse");
+    assert!(conflict_err.to_string().contains("TARGET_CONFLICT"));
+
+    nsh::dispatch(
+        &mgr,
+        "library.deploy_project_skill",
+        json!({
+            "skill_id": skill_id,
+            "project_id": project_id,
+            "scope_path": "apps/web",
+            "agent_key": "mono-agent",
+            "force": true
+        }),
+    )
+    .expect("force deploy apps/web conflict");
+    assert!(fs::symlink_metadata(&web_target).is_ok());
+    assert!(fs::symlink_metadata(&root_target).is_ok());
+}
+
+#[test]
+fn library_get_markdown_propagates_invalid_utf8_and_missing_file_errors() {
+    let ws = TempWorkspace::new("md-errors");
+    let mgr = ws.manager();
+
+    let src_dir = ws.path().join("src-bad-md");
+    write_skill_fixture(
+        &src_dir,
+        "---\nname: Bad Markdown\ndescription: Read failure regression\n---\n\n# Initial\n",
+    );
+    let installed = nsh::dispatch(
+        &mgr,
+        "discover.install",
+        json!({ "source_ref": src_dir.to_string_lossy() }),
+    )
+    .expect("install skill");
+    let skill_id = installed["id"].as_str().unwrap().to_string();
+    let central_path = std::path::PathBuf::from(installed["central_path"].as_str().unwrap());
+
+    // Corrupt SKILL.md with invalid UTF-8 bytes and verify checked read fails with an error
+    fs::write(central_path.join("SKILL.md"), [0xff_u8, 0xfe_u8, 0x00_u8]).unwrap();
+    let utf8_err = nsh::dispatch(
+        &mgr,
+        "library.get_markdown",
+        json!({ "skill_id": skill_id }),
+    )
+    .expect_err("invalid UTF-8 SKILL.md must fail");
+    let utf8_msg = format!("{utf8_err:#}");
+    assert!(
+        utf8_msg.contains("UTF-8") || utf8_msg.contains("Failed to read"),
+        "unexpected error: {utf8_msg}"
+    );
+
+    // Removing SKILL.md must also propagate a read error instead of returning empty text
+    fs::remove_file(central_path.join("SKILL.md")).unwrap();
+    let missing_err = nsh::dispatch(
+        &mgr,
+        "library.get_markdown",
+        json!({ "skill_id": skill_id }),
+    )
+    .expect_err("missing SKILL.md must fail");
+    assert!(
+        format!("{missing_err:#}").contains("Failed to read"),
+        "unexpected missing-file error: {missing_err:#}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn library_scope_path_preserves_exact_whitespace() {
+    let ws = TempWorkspace::new("scope-whitespace");
+    let mgr = ws.manager();
+    mgr.set_default_deploy_mode(DeployMode::Copy).unwrap();
+
+    let agent_dir = ws.path().join("space-agent-skills");
+    fs::create_dir_all(&agent_dir).unwrap();
+    mgr.add_custom_agent(&CustomAgentRecord {
+        key: "space-agent".into(),
+        display_name: "Space Agent".into(),
+        category: AgentCategory::Coding,
+        skills_dir: agent_dir.to_string_lossy().into_owned(),
+    })
+    .unwrap();
+
+    let src_dir = ws.path().join("src-space-skill");
+    write_skill_fixture(
+        &src_dir,
+        "---\nname: Space Skill\ndescription: Scoped whitespace preservation\n---\n\n# Space\n",
+    );
+    let installed = nsh::dispatch(
+        &mgr,
+        "discover.install",
+        json!({ "source_ref": src_dir.to_string_lossy() }),
+    )
+    .unwrap();
+    let skill_id = installed["id"].as_str().unwrap().to_string();
+    let slug = installed["slug"].as_str().unwrap().to_string();
+
+    let repo_dir = ws.path().join("space-repo");
+    let exact_scope = " apps/web ";
+    fs::create_dir_all(repo_dir.join(exact_scope)).unwrap();
+    let attached = nsh::dispatch(
+        &mgr,
+        "library.attach_project",
+        json!({ "path": repo_dir.to_string_lossy(), "name": "Space Repo" }),
+    )
+    .unwrap();
+    let project_id = attached["id"].as_str().unwrap().to_string();
+
+    nsh::dispatch(
+        &mgr,
+        "library.deploy_project_skill",
+        json!({
+            "skill_id": skill_id,
+            "project_id": project_id,
+            "scope_path": exact_scope,
+            "agent_key": "space-agent"
+        }),
+    )
+    .expect("deploy to scope with leading/trailing spaces");
+
+    let scoped_target = repo_dir
+        .join(exact_scope)
+        .join(".space-agent/skills")
+        .join(&slug);
+    assert!(fs::symlink_metadata(&scoped_target).is_ok());
+
+    let state = nsh::dispatch(
+        &mgr,
+        "library.state",
+        json!({ "project_id": project_id, "scope_path": exact_scope }),
+    )
+    .unwrap();
+    assert_eq!(state["scope_path"], exact_scope);
+    assert_eq!(
+        state["project_statuses"]["space-agent"][&skill_id]["placement"],
+        "managed"
     );
 }

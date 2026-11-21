@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
 use unoskills_core::{ProjectSkillPlacement, ProjectSkillStatus, UnoSkillsManager, parser};
 
@@ -23,9 +22,12 @@ pub(super) fn dispatch(manager: &UnoSkillsManager, sub: &str, input: Value) -> R
         "undeploy_project_skill" => undeploy_project_skill(manager, &input),
         "attach_project" => attach_project(manager, &input),
         "detach_project" => detach_project(manager, &input),
-        "reveal_path" => reveal_path(&input),
         _ => bail!("Unknown library host command: 'library.{sub}'"),
     }
+}
+
+fn scope_path_param(input: &Value) -> Result<&str> {
+    Ok(optional_str(input, "scope_path")?.unwrap_or(""))
 }
 
 fn load_state(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
@@ -37,10 +39,11 @@ fn load_state(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
     let requested_project = optional_str(input, "project_id")?
         .map(str::trim)
         .filter(|id| !id.is_empty());
+    let scope_path = scope_path_param(input)?;
 
     let (project_statuses, project_status_error) = match requested_project {
         Some(project_id) if projects.iter().any(|project| project.id == project_id) => {
-            match manager.project_skill_statuses(project_id) {
+            match manager.project_skill_statuses_at(project_id, Path::new(scope_path)) {
                 Ok(statuses) => (Some(serialize_project_statuses(&statuses)), None),
                 Err(error) => (None, Some(format!("{error:#}"))),
             }
@@ -53,6 +56,7 @@ fn load_state(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
         "agents": agents,
         "projects": projects,
         "deploy_mode": deploy_mode.as_str(),
+        "scope_path": scope_path,
         "project_statuses": project_statuses,
         "project_status_error": project_status_error,
     }))
@@ -63,9 +67,11 @@ fn project_statuses(manager: &UnoSkillsManager, input: &Value) -> Result<Value> 
     if project_id.is_empty() {
         bail!("Field 'project_id' must not be empty");
     }
-    let statuses = manager.project_skill_statuses(project_id)?;
+    let scope_path = scope_path_param(input)?;
+    let statuses = manager.project_skill_statuses_at(project_id, Path::new(scope_path))?;
     Ok(json!({
         "project_id": project_id,
+        "scope_path": scope_path,
         "statuses": serialize_project_statuses(&statuses),
     }))
 }
@@ -201,10 +207,17 @@ fn deploy_project_skill(manager: &UnoSkillsManager, input: &Value) -> Result<Val
     if skill_id.is_empty() || project_id.is_empty() || agent_key.is_empty() {
         bail!("Fields 'skill_id', 'project_id', and 'agent_key' must not be empty");
     }
+    let scope_path = scope_path_param(input)?;
     let mode = optional_deploy_mode(input, "mode")?;
     let force = optional_bool(input, "force")?;
-    let deployment =
-        manager.deploy_skill_to_project(skill_id, project_id, agent_key, mode, force)?;
+    let deployment = manager.deploy_skill_to_project_at(
+        skill_id,
+        project_id,
+        Path::new(scope_path),
+        agent_key,
+        mode,
+        force,
+    )?;
     Ok(serde_json::to_value(deployment)?)
 }
 
@@ -215,11 +228,18 @@ fn undeploy_project_skill(manager: &UnoSkillsManager, input: &Value) -> Result<V
     if skill_id.is_empty() || project_id.is_empty() || agent_key.is_empty() {
         bail!("Fields 'skill_id', 'project_id', and 'agent_key' must not be empty");
     }
-    manager.undeploy_skill_from_project(skill_id, project_id, agent_key)?;
+    let scope_path = scope_path_param(input)?;
+    manager.undeploy_skill_from_project_at(
+        skill_id,
+        project_id,
+        Path::new(scope_path),
+        agent_key,
+    )?;
     Ok(json!({
         "undeployed": true,
         "skill_id": skill_id,
         "project_id": project_id,
+        "scope_path": scope_path,
         "agent_key": agent_key,
     }))
 }
@@ -245,45 +265,5 @@ fn detach_project(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
     Ok(json!({
         "detached": true,
         "project_id": project_id,
-    }))
-}
-
-fn reveal_path(input: &Value) -> Result<Value> {
-    let raw_path = required_str(input, "path")?.trim();
-    if raw_path.is_empty() {
-        bail!("Field 'path' must not be empty");
-    }
-    let path = Path::new(raw_path);
-    if !path.exists() {
-        bail!("Path does not exist: {}", path.display());
-    }
-
-    #[cfg(target_os = "macos")]
-    let mut cmd = {
-        let mut command = Command::new("open");
-        command.arg(path);
-        command
-    };
-
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut command = Command::new("explorer");
-        command.arg(path);
-        command
-    };
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut cmd = {
-        let mut command = Command::new("xdg-open");
-        command.arg(path);
-        command
-    };
-
-    cmd.spawn()
-        .with_context(|| format!("Failed to reveal path in file manager: {}", path.display()))?;
-
-    Ok(json!({
-        "revealed": true,
-        "path": raw_path,
     }))
 }
