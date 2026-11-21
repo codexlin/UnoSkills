@@ -51,6 +51,15 @@ export function App() {
     if (!visited().includes(next.page)) visited.update((pages) => [...pages, next.page]);
   }
 
+  function openFromNavigation(target: Page) {
+    const current = routes.get(target)!();
+    if (current.page === "discover" && (current.tab === "install" || current.source)) {
+      navigate({ page: "discover" });
+      return;
+    }
+    navigate({ ...current, focusSearch: undefined });
+  }
+
   function refresh() {
     revision.update((value) => value + 1);
   }
@@ -161,7 +170,7 @@ export function App() {
               <Action theme={theme()} selected={selectedNav() === target}
                 label={target === "discover" && adoptable() > 0 ? `${t()[label]} +${adoptable()}` : t()[label]} compact
                 icon={collapsed() ? icon : undefined}
-                onPress={() => navigate({ ...routes.get(target)!(), focusSearch: undefined })} />
+                onPress={() => openFromNavigation(target)} />
             </View>
           ))}
         </View>

@@ -1,4 +1,4 @@
-import { effect, Clipboard, keymap, List, Scroll, signal, View, type InputRef } from "nsh";
+import { Clipboard, computed, effect, keymap, List, Scroll, signal, View, type InputRef } from "nsh";
 import type { ScreenProps } from "../shared";
 import {
   Action, Choice, Feedback, Field, Heading, Label, RowButton, SidebarPane, WorkspacePane,
@@ -15,10 +15,17 @@ type Filter = typeof sources[number];
 
 export function Stacks(props: ScreenProps) {
   const t = () => strings(props.locale);
-  const routeSource = props.route.source as Filter | undefined;
-  const filter = signal<Filter>(routeSource && sources.includes(routeSource) ? routeSource : "all");
+  const catalogRoute = computed(() => props.route.stackId ? undefined : props.route.source as Filter | undefined);
+  const filter = signal<Filter>("all");
   const query = signal("");
   const tag = signal("");
+  effect(() => {
+    const source = catalogRoute();
+    if (source && sources.includes(source)) {
+      filter.set(source);
+      tag.set("");
+    }
+  });
   const reloadCommunity = signal(0);
   const catalog = load(() => {
     void props.revision;
