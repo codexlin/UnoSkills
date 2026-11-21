@@ -1,6 +1,6 @@
 import { List, Text, View } from "nsh";
 import { Button } from "nsh/base";
-import { AlertBanner, LoadingLine, focusOutline, interactionStyles } from "../components";
+import { AlertBanner, LoadingLine, controlMotionClass, focusOutline, interactionStyles } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, TokenBadge } from "./controls";
 import { compactSource } from "./format";
@@ -103,7 +103,7 @@ export function LibraryListPane(props: {
                       selected={props.selectedSkillId === skill().id}
                       accessibilityLabel={skill().name}
                       onPress={() => props.onSelectSkill(skill().id)}
-                      class="transition-colors"
+                      class={controlMotionClass}
                       style={{
                         height: 48,
                         flexDirection: "row",

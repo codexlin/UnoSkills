@@ -2,6 +2,7 @@ import { Text, View } from "nsh";
 import { Tab, Tabs } from "nsh/base";
 import { Icon } from "./layout";
 import { focusOutline } from "./interaction";
+import { controlMotionClass } from "./motion";
 import type { IconName } from "../icons";
 import type { Theme } from "../shared";
 
@@ -37,6 +38,7 @@ export function TabList<Id extends string>(props: TabListProps<Id>) {
           const color = () => selected() ? props.theme.foreground : props.theme.muted;
           return <Tab accessibilityLabel={tab().accessibilityLabel ?? tab().label} selected={selected()}
             disabled={tab().disabled} onPress={() => { if (!selected()) props.onSelect(tab().id); }}
+            class={controlMotionClass}
             style={{
               minHeight: props.compact ? 24 : 30, paddingHorizontal: tabInset, marginBottom: 4,
               flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,

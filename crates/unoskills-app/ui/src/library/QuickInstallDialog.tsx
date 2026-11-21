@@ -2,7 +2,7 @@ import { type InputRef, Text, View, effect, signal } from "nsh";
 import { Dialog } from "nsh/base";
 import type { Theme } from "../shared";
 import { ActionButton } from "./controls";
-import { AlertBanner, TextInput } from "../components";
+import { AlertBanner, TextInput, dialogAnimation } from "../components";
 import { errorMessage, installFromSource, pickFolder } from "./host";
 import { type Locale, busyInstalling, getStrings, toastInstalled } from "./strings";
 import type { Skill } from "./types";
@@ -77,7 +77,7 @@ export function QuickInstallDialog(props: {
   return (
     <Dialog
       open={props.open}
-      animation="fade"
+      animation={dialogAnimation()}
       role="dialog"
       accessibilityLabel={s().quick_install_title}
       closeOnEscape={!installing()}

@@ -523,7 +523,7 @@ export function Library(props: ScreenProps) {
         <ResizablePanelGroup
           axis="horizontal"
           handleStyle={{ backgroundColor: props.theme.border }}
-          handleThumbClass="h-11 w-[3px] rounded-full opacity-0 scale-y-0 transition group-hover:opacity-60 group-hover:scale-y-[0.5] group-active:opacity-100 group-active:scale-y-100"
+          handleThumbClass="h-11 w-[3px] rounded-full opacity-0 scale-y-0 motion-safe:transition motion-safe:duration-120 motion-safe:ease-out group-hover:opacity-60 group-hover:scale-y-[0.5] group-active:opacity-100 group-active:scale-y-100"
           handleThumbStyle={{ backgroundColor: props.theme.primary }}
           handleAccessibilityLabel={s().nav_library}
         >

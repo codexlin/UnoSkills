@@ -3,5 +3,6 @@ export { AlertBanner, Hint, InlineError, LoadingLine, ProgressBar, SkeletonBlock
 export { FormText, TextInput } from "./fields";
 export { focusOutline, interactionStyles } from "./interaction";
 export { Icon, Label, PageHeader, textSize } from "./layout";
+export { controlMotionClass, dialogAnimation } from "./motion";
 export { ActionMenu, Choice, MenuAction, MenuDivider, Modal, SelectControl } from "./popups";
 export { PageTabs, TabList } from "./tabs";

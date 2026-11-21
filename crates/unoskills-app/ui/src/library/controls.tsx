@@ -47,7 +47,7 @@ export function SearchField(props: {
 }) {
   return (
     <View
-      class="flex-row items-center transition-colors"
+      class="flex-row items-center"
       style={{
         flex: 1,
         minWidth: props.minWidth ?? 160,

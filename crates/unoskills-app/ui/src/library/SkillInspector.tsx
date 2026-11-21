@@ -1,6 +1,6 @@
 import { Clipboard, Scroll, Text, View, openUrl } from "nsh";
 import { Editor, Switch, TextView } from "nsh/base";
-import { ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, MenuDivider, PageTabs } from "../components";
+import { ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, MenuDivider, PageTabs, controlMotionClass } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, hintTooltip } from "./controls";
 import { isSkillDeployedTo, joinPath } from "./format";
@@ -328,7 +328,7 @@ export function SkillInspector(props: {
                                         props.onGlobalDeployToggle(skill(), agent(), current);
                                       }
                                     }}
-                                    trackClass="transition-colors"
+                                    trackClass={controlMotionClass}
                                     trackStyle={{
                                       width: 36,
                                       height: 20,
@@ -406,7 +406,7 @@ export function SkillInspector(props: {
                                                 );
                                               }
                                             }}
-                                            trackClass="transition-colors"
+                                            trackClass={controlMotionClass}
                                             trackStyle={{
                                               width: 36,
                                               height: 20,

@@ -1,5 +1,6 @@
 use std::cell::OnceCell;
 
+use nsh_core::Color;
 use nsh_platform_linux::gtk4::{self as gtk, gdk, glib};
 use serde::Deserialize;
 
@@ -20,18 +21,12 @@ pub(super) struct TitleBarColors {
 }
 
 pub(super) fn apply(colors: TitleBarColors) {
-    let TitleBarColors {
-        foreground,
-        hover,
-        active,
-    } = colors;
-    if ![&foreground, &hover, &active].into_iter().all(|color| {
-        color
-            .strip_prefix('#')
-            .is_some_and(|hex| hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
-    }) {
+    let [Some(foreground), Some(hover), Some(active)] =
+        [&colors.foreground, &colors.hover, &colors.active]
+            .map(|value| Color::parse(value).map(|color| format!("#{:08x}", color.0)))
+    else {
         return;
-    }
+    };
 
     // NSH's GTK window controls are siblings of the themed content view.
     glib::idle_add_once(move || {

@@ -1,6 +1,6 @@
 import { type InputRef, List, type ListRef, Text, View } from "nsh";
 import { Checkbox } from "nsh/base";
-import { ActionControl, AlertBanner, Icon, Label, LoadingLine, focusOutline, interactionStyles } from "../components";
+import { ActionControl, AlertBanner, Icon, Label, LoadingLine, controlMotionClass, focusOutline, interactionStyles } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, TokenBadge, hintTooltip } from "./controls";
 import { type Locale, adoptSelectedCount, busyAdoptingAll, getStrings, labelWithCount } from "./strings";
@@ -124,7 +124,7 @@ export function AdoptTab(props: {
                         hoverStyle={interactionStyles(props.theme).hoverStyle}
                         activeStyle={interactionStyles(props.theme).activeStyle}
                         focusVisibleStyle={focusOutline(props.theme)}
-                        indicatorClass="transition-colors"
+                        indicatorClass={controlMotionClass}
                         indicatorStyle={{
                           width: 16,
                           height: 16,
@@ -224,7 +224,7 @@ export function AdoptTab(props: {
                           props.onToggleGroupExpanded(current.group.key);
                         }
                       }}
-                      class="flex-row items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors"
+                      class="flex-row items-center gap-1.5 rounded-md px-1.5 py-1"
                       style={{
                         flexShrink: 1,
                         minWidth: 0,

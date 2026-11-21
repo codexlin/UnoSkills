@@ -27,7 +27,14 @@ function NavigationItem(props: {
 }) {
   const footer = () => props.item.page === "settings";
   const count = () => props.count > 0 ? `+${props.count}` : undefined;
-  return <ActionControl theme={props.theme}
+  const sidebar = () => props.theme.sidebar;
+  const ink = () => (props.selected ? sidebar()?.onSelected : sidebar()?.foreground) ?? props.theme.foreground;
+  const badgeInk = () => props.selected && sidebar() ? ink() : props.theme.warning;
+  const navTheme = computed(() => ({
+    ...props.theme, primary: sidebar()?.ring ?? props.theme.primary,
+    accent: sidebar()?.selected ?? props.theme.accent, foreground: sidebar()?.foreground ?? props.theme.foreground,
+  }));
+  return <ActionControl theme={navTheme()}
     accessibilityLabel={count() ? `${props.label} ${count()}` : props.label}
     selected={props.selected}
     onPress={props.onPress}
@@ -35,17 +42,17 @@ function NavigationItem(props: {
     style={{ width: "100%", minWidth: 0, height: props.collapsed ? 32 : textSize(props.theme, 28),
       flexDirection: "row", alignItems: "center", justifyContent: props.collapsed ? "center" : "flex-start",
       paddingHorizontal: props.collapsed ? 0 : 8, gap: 8, borderRadius: props.theme.radius,
-      borderWidth: 1, borderColor: props.selected ? props.theme.primary : "transparent",
-      backgroundColor: props.selected ? props.theme.accent : "transparent" }}
+      borderWidth: 1, borderColor: props.selected ? navTheme().primary : "transparent",
+      backgroundColor: props.selected ? navTheme().accent : "transparent" }}
   >
-    <Icon name={props.item.icon} color={props.theme.foreground} size={textSize(props.theme, footer() ? 16 : 14)} />
+    <Icon name={props.item.icon} color={ink()} size={textSize(props.theme, footer() ? 16 : 14)} />
     {!props.collapsed ? <>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Label theme={props.theme} truncate weight={props.selected ? "600" : "400"}>{props.label}</Label>
+        <Label theme={props.theme} color={ink()} truncate weight={props.selected ? "600" : "400"}>{props.label}</Label>
       </View>
-      {count() ? <View style={{ borderColor: props.theme.warning, borderWidth: 1, paddingHorizontal: 4,
+      {count() ? <View style={{ borderColor: badgeInk(), borderWidth: 1, paddingHorizontal: 4,
         borderRadius: Math.min(4, props.theme.radius), flexShrink: 0 }}>
-        <Label theme={props.theme} size={textSize(props.theme, 12)} color={props.theme.warning}>{count()}</Label>
+        <Label theme={props.theme} size={textSize(props.theme, 12)} color={badgeInk()}>{count()}</Label>
       </View> : null}
     </> : null}
   </ActionControl>;
@@ -197,6 +204,7 @@ export function App() {
   const messageColor = () => notice()?.tone === "error" ? theme().danger
     : notice()?.tone === "success" ? theme().success : theme().foreground;
   const rail = () => theme().chrome?.rail ?? theme().surface;
+  const railBorder = () => theme().sidebar?.border ?? theme().border;
   // The first titleBar measurement can precede the GTK controls' custom style.
   const titleBarInset = (edge: number) => edge > 0 ? Math.max(controlsInset, edge) : edge;
   const collapseLabel = () => collapsed() ? t().expand_sidebar : t().collapse_sidebar;
@@ -211,7 +219,7 @@ export function App() {
       <View desktop={{ windowDrag: true }} style={{ height: 36, flexShrink: 0,
         paddingLeft: titleBarInset(titleBar().left) + 12, paddingRight: titleBarInset(titleBar().right) + 8,
         flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8,
-        backgroundColor: rail(), borderBottomWidth: 1, borderColor: theme().border,
+        backgroundColor: rail(), borderBottomWidth: 1, borderColor: railBorder(),
         backgroundImage: `linear-gradient(180deg, color-mix(in srgb, ${rail()} 55%, ${theme().background}), ${rail()})` }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
           {logo ? <Image accessibilityElementsHidden src={logo} style={{ width: 16, height: 16,
@@ -228,7 +236,7 @@ export function App() {
         <View style={{ width: collapsed() ? 48 : 184, flexShrink: 0, minHeight: 0,
           paddingHorizontal: collapsed() ? 8 : 12, paddingTop: collapsed() ? 20 : 12 + textSize(theme(), 32),
           paddingBottom: 12, justifyContent: "space-between", overflow: "hidden",
-          backgroundColor: rail(), borderRightWidth: 1, borderColor: theme().border }}>
+          backgroundColor: rail(), borderRightWidth: 1, borderColor: railBorder() }}>
           <View style={{ gap: 8 }}>
             {nav.slice(0, 4).map(navItem)}
           </View>

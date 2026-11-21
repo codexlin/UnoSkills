@@ -1,6 +1,7 @@
 {
   "id": "dev.unoskills.UnoSkills",
   "name": "UnoSkills",
+  "theme": "themes/unoskills.json",
   "capabilities": {
     "application": true,
     "host": ["unoskills.command"],

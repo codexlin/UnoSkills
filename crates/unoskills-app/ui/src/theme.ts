@@ -1,5 +1,6 @@
 import { colorScheme, setTheme } from "nsh";
 import { Scrollbar } from "nsh/base";
+import unoSkills from "../themes/unoskills.json";
 import type { Locale, Theme } from "./shared";
 
 export interface Preferences {
@@ -27,26 +28,37 @@ export const defaults: Preferences = {
 export const palettes = ["claude", "vercel", "supabase", "catppuccin", "ocean", "unoskills"] as const;
 type Palette = typeof palettes[number];
 
-type Colors = Pick<Theme, "background" | "surface" | "foreground" | "muted" | "border" | "primary" | "onPrimary" | "accent"> & {
+type Colors = Pick<Theme, "background" | "surface" | "foreground" | "muted" | "border" | "primary" | "onPrimary" | "accent"
+  | "sidebar" | "destructive"> & {
   chrome: NonNullable<Theme["chrome"]>;
 };
 
-// The rail, canvas and group box retain their legacy contrast in all six palettes.
+function unoSkillsColors(scheme: "light" | "dark"): Colors {
+  const tokens = unoSkills.cssVars[scheme];
+  const mix = (first: string, weight: number, second: string) =>
+    `color-mix(in oklab, ${first} ${weight}%, ${second})`;
+  return {
+    background: tokens.background, surface: tokens.card, foreground: tokens.foreground,
+    muted: tokens["muted-foreground"], border: tokens.border, primary: tokens.primary,
+    // The supplied white label has 2.8:1 contrast on the dark orange.
+    onPrimary: scheme === "dark" ? tokens.background : tokens["primary-foreground"],
+    accent: tokens.accent,
+    destructive: { background: tokens.destructive, foreground: tokens["destructive-foreground"] },
+    sidebar: {
+      foreground: tokens["sidebar-foreground"], selected: tokens["sidebar-accent"],
+      onSelected: tokens["sidebar-accent-foreground"], border: tokens["sidebar-border"], ring: tokens["sidebar-ring"],
+    },
+    chrome: {
+      rail: tokens.sidebar, hover: mix(tokens.accent, 56, tokens.card), segmented: tokens.muted,
+      primaryHover: mix(tokens.primary, 92, tokens.foreground),
+      primaryActive: mix(tokens.primary, 87, scheme === "dark" ? tokens.background : tokens.foreground),
+      inputBorder: tokens.input,
+    },
+  };
+}
+
 const colors: Record<Palette, { light: Colors; dark: Colors }> = {
-  unoskills: {
-    dark: {
-      background: "#14171d", surface: "#1d222c", foreground: "#e8edf5", muted: "#a9b3c4",
-      border: "#343d4e", primary: "#a6bcff", onPrimary: "#14223e", accent: "#2b354a",
-      chrome: { rail: "#181c23", hover: "#262d3a",
-        segmented: "#151922", primaryHover: "#b6c8ff", primaryActive: "#95adfa", inputBorder: "#465166" },
-    },
-    light: {
-      background: "#fcfcfd", surface: "#ffffff", foreground: "#182232", muted: "#526071",
-      border: "#dce2eb", primary: "#315ac5", onPrimary: "#ffffff", accent: "#e9eefc",
-      chrome: { rail: "#f3f5f9", hover: "#eef2fa",
-        segmented: "#eef1f6", primaryHover: "#294ead", primaryActive: "#234496", inputBorder: "#dce2eb" },
-    },
-  },
+  unoskills: { light: unoSkillsColors("light"), dark: unoSkillsColors("dark") },
   claude: {
     dark: {
       background: "#262624", surface: "#2e2e2b", foreground: "#faf9f5", muted: "#b7b5a9",
@@ -144,7 +156,7 @@ export function makeTheme(prefs: Preferences): Theme {
   return {
     ...palette,
     modalBackdrop: "#00000072",
-    danger: scheme === "dark" ? "#fda4af" : "#a32136",
+    danger: scheme === "dark" ? "#fda4af" : palette.destructive?.background ?? "#a32136",
     warning: scheme === "dark" ? "#fbc879" : "#844a04",
     success: scheme === "dark" ? "#8adcb9" : "#176147",
     fontSize: fontSize >= 12 && fontSize <= 18 ? fontSize : 14,
@@ -157,7 +169,16 @@ export function makeTheme(prefs: Preferences): Theme {
 }
 
 export function applyNativeTheme(theme: Theme) {
-  setTheme({ cssVars: { theme: {
+  const typography = {
+    "radius": `${theme.radius}px`,
+    "font-sans": theme.fontFamily ?? "sans-serif",
+    "font-mono": theme.monoFamily ?? "monospace",
+  };
+  setTheme({ cssVars: theme.sidebar ? {
+    light: unoSkills.cssVars.light,
+    dark: { ...unoSkills.cssVars.dark, "primary-foreground": colors.unoskills.dark.onPrimary },
+    theme: typography,
+  } : { theme: {
     "background": theme.background,
     "foreground": theme.foreground,
     "card": theme.surface,
@@ -177,9 +198,7 @@ export function applyNativeTheme(theme: Theme) {
     "ring": theme.primary,
     "destructive": theme.danger,
     "destructive-foreground": theme.background,
-    "radius": `${theme.radius}px`,
-    "font-sans": theme.fontFamily ?? "sans-serif",
-    "font-mono": theme.monoFamily ?? "monospace",
+    ...typography,
   } } });
   Scrollbar.setTheme({
     mode: "hover",

@@ -27,6 +27,8 @@ export interface Theme {
   accent: string;
   modalBackdrop: string;
   danger: string;
+  destructive?: { background: string; foreground: string };
+  sidebar?: { foreground: string; selected: string; onSelected: string; border: string; ring: string };
   warning: string;
   success: string;
   fontFamily?: string;

@@ -4,6 +4,7 @@ import type { IconName } from "../icons";
 import { Icon, Label } from "./layout";
 import { disabledControlStyle, focusOutline, interactionStyles } from "./interaction";
 import { Hint } from "./feedback";
+import { dialogAnimation } from "./motion";
 import type { Theme } from "../shared";
 
 function popupSurface(theme: Theme) {
@@ -144,7 +145,7 @@ export function Modal(props: {
   children?: JSX.Element;
 }) {
   return (
-    <Dialog open={props.open} accessibilityLabel={props.label}
+    <Dialog open={props.open} animation={dialogAnimation()} accessibilityLabel={props.label}
       onOpenChange={({ open }) => { if (!open) props.onClose(); }}
       backdropStyle={{ backgroundColor: props.theme.modalBackdrop }}
       style={{ alignItems: "center", justifyContent: "center", padding: 24 }}>

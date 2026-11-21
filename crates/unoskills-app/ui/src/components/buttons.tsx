@@ -5,6 +5,7 @@ import type { Theme } from "../shared";
 import { Hint, ProgressBar } from "./feedback";
 import { disabledControlStyle, focusOutline, interactionStyles } from "./interaction";
 import { Icon, Label, textSize } from "./layout";
+import { controlMotionClass } from "./motion";
 
 type ActionControlProps = Pick<ButtonProps, "role" | "accessibilityLabel" | "onPress" | "disabled"
   | "selected" | "class" | "style" | "tooltip" | "children"> & {
@@ -14,11 +15,12 @@ type ActionControlProps = Pick<ButtonProps, "role" | "accessibilityLabel" | "onP
 };
 
 export function ActionControl(props: ActionControlProps) {
-  const selection = () => props.dangerFill ? props.theme.danger
+  const selection = () => props.dangerFill ? props.theme.destructive?.background ?? props.theme.danger
     : props.selected && !props.primary ? props.theme.accent : undefined;
   const states = () => interactionStyles(props.theme, { primary: props.primary, selectedFill: selection() });
   return <Button role={props.role} accessibilityLabel={props.accessibilityLabel} onPress={props.onPress}
-    disabled={props.disabled} selected={props.selected} class={props.class} style={props.style} tooltip={props.tooltip}
+    disabled={props.disabled} selected={props.selected} class={props.class ? `${controlMotionClass} ${props.class}` : controlMotionClass}
+    style={props.style} tooltip={props.tooltip}
     hoverStyle={states().hoverStyle} activeStyle={states().activeStyle} focusVisibleStyle={focusOutline(props.theme, 1)}
     selectedStyle={selection() ? { backgroundColor: selection(), borderColor: props.theme.primary } : undefined}
     disabledStyle={disabledControlStyle}>{props.children}</Button>;
@@ -53,7 +55,7 @@ export function Action(props: {
   const primary = () => props.variant === "primary";
   const dangerFill = () => props.variant === "danger";
   const ghost = () => props.variant === "ghost";
-  const ink = () => primary() ? props.theme.onPrimary : dangerFill() ? props.theme.background
+  const ink = () => primary() ? props.theme.onPrimary : dangerFill() ? props.theme.destructive?.foreground ?? props.theme.background
     : props.variant === "danger-outline" ? props.theme.danger : props.theme.foreground;
   return <ActionControl theme={props.theme} primary={primary()} dangerFill={dangerFill()}
     role={props.role} accessibilityLabel={props.accessibilityLabel ?? props.label} onPress={props.onPress}
@@ -65,7 +67,7 @@ export function Action(props: {
       minWidth: props.iconOnly ? metrics().height : undefined, minHeight: metrics().height,
       paddingHorizontal: props.iconOnly ? 0 : metrics().padding,
       borderRadius: props.theme.radius, borderWidth: 1,
-      backgroundColor: primary() ? props.theme.primary : dangerFill() ? props.theme.danger
+      backgroundColor: primary() ? props.theme.primary : dangerFill() ? props.theme.destructive?.background ?? props.theme.danger
         : props.selected ? props.theme.accent : ghost() ? "transparent" : props.theme.surface,
       borderColor: primary() ? props.theme.primary : ghost() || dangerFill() ? "transparent" : props.theme.border,
     }}>

@@ -1,6 +1,6 @@
 import { List, Scroll, View, computed, effect, signal, type JSX } from "nsh";
 import { Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
-import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, focusOutline, interactionStyles, textSize } from "./components";
+import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, controlMotionClass, focusOutline, interactionStyles, textSize } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps, type Theme } from "./shared";
 import { paletteFor, palettes, type Preferences } from "./theme";
@@ -370,7 +370,7 @@ function Agents(props: SettingsProps) {
               disabled={busy()} onPress={() => void mutate("settings.agent_remove", { key: item().key })} /> : null}
             <Switch accessibilityLabel={item().display_name} checked={item().enabled} disabled={busy()}
               onChange={({ checked }) => void mutate("settings.agent_enable", { key: item().key, enabled: checked })}
-              trackClass="w-11 rounded-full p-0.5"
+              trackClass={`w-11 rounded-full p-0.5 ${controlMotionClass}`}
               thumbClass="size-5 rounded-full checked:translate-x-5"
               trackStyle={{ backgroundColor: item().enabled ? props.theme.primary : props.theme.border }}
               thumbStyle={{ backgroundColor: item().enabled ? props.theme.onPrimary : props.theme.background }}

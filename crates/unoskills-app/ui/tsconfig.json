@@ -1,4 +1,5 @@
 {
   "extends": "./.nsh/tsconfig.json",
+  "compilerOptions": { "resolveJsonModule": true },
   "include": ["App.tsx", "src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx"]
 }

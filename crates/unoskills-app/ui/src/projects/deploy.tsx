@@ -1,5 +1,6 @@
-import { computed, reduceMotion, Scroll, signal, View } from "nsh";
+import { computed, Scroll, signal, View } from "nsh";
 import { Dialog } from "nsh/base";
+import { dialogAnimation } from "../components";
 import type { ScreenProps } from "../shared";
 import { Action, Banner, Check, Choice, Feedback, Heading, Label, actions, row } from "./controls";
 import { load, operation } from "./state";
@@ -114,7 +115,7 @@ export function StackDeploy(props: { screen: ScreenProps; stack: Stack; back: ()
     return preview().pending ? t().checking : "";
   };
 
-  return <Dialog open={screen.active} animation={reduceMotion() ? "none" : "fade"}
+  return <Dialog open={screen.active} animation={dialogAnimation()}
     accessibilityLabel={t().deploy} closeOnBackdropPress={false} closeOnEscape={!op.busy()}
     onOpenChange={({ open }) => { if (!open && !op.busy()) props.back(); }}
     backdropStyle={{ backgroundColor: screen.theme.modalBackdrop }}

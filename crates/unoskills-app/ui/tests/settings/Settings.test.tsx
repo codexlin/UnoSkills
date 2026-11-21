@@ -73,8 +73,16 @@ test("navigation uses the current palette and a long font list remains searchabl
   });
   const settings = `role:button[${t.nav_settings}]`;
   const library = `role:button[${t.nav_library}]`;
+  const shell = "id:desktop-shell";
   await app.press(settings);
   await app.press(`role:button[${t.settings_appearance_tab}]`);
+  expect(app.viewStyle(shell)?.backgroundColor).toBe("#fdfbf7ff");
+  expect(app.viewStyle(settings)?.backgroundColor).toBe("#a16207ff");
+  await app.press(`label:${t.theme_dark}`);
+  await app.waitUntil(() => app.viewStyle(shell)?.backgroundColor === "#1c1917ff");
+  expect(app.viewStyle(settings)?.backgroundColor).toBe("#0ea5e9ff");
+  await app.press(`label:${t.theme_light}`);
+  await app.waitUntil(() => app.viewStyle(shell)?.backgroundColor === "#fdfbf7ff");
   await app.press(`label:${t.settings_accent_palette}`);
   await app.press("text:Claude");
   await app.hover(library);
@@ -100,6 +108,7 @@ test("navigation uses the current palette and a long font list remains searchabl
   await app.type(`label:${t.search_fonts}`, "Narrow Mono");
   await app.press(`text:${font}`);
   expect(writes).toEqual([
+    { key: "theme", value: "dark" }, { key: "theme", value: "light" },
     { key: "accent_palette", value: "claude" }, { key: "ui_font", value: font },
   ]);
 });
