@@ -1,8 +1,8 @@
-import { List, Scroll, View, computed, effect, signal } from "nsh";
-import { Switch } from "nsh/base";
-import { Action, Choice, FormText, InlineError, Label, Modal, Section } from "./controls";
+import { List, Scroll, View, computed, effect, signal, type JSX } from "nsh";
+import { Button, Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
+import { Action, Choice, FormText, Icon, InlineError, Label, Modal, PageHeader, textSize } from "./controls";
 import { strings } from "./i18n";
-import { call, errorMessage, type ScreenProps } from "./shared";
+import { call, errorMessage, type ScreenProps, type Theme } from "./shared";
 import { paletteFor, palettes, type Preferences } from "./theme";
 import { UpdatePanel, type Updates } from "./Updates";
 
@@ -24,35 +24,100 @@ export function Settings(props: SettingsProps) {
   const t = () => strings[props.locale];
   const section = computed(() => props.route.tab ?? "general");
   const tabs = () => [
-    ["general", t().settings_general], ["appearance", t().settings_appearance_tab],
-    ["network", t().settings_network], ["agents", t().settings_agents_registry],
-    ["updates", t().settings_updates_tab],
-  ];
+    { id: "general", label: t().settings_general, icon: "sliders-horizontal" },
+    { id: "appearance", label: t().settings_appearance_tab, icon: "palette" },
+    { id: "network", label: t().settings_network, icon: "cloud" },
+    { id: "agents", label: t().settings_agents_registry, icon: "bot" },
+    { id: "updates", label: t().settings_updates_tab, icon: "info" },
+  ] as const;
+
   return (
-    <View style={{ flex: 1, minHeight: 0 }}>
-      <View style={{ gap: 12, padding: 20 }}>
-        <Label theme={props.theme} heading size={24}>{t().settings_title}</Label>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-          {tabs().map(([id, label]) => (
-            <Action theme={props.theme} compact selected={section() === id} label={label}
-              onPress={() => props.navigate({ page: "settings", tab: id })} />
-          ))}
+    <View class="flex-1 min-h-0">
+      <PageHeader theme={props.theme} title={t().settings_title} />
+      <View class="flex-1 min-h-0 flex-row">
+        <View class="shrink-0 gap-1 p-3" style={{ width: 184, borderRightWidth: 1, borderColor: props.theme.border }}>
+          <Each of={tabs()} key={(tab) => tab.id}>
+            {(tab) => (
+              <Button accessibilityLabel={tab().label} selected={section() === tab().id}
+                class="w-full min-h-8 flex-row items-center gap-2 px-2"
+                style={{ borderRadius: props.theme.radius, backgroundColor: section() === tab().id ? props.theme.accent : undefined }}
+                hoverStyle={{ backgroundColor: props.theme.accent }}
+                focusVisibleStyle={{ borderColor: props.theme.primary, borderWidth: 1 }}
+                onPress={() => props.navigate({ page: "settings", tab: tab().id })}>
+                <Icon name={tab().icon} size={16} color={section() === tab().id ? props.theme.primary : props.theme.muted} />
+                <Label theme={props.theme} truncate color={section() === tab().id ? props.theme.primary : props.theme.foreground}>{tab().label}</Label>
+              </Button>
+            )}
+          </Each>
         </View>
+        {section() === "agents" ? <Agents {...props} /> : (
+          <Scroll class="flex-1 min-h-0 min-w-0">
+            <View class="w-full gap-4 p-5" style={{ maxWidth: 720 }}>
+              {section() === "appearance" ? <Appearance {...props} />
+                : section() === "network" ? <Network {...props} />
+                : section() === "updates" ? (
+                  <UpdatePanel theme={props.theme} locale={props.locale} version={props.preferences.version}
+                    updates={props.updates} />
+                ) : <General {...props} />}
+            </View>
+          </Scroll>
+        )}
       </View>
-      {section() === "agents" ? <Agents {...props} /> : (
-        <Scroll style={{ flex: 1, minHeight: 0 }}>
-          <View style={{ padding: 20, paddingTop: 0, gap: 16, maxWidth: 850, width: "100%" }}>
-            {section() === "appearance" ? <Appearance {...props} />
-              : section() === "network" ? <Network {...props} />
-              : section() === "updates" ? (
-                <UpdatePanel theme={props.theme} locale={props.locale} version={props.preferences.version}
-                  updates={props.updates} />
-              ) : <General {...props} />}
-          </View>
-        </Scroll>
-      )}
     </View>
   );
+}
+
+type SettingOption = { value: string; title: string; glyph?: "monitor" | "sun" | "moon" };
+type SettingField = { theme: Theme; title: string; detail: string; value: string; items: SettingOption[]; onChange(value: string): void };
+
+function SettingsGroup(props: { theme: Theme; title: string; children?: JSX.Element }) {
+  return <View class="min-w-0 gap-2">
+    <Label theme={props.theme} muted size={textSize(props.theme, 16)}>{props.title}</Label>
+    <View class="min-w-0 gap-4 p-4" style={{ backgroundColor: props.theme.surface, borderRadius: props.theme.radius, borderWidth: 1, borderColor: props.theme.border }}>
+      {props.children}
+    </View>
+  </View>;
+}
+
+function SettingRow(props: { theme: Theme; title: string; detail: string; mono?: boolean; children?: JSX.Element }) {
+  return <View class="flex-row items-center justify-between flex-wrap gap-4">
+    <View class="min-w-0 gap-1" style={{ flexGrow: 1, flexBasis: 140 }}>
+      <Label theme={props.theme}>{props.title}</Label>
+      <Label theme={props.theme} mono={props.mono} truncate={props.mono} size={textSize(props.theme, 12)} muted>{props.detail}</Label>
+    </View>
+    {props.children}
+  </View>;
+}
+
+function Divider(props: { theme: Theme }) {
+  return <View class="h-px w-full" style={{ backgroundColor: props.theme.border }} />;
+}
+
+function SelectSetting(props: SettingField & { searchable?: boolean; searchLabel?: string }) {
+  return <SettingRow theme={props.theme} title={props.title} detail={props.detail}>
+    <View style={{ width: 200, maxWidth: "100%" }}>
+      <Choice {...props} inline />
+    </View>
+  </SettingRow>;
+}
+
+function SegmentedSetting(props: SettingField) {
+  return <SettingRow theme={props.theme} title={props.title} detail={props.detail}>
+    <ToggleGroup class="flex-row flex-wrap items-center gap-0.5 p-0.5"
+      style={{ borderWidth: 1, borderColor: props.theme.border, borderRadius: props.theme.radius, backgroundColor: props.theme.background }}>
+      <Each of={props.items} key={(option) => option.value}>
+        {(option) => <Toggle pressed={props.value === option().value} accessibilityLabel={option().title}
+          onChange={({ pressed }) => { if (pressed) props.onChange(option().value); }}
+          class="min-h-7 flex-row items-center justify-center gap-1 px-2"
+          style={{ borderRadius: props.theme.radius, backgroundColor: props.value === option().value ? props.theme.accent : undefined }}
+          hoverStyle={{ backgroundColor: props.theme.surface }}
+          focusVisibleStyle={{ borderColor: props.theme.primary, borderWidth: 1 }}>
+          {option().glyph ? <Icon name={option().glyph!} size={14} color={props.theme.foreground} /> : null}
+          <Label theme={props.theme} size={textSize(props.theme, 13)}>{option().title}</Label>
+        </Toggle>}
+      </Each>
+    </ToggleGroup>
+  </SettingRow>;
 }
 
 function General(props: SettingsProps) {
@@ -63,22 +128,22 @@ function General(props: SettingsProps) {
     } catch (error) { props.notify(errorMessage(error), "error"); }
   }
   return (
-    <Section theme={props.theme} title={t().settings_general}>
-      <Choice theme={props.theme} title={t().settings_language} detail={t().settings_language_desc}
+    <SettingsGroup theme={props.theme} title={t().settings_general}>
+      <SelectSetting theme={props.theme} title={t().settings_language} detail={t().settings_language_desc}
         value={props.locale} items={[
           { value: "zh-CN", title: "简体中文" }, { value: "en", title: "English" }, { value: "ja", title: "日本語" },
         ]} onChange={(value) => void props.setPreference("language", value)} />
-      <Choice theme={props.theme} title={t().settings_deploy_mode} detail={t().settings_deploy_mode_desc}
+      <Divider theme={props.theme} />
+      <SegmentedSetting theme={props.theme} title={t().settings_deploy_mode} detail={t().settings_deploy_mode_desc}
         value={props.preferences.deploy_mode} items={[
           { value: "symlink", title: t().mode_symlink }, { value: "copy", title: t().mode_copy },
         ]} onChange={(value) => void props.setPreference("deploy_mode", value)} />
-      <View style={{ gap: 4 }}>
-        <Label theme={props.theme}>{t().settings_root_dir}</Label>
-        <Label theme={props.theme} muted mono>{props.preferences.root_dir}</Label>
+      <Divider theme={props.theme} />
+      <SettingRow theme={props.theme} title={t().settings_root_dir} detail={props.preferences.root_dir} mono>
         <Action theme={props.theme} label={t().tooltip_reveal_folder} disabled={!props.preferences.root_dir}
-          onPress={() => void reveal()} />
-      </View>
-    </Section>
+          glyph="folder-open" iconOnly tooltip={t().tooltip_reveal_folder} onPress={() => void reveal()} />
+      </SettingRow>
+    </SettingsGroup>
   );
 }
 
@@ -95,33 +160,37 @@ function Appearance(props: SettingsProps) {
     ...Array.from(new Set([...fonts(), ...(current === "auto" ? [] : [current])]))
       .map((value) => ({ title: value, value })),
   ];
-  const options = (values: number[]) => values.map((value) => ({ value: String(value), title: String(value) }));
+  const options = (values: number[]) => values.map((value) => ({ value: String(value), title: `${value}px` }));
   return (
     <View style={{ gap: 16 }}>
-      <Section theme={props.theme} title={t().settings_appearance}>
-        <Choice theme={props.theme} title={t().settings_appearance} detail={t().settings_appearance_desc}
+      <SettingsGroup theme={props.theme} title={t().settings_appearance}>
+        <SegmentedSetting theme={props.theme} title={t().settings_appearance} detail={t().settings_appearance_desc}
           value={props.preferences.theme} items={[
-            { value: "system", title: t().theme_system }, { value: "light", title: t().theme_light },
-            { value: "dark", title: t().theme_dark },
+            { value: "system", title: t().theme_system, glyph: "monitor" }, { value: "light", title: t().theme_light, glyph: "sun" },
+            { value: "dark", title: t().theme_dark, glyph: "moon" },
           ]} onChange={(value) => void props.setPreference("theme", value)} />
-        <Choice theme={props.theme} title={t().settings_accent_palette} detail={t().settings_accent_palette_desc}
+        <Divider theme={props.theme} />
+        <SelectSetting theme={props.theme} title={t().settings_accent_palette} detail={t().settings_accent_palette_desc}
           value={paletteFor(props.preferences.accent_palette)} items={paletteItems()}
           onChange={(value) => void props.setPreference("accent_palette", value)} />
-        <Choice theme={props.theme} title={t().settings_corner_radius} detail={t().settings_corner_radius_desc}
+        <Divider theme={props.theme} />
+        <SegmentedSetting theme={props.theme} title={t().settings_corner_radius} detail={t().settings_corner_radius_desc}
           value={props.preferences.corner_radius} items={options([0, 4, 6, 8, 12])}
           onChange={(value) => void props.setPreference("corner_radius", value)} />
-      </Section>
-      <Section theme={props.theme} title={t().settings_fonts}>
-        <Choice theme={props.theme} title={t().settings_ui_font} detail={t().settings_ui_font_desc}
+      </SettingsGroup>
+      <SettingsGroup theme={props.theme} title={t().settings_fonts}>
+        <SelectSetting theme={props.theme} title={t().settings_ui_font} detail={t().settings_ui_font_desc}
           value={props.preferences.ui_font} items={fontItems(t().font_auto_by_lang, props.preferences.ui_font)}
           searchable searchLabel={t().search_fonts} onChange={(value) => void props.setPreference("ui_font", value)} />
-        <Choice theme={props.theme} title={t().settings_mono_font} detail={t().settings_mono_font_desc}
+        <Divider theme={props.theme} />
+        <SelectSetting theme={props.theme} title={t().settings_mono_font} detail={t().settings_mono_font_desc}
           value={props.preferences.mono_font} items={fontItems(t().font_auto_mono, props.preferences.mono_font)}
           searchable searchLabel={t().search_fonts} onChange={(value) => void props.setPreference("mono_font", value)} />
-        <Choice theme={props.theme} title={t().settings_font_size} detail={t().settings_font_size_desc}
+        <Divider theme={props.theme} />
+        <SegmentedSetting theme={props.theme} title={t().settings_font_size} detail={t().settings_font_size_desc}
           value={props.preferences.font_size} items={options([13, 14, 15, 16])}
           onChange={(value) => void props.setPreference("font_size", value)} />
-      </Section>
+      </SettingsGroup>
     </View>
   );
 }
@@ -192,34 +261,40 @@ function Network(props: SettingsProps) {
 
   return (
     <View style={{ gap: 16 }}>
-      <Section theme={props.theme} title={t().settings_network}>
+      <SettingsGroup theme={props.theme} title={t().settings_network}>
         <FormText theme={props.theme} title={t().settings_http_proxy} detail={t().settings_http_proxy_desc}
           placeholder={t().ph_http_proxy} value={proxy()} onChange={(value) => proxy.set(value)} />
+        <Divider theme={props.theme} />
         <FormText theme={props.theme} title={t().settings_github_token} detail={t().settings_github_token_desc}
           placeholder={t().ph_github_token} masked value={token()} onChange={(value) => token.set(value)} />
-        <Action theme={props.theme} label={networkBusy() ? t().saving : t().btn_save}
-          disabled={networkBusy()} onPress={() => void network()} />
-      </Section>
-      <Section theme={props.theme} title={t().settings_git_backup}>
+        <View class="flex-row justify-end"><Action theme={props.theme} glyph="check" onPrimary label={networkBusy() ? t().saving : t().btn_save}
+          disabled={networkBusy()} onPress={() => void network()} /></View>
+      </SettingsGroup>
+      <SettingsGroup theme={props.theme} title={t().settings_git_backup}>
         <FormText theme={props.theme} title={t().settings_git_backup_repo} detail={t().settings_git_backup_repo_desc}
           placeholder={t().ph_git_backup_repo} value={repo()} onChange={(value) => repo.set(value)} />
-        <FormText theme={props.theme} title={t().settings_git_backup_branch} detail={t().settings_git_backup_branch_desc}
-          placeholder="main" value={branch()} onChange={(value) => branch.set(value)} />
+        <Divider theme={props.theme} />
+        <SettingRow theme={props.theme} title={t().settings_git_backup_branch} detail={t().settings_git_backup_branch_desc}>
+          <View style={{ width: 200, maxWidth: "100%" }}>
+            <FormText inline theme={props.theme} title={t().settings_git_backup_branch} placeholder="main"
+              value={branch()} onChange={(value) => branch.set(value)} />
+          </View>
+        </SettingRow>
         {statusError() ? <InlineError theme={props.theme} message={statusError()} /> : null}
-        {status() ? (
-          <Label theme={props.theme} muted>
-            {`${status()!.local_skill_count} ${t().skills_unit} · ${status()!.local_stack_count} ${t().nav_stacks}`}
-          </Label>
-        ) : null}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          <Action theme={props.theme} label={backupBusy() === "save" ? t().saving : t().btn_save}
+        <View class="flex-row flex-wrap items-center gap-2">
+          <View class="flex-1 min-w-0">
+            {status() ? <Label theme={props.theme} muted size={textSize(props.theme, 12)}>
+              {`${status()!.local_skill_count} ${t().skills_unit} · ${status()!.local_stack_count} ${t().nav_stacks}`}
+            </Label> : null}
+          </View>
+          <Action theme={props.theme} glyph="check" label={backupBusy() === "save" ? t().saving : t().btn_save}
             disabled={backupBusy() !== null} onPress={() => void backup("save")} />
-          <Action theme={props.theme} label={backupBusy() === "pull" ? t().busy_backup_pulling : t().btn_backup_pull}
+          <Action theme={props.theme} glyph="arrow-down" label={backupBusy() === "pull" ? t().busy_backup_pulling : t().btn_backup_pull}
             disabled={backupBusy() !== null || !repo().trim()} onPress={() => void backup("pull")} />
-          <Action theme={props.theme} label={backupBusy() === "push" ? t().busy_backup_pushing : t().btn_backup_push}
+          <Action theme={props.theme} glyph="arrow-up" onPrimary label={backupBusy() === "push" ? t().busy_backup_pushing : t().btn_backup_push}
             disabled={backupBusy() !== null || !repo().trim()} onPress={() => void backup("push")} />
         </View>
-      </Section>
+      </SettingsGroup>
     </View>
   );
 }
@@ -236,8 +311,7 @@ function Agents(props: SettingsProps) {
   const formError = signal("");
   const listError = signal("");
   const detected = () => agents().filter((agent) => agent.installed);
-  const undetectedCount = () => agents().length - detected().length;
-  const visible = () => showUndetected() ? [...detected(), ...agents().filter((agent) => !agent.installed)] : detected();
+  const undetected = () => agents().filter((agent) => !agent.installed);
 
   effect(() => {
     void props.revision;
@@ -281,29 +355,15 @@ function Agents(props: SettingsProps) {
     void mutate("settings.agent_add", { name: name(), skills_dir: directory() });
   }
 
-  return (
-    <View style={{ flex: 1, minHeight: 0, paddingHorizontal: 20, paddingBottom: 20, gap: 12 }}>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-        <Label theme={props.theme} heading>{`${t().badge_detected} (${detected().length})`}</Label>
-        <Action theme={props.theme} label={t().settings_add_custom_agent}
-          onPress={() => { name.set(""); directory.set(""); formError.set(""); open.set(true); }} />
-        {undetectedCount() > 0 ? (
-          <Action theme={props.theme} selected={showUndetected()}
-            label={`${t().badge_not_detected} (${undetectedCount()})`}
-            onPress={() => showUndetected.update((shown) => !shown)} />
-        ) : null}
-      </View>
-      {listError() ? <InlineError theme={props.theme} message={listError()} /> : null}
-      {loading() ? <Label theme={props.theme} muted>{t().loading}</Label> : null}
-      <List each={visible()} style={{ flex: 1, minHeight: 0 }} estimatedItemSize={58} keyExtractor={(agent) => agent.key}>
+  function renderRows(items: Agent[]) {
+    return <View class="p-4" style={{ borderWidth: 1, borderRadius: props.theme.radius, borderColor: props.theme.border }}>
+      <List each={items} viewport="parent" estimatedItemSize={40} keyExtractor={(agent) => agent.key}>
         {(item) => (
-          <View style={{ flexDirection: "row", gap: 8, alignItems: "center", minHeight: 58,
-            paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderColor: props.theme.border,
-            backgroundColor: props.theme.surface }}>
-            <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-              <Label theme={props.theme} truncate>{item().display_name}</Label>
-              <Label theme={props.theme} muted mono truncate>{item().skills_dir}</Label>
-            </View>
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center", minHeight: 40,
+            paddingHorizontal: 12, paddingVertical: 4, borderBottomWidth: 1, borderColor: props.theme.border,
+            backgroundColor: props.theme.background }}>
+            <View style={{ width: "32%", minWidth: 0 }}><Label theme={props.theme} truncate>{item().display_name}</Label></View>
+            <View class="flex-1 min-w-0"><Label theme={props.theme} muted mono truncate size={textSize(props.theme, 12)}>{item().skills_dir}</Label></View>
             {item().is_custom ? <Action theme={props.theme} compact danger label={t().btn_delete}
               disabled={busy()} onPress={() => void mutate("settings.agent_remove", { key: item().key })} /> : null}
             <Switch accessibilityLabel={item().display_name} checked={item().enabled} disabled={busy()}
@@ -316,6 +376,34 @@ function Agents(props: SettingsProps) {
           </View>
         )}
       </List>
+    </View>;
+  }
+
+  return (
+    <View class="flex-1 min-h-0 min-w-0">
+      <Scroll class="flex-1 min-w-0 min-h-0">
+        <View class="w-full gap-3 p-5" style={{ maxWidth: 720 }}>
+        <View class="flex-row items-center justify-between gap-2">
+          <Label theme={props.theme} muted weight="600">{`${t().badge_detected} (${detected().length})`}</Label>
+          <Action theme={props.theme} label={t().settings_add_custom_agent} glyph="plus"
+            onPress={() => { name.set(""); directory.set(""); formError.set(""); open.set(true); }} />
+        </View>
+        {listError() ? <InlineError theme={props.theme} message={listError()} /> : null}
+        {loading() ? <Label theme={props.theme} muted>{t().loading}</Label> : null}
+        {detected().length ? renderRows(detected()) : null}
+        {undetected().length ? (
+          <Collapsible open={showUndetected()} content={renderRows(undetected())}>
+            <Button accessibilityLabel={t().badge_not_detected} selected={showUndetected()}
+              class="min-h-8 flex-row items-center gap-2 px-3"
+              hoverStyle={{ backgroundColor: props.theme.accent }} focusVisibleStyle={{ borderColor: props.theme.primary, borderWidth: 1 }}
+              onPress={() => showUndetected.update((shown) => !shown)}>
+              <View class={showUndetected() ? "rotate-90" : undefined}><Icon name="chevron-right" color={props.theme.muted} size={14} /></View>
+              <Label theme={props.theme} weight="600">{`${t().badge_not_detected} (${undetected().length})`}</Label>
+            </Button>
+          </Collapsible>
+        ) : null}
+        </View>
+      </Scroll>
       <Modal theme={props.theme} label={t().settings_add_custom_agent} open={open()}
         onClose={() => { if (!busy()) open.set(false); }}>
         <FormText theme={props.theme} title={t().custom_agent_name} placeholder={t().ph_custom_agent_name}
