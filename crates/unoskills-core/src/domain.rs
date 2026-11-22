@@ -137,6 +137,8 @@ pub struct Deployment {
     pub agent_key: String,
     pub target_path: PathBuf,
     pub mode: DeployMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy_hash: Option<String>,
     pub synced_at: i64,
 }
 
@@ -191,7 +193,7 @@ pub enum StackSource {
 
 /// Unified declarative manifest for a Skill Stack (used for local presets,
 /// backup/export, Gist sharing, and the community Stacks registry).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StackManifest {
     pub id: String,
     pub name: String,
@@ -211,7 +213,7 @@ pub struct StackManifest {
     pub skills: Vec<StackSkillRef>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StackSkillRef {
     pub name: String,
     /// Canonical install ref: `owner/repo@skill`, git URL, or local path.
@@ -223,24 +225,23 @@ pub struct StackSkillRef {
 impl StackSkillRef {
     pub fn matches_source(&self, reference: &str) -> bool {
         let source = self.source.trim();
-        !source.is_empty()
-            && (source == reference
-                || source.strip_prefix("~/").is_some_and(|path| {
-                    dirs::home_dir().is_some_and(|home| home.join(path).as_os_str() == reference)
-                }))
+        !source.is_empty() && crate::source::same_source(source, reference)
     }
 
-    /// Match the installed source first, then fall back to the manifest's skill name.
+    fn matches_skill_source(&self, skill: &Skill) -> bool {
+        self.matches_source(&skill.central_path.to_string_lossy())
+            || skill
+                .source_ref
+                .as_deref()
+                .is_some_and(|source| self.matches_source(source))
+    }
+
+    /// Find the installed member or its same-name candidate for conflict reporting.
     pub fn installed_in<'a>(&self, skills: &'a [Skill]) -> Option<&'a Skill> {
         let name = self.name.trim().to_lowercase();
         skills
             .iter()
-            .find(|skill| {
-                skill
-                    .source_ref
-                    .as_deref()
-                    .is_some_and(|source| self.matches_source(source))
-            })
+            .find(|skill| self.matches_skill_source(skill))
             .or_else(|| {
                 skills.iter().find(|skill| {
                     skill.id.to_lowercase() == name
@@ -251,9 +252,7 @@ impl StackSkillRef {
     }
 
     pub fn has_source_conflict(&self, skill: &Skill) -> bool {
-        skill.source_ref.as_ref().is_some_and(|source| {
-            !source.eq_ignore_ascii_case(self.source.trim()) && !self.matches_source(source)
-        })
+        !self.source.trim().is_empty() && !self.matches_skill_source(skill)
     }
 
     pub fn deployable_in<'a>(&self, skills: &'a [Skill]) -> Option<&'a Skill> {
@@ -325,6 +324,15 @@ pub struct StackInstallSummary {
     pub skipped_existing: Vec<String>,
     pub failed: Vec<(String, String)>,
     pub deployed_agents: Vec<String>,
+    #[serde(default)]
+    pub deployment_failures: Vec<StackDeploymentFailure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StackDeploymentFailure {
+    pub skill: String,
+    pub agent: String,
+    pub error: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -414,11 +422,13 @@ pub struct GitBackupPushResult {
     pub commit_sha: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GitBackupPullResult {
     pub skills_imported: usize,
     pub skills_updated: usize,
     pub skills_unchanged: usize,
     pub stacks_imported: usize,
     pub refreshed_copies: usize,
+    #[serde(default)]
+    pub conflicts: Vec<String>,
 }

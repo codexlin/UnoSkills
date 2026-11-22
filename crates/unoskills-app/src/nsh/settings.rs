@@ -5,8 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use unoskills_core::{AgentCategory, CustomAgentRecord, DeployMode, UnoSkillsManager};
 
-const PREFERENCES: [(&str, &str); 8] = [
-    ("language", "zh-CN"),
+const PREFERENCES: [(&str, &str); 7] = [
     ("theme", "system"),
     ("accent_palette", "unoskills"),
     ("font_size", "14"),
@@ -92,11 +91,17 @@ pub(super) fn dispatch(manager: &UnoSkillsManager, command: &str, input: Value) 
         }
         "settings.backup_save" | "settings.backup_push" | "settings.backup_pull" => {
             let Backup { repo_url, branch } = serde_json::from_value(input)?;
-            manager.configure_git_backup(&repo_url, Some(&branch))?;
             return match command {
-                "settings.backup_push" => Ok(json!(manager.git_backup_push()?)),
-                "settings.backup_pull" => Ok(json!(manager.git_backup_pull()?)),
-                _ => Ok(json!(manager.git_backup_status()?)),
+                "settings.backup_push" => {
+                    Ok(json!(manager.git_backup_push_to(&repo_url, &branch)?))
+                }
+                "settings.backup_pull" => {
+                    Ok(json!(manager.git_backup_pull_from(&repo_url, &branch)?))
+                }
+                _ => {
+                    manager.configure_git_backup(&repo_url, Some(&branch))?;
+                    Ok(json!(manager.git_backup_status()?))
+                }
             };
         }
         _ => bail!("UNKNOWN_COMMAND: {command}"),
@@ -106,6 +111,7 @@ pub(super) fn dispatch(manager: &UnoSkillsManager, command: &str, input: Value) 
 
 fn snapshot(manager: &UnoSkillsManager) -> Result<Value> {
     let mut result = serde_json::Map::new();
+    result.insert("language".into(), json!(manager.get_setting("language")?));
     for (key, default) in PREFERENCES {
         let value = manager
             .get_setting(key)?

@@ -25,7 +25,7 @@ export interface Preferences {
 }
 
 export const defaults: Preferences = {
-  language: "zh-CN", theme: "system", accent_palette: "unoskills", font_size: "14",
+  language: "en", theme: "system", accent_palette: "unoskills", font_size: "14",
   corner_radius: "auto", ui_font: "auto", mono_font: "auto", sidebar_collapsed: "false",
   deploy_mode: "symlink", proxy: "", token: "", root_dir: "", version: "",
 };

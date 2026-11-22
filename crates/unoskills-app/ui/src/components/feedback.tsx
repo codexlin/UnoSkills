@@ -15,7 +15,7 @@ const progressWidths = { indicator: 16, compact: 40, loading: 56, full: undefine
 
 export function ProgressBar(props: {
   theme: Theme; label?: string; value?: number | null; onPrimary?: boolean;
-  size?: keyof typeof progressWidths; children?: JSX.Element;
+  size?: keyof typeof progressWidths; children?: JSX.Element; animateIndeterminate?: boolean;
 }) {
   const pending = () => props.value == null;
   const width = () => progressWidths[props.size ?? "full"];
@@ -23,7 +23,9 @@ export function ProgressBar(props: {
     style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 }}
     trackStyle={{ width: width() ?? "100%", height: 4, borderRadius: 2, flexShrink: 0, overflow: "hidden",
       backgroundColor: props.theme.border }}
-    indicatorClass={pending() ? "h-full w-1/3 animate-pulse motion-reduce:animate-none" : "h-full"}
+    indicatorClass={pending()
+      ? props.animateIndeterminate === false ? "h-full w-1/3" : "h-full w-1/3 animate-pulse motion-reduce:animate-none"
+      : "h-full"}
     indicatorStyle={{ borderRadius: 2, backgroundColor: props.onPrimary ? props.theme.onPrimary : props.theme.primary }}>
     {props.children}
   </Progress>;

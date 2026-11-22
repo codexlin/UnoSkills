@@ -30,8 +30,8 @@ const scanned: Module[] = [
 
 type Call = { command: string; input: unknown };
 
-async function openFixture() {
-  let local = [longStack, secondLocal];
+async function openFixture(localStacks = [longStack, secondLocal]) {
+  let local = localStacks;
   let deployed = false;
   const calls: Call[] = [];
   const ok = (value: unknown) => ({ ok: true, value });
@@ -76,6 +76,20 @@ async function openFixture() {
   });
   return { app, calls };
 }
+
+test("the empty My Stacks tab offers creation and still opens the recommended catalog", async () => {
+  const { app } = await openFixture([]);
+  await app.setViewport(960, 600);
+  await app.press("label:Stacks");
+  await app.waitFor("text:No local stacks yet");
+  expect(app.shows("text:Select a Stack")).toBe(false);
+  await app.press("role:tab[Featured]");
+  await app.waitFor("label:Built-in stack");
+  await app.waitFor("text:Included Skills (1)");
+  await app.press("role:tab[My Stacks]");
+  await app.press("label:Create Your First Stack");
+  await app.waitFor("label:Stack Name");
+});
 
 test("Stacks keeps the detail footer available at desktop minimum size and opens the catalog search with mod+k", async () => {
   const { app } = await openFixture();

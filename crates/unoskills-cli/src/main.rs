@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use serde_json::json;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use unoskills_core::{DeployMode, UnoSkillsManager};
 
 #[derive(Parser)]
@@ -169,26 +170,29 @@ enum StackCommands {
     },
 }
 
-fn main() {
+fn main() -> ExitCode {
     let cli = Cli::parse();
     let json_mode = cli.json;
-    if let Err(err) = run(cli) {
-        if json_mode {
-            eprintln!(
-                "{}",
-                json!({
-                    "ok": false,
-                    "error": err.to_string(),
-                })
-            );
-        } else {
-            eprintln!("error: {err}");
+    match run(cli) {
+        Ok(code) => code,
+        Err(err) => {
+            if json_mode {
+                eprintln!(
+                    "{}",
+                    json!({
+                        "ok": false,
+                        "error": err.to_string(),
+                    })
+                );
+            } else {
+                eprintln!("error: {err}");
+            }
+            ExitCode::FAILURE
         }
-        std::process::exit(1);
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
+fn run(cli: Cli) -> Result<ExitCode> {
     let mgr = match cli.root {
         Some(root) => UnoSkillsManager::open_at(root)?,
         None => UnoSkillsManager::open_default()?,
@@ -423,7 +427,7 @@ fn run(cli: Cli) -> Result<()> {
             StackCommands::Install { stack, agents } => {
                 let manifest = if PathBuf::from(&stack).is_file() {
                     let text = std::fs::read_to_string(&stack)?;
-                    mgr.import_stack_toml(&text)?
+                    unoskills_core::stacks::parse_stack_from_toml(&text)?
                 } else {
                     mgr.find_any_stack(&stack)?
                         .ok_or_else(|| anyhow::anyhow!("Stack '{stack}' not found"))?
@@ -439,6 +443,18 @@ fn run(cli: Cli) -> Result<()> {
                         summary.skipped_existing.len(),
                         summary.failed.len()
                     );
+                    for (skill, error) in &summary.failed {
+                        eprintln!("Could not install {skill}: {error}");
+                    }
+                    for failure in &summary.deployment_failures {
+                        eprintln!(
+                            "Could not deploy {} to {}: {}",
+                            failure.skill, failure.agent, failure.error
+                        );
+                    }
+                }
+                if !summary.failed.is_empty() || !summary.deployment_failures.is_empty() {
+                    return Ok(ExitCode::FAILURE);
                 }
             }
             StackCommands::Export { stack } => {
@@ -662,10 +678,11 @@ fn run(cli: Cli) -> Result<()> {
             }
             BackupCommands::Pull => {
                 let res = mgr.git_backup_pull()?;
+                let complete = res.conflicts.is_empty();
                 if cli.json {
                     println!(
                         "{}",
-                        serde_json::to_string_pretty(&json!({ "ok": true, "result": res }))?
+                        serde_json::to_string_pretty(&json!({ "ok": complete, "result": res }))?
                     );
                 } else {
                     println!(
@@ -676,10 +693,16 @@ fn run(cli: Cli) -> Result<()> {
                         res.stacks_imported,
                         res.refreshed_copies
                     );
+                    for conflict in &res.conflicts {
+                        eprintln!("{conflict}");
+                    }
+                }
+                if !complete {
+                    return Ok(ExitCode::FAILURE);
                 }
             }
         },
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }

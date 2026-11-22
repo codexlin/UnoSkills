@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::domain::DeployMode;
+use crate::parser::checked_directory_hash;
 
 /// Classifies what currently exists at a deployment target using `symlink_metadata`
 /// so directory symlinks / Windows junctions are never confused with real directories.
@@ -63,9 +64,14 @@ pub fn ensure_dst_not_overlapping_src(src: &Path, dst: &Path) -> Result<()> {
         .unwrap_or(false);
 
     let lexical_dst = || -> Option<PathBuf> {
-        let parent = dst.parent()?.canonicalize().ok()?;
-        let name = dst.file_name()?;
-        Some(parent.join(name))
+        dst.ancestors().skip(1).find_map(|ancestor| {
+            let canonical = if ancestor.as_os_str().is_empty() {
+                std::env::current_dir().ok()?
+            } else {
+                ancestor.canonicalize().ok()?
+            };
+            Some(canonical.join(dst.strip_prefix(ancestor).ok()?))
+        })
     };
 
     let dst_canon = if dst_is_link {
@@ -174,29 +180,73 @@ pub fn deploy_skill_dir(
     Ok(DeployMode::Copy)
 }
 
-pub fn remove_managed_target(src: &Path, dst: &Path, recorded_mode: DeployMode) -> Result<bool> {
+pub(crate) fn verify_managed_target(
+    src: &Path,
+    dst: &Path,
+    recorded_mode: DeployMode,
+    expected_copy_hash: Option<&str>,
+) -> Result<TargetState> {
     let state = classify_target(src, dst);
     match state {
+        TargetState::Absent => match std::fs::symlink_metadata(dst) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(state),
+            Err(error) => Err(error.into()),
+            Ok(_) => bail!(
+                "TARGET_CONFLICT: Deployment target changed during inspection: {}",
+                dst.display()
+            ),
+        },
+        TargetState::LinkToSource if recorded_mode == DeployMode::Symlink => Ok(state),
+        TargetState::RealDir
+            if recorded_mode == DeployMode::Copy
+                && checked_directory_hash(dst)
+                    .is_ok_and(|hash| Some(hash.as_str()) == expected_copy_hash) =>
+        {
+            ensure_dst_not_overlapping_src(src, dst)?;
+            Ok(state)
+        }
+        _ => bail!(
+            "TARGET_CONFLICT: Deployment target has changed: {}",
+            dst.display()
+        ),
+    }
+}
+
+pub fn remove_managed_target(
+    src: &Path,
+    dst: &Path,
+    recorded_mode: DeployMode,
+    expected_copy_hash: Option<&str>,
+) -> Result<bool> {
+    let state = verify_managed_target(src, dst, recorded_mode, expected_copy_hash)?;
+    match state {
         TargetState::Absent => Ok(false),
-        TargetState::LinkToSource => {
-            remove_path_safely(dst, state)?;
+        TargetState::RealDir => {
+            let parent = dst
+                .parent()
+                .context("Missing deployment parent directory")?;
+            let mut staging = tempfile::Builder::new()
+                .prefix(".unoskills-undeploy-")
+                .tempdir_in(parent)?;
+            let preserved = staging.path().join("copy");
+            std::fs::rename(dst, &preserved)?;
+            if let Err(error) =
+                verify_managed_target(src, &preserved, recorded_mode, expected_copy_hash)
+            {
+                if let Err(restore_error) = std::fs::rename(&preserved, dst) {
+                    staging.disable_cleanup(true);
+                    return Err(error).context(format!(
+                        "Deployment preserved at {}: {restore_error}",
+                        preserved.display()
+                    ));
+                }
+                return Err(error);
+            }
             Ok(true)
         }
-        TargetState::ForeignLink if recorded_mode == DeployMode::Symlink => {
+        _ => {
             remove_path_safely(dst, state)?;
             Ok(true)
-        }
-        TargetState::RealDir if recorded_mode == DeployMode::Copy => {
-            remove_path_safely(dst, state)?;
-            Ok(true)
-        }
-        other => {
-            bail!(
-                "TARGET_CONFLICT: Refusing to delete {} because on-disk type ({:?}) does not match recorded mode ({:?})",
-                dst.display(),
-                other,
-                recorded_mode
-            );
         }
     }
 }
@@ -249,6 +299,7 @@ fn create_dir_link(src: &Path, dst: &Path) -> Result<()> {
 }
 
 pub fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    ensure_dst_not_overlapping_src(src, dst)?;
     std::fs::create_dir_all(dst)?;
     for entry in WalkDir::new(src)
         .into_iter()
@@ -305,7 +356,7 @@ mod tests {
         assert_eq!(actual, DeployMode::Symlink);
         assert_eq!(classify_target(&src, &dst), TargetState::LinkToSource);
 
-        let removed = remove_managed_target(&src, &dst, DeployMode::Symlink).unwrap();
+        let removed = remove_managed_target(&src, &dst, DeployMode::Symlink, None).unwrap();
         assert!(removed);
         assert!(!dst.exists());
         assert!(src.join("SKILL.md").exists());

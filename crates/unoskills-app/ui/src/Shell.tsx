@@ -1,9 +1,9 @@
-import { Image, Keyboard, View, announce, cleanup, computed, effect, host, keymap, setColorScheme, signal, windowSize } from "nsh";
+import { Image, Keyboard, View, announce, cleanup, computed, effect, host, keymap, localeSettings, setColorScheme, signal, windowSize } from "nsh";
 import { titleBar } from "nsh/desktop";
 import { setLocale } from "nsh/i18n";
 import { Action, InlineError, Label, NavigationControl, interactionStyles, textSize } from "./components";
 import { Home } from "./Home";
-import { strings } from "./i18n";
+import { isLocale, preferredLocale, strings } from "./i18n";
 import { Library, Discover } from "./library";
 import { Projects, Stacks } from "./projects";
 import { Settings } from "./Settings";
@@ -20,6 +20,7 @@ const nav = [
 ] as const;
 const logo = typeof host.params.brand_mark === "string" ? host.params.brand_mark : "";
 type Notice = { message: string; tone: Tone };
+type SavedPreferences = Omit<Preferences, "language"> & { language?: string | null };
 
 export function App() {
   const page = signal<Page>("home");
@@ -28,7 +29,8 @@ export function App() {
   const routes = new Map(routePages.map((target) => [target, signal<Route>({ page: target })]));
   const selectedNav = () => page() === "projects" ? "library" : page();
   const revision = signal(0);
-  const preferences = signal<Preferences>(defaults);
+  const systemLanguage = () => preferredLocale(localeSettings().languages);
+  const preferences = signal<Preferences>({ ...defaults, language: systemLanguage() });
   const notice = signal<Notice | null>(null);
   const initializationError = signal("");
   const initialized = signal(false);
@@ -89,10 +91,12 @@ export function App() {
   async function initialize() {
     initializationError.set("");
     try {
-      const [saved] = await Promise.all([call<null, Preferences>("settings.get", null), themeFonts]);
-      if (!Object.hasOwn(strings, saved.language)) saved.language = defaults.language;
-      if (!["light", "dark", "system"].includes(saved.theme)) saved.theme = defaults.theme;
-      preferences.set(saved);
+      const [saved] = await Promise.all([call<null, SavedPreferences>("settings.get", null), themeFonts]);
+      preferences.set({
+        ...saved,
+        language: isLocale(saved.language) ? saved.language : systemLanguage(),
+        theme: saved.theme === "light" || saved.theme === "dark" ? saved.theme : defaults.theme,
+      });
       initialized.set(true);
       void updates.check(true);
     } catch (error) {
@@ -105,7 +109,7 @@ export function App() {
   const controlsInset = Number(host.params.native_window_controls_inset) || 0;
   const titleBarHeight = () => titleBar().height || 36;
   effect(() => setColorScheme(themeMode()));
-  effect(() => setLocale(locale()));
+  effect(() => { if (initialized()) setLocale(locale()); });
   effect(() => applyNativeTheme(theme(), preferences().accent_palette));
   effect(() => {
     if (!controlsInset) return;

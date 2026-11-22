@@ -46,6 +46,7 @@ export function Stacks(props: ScreenProps) {
     return request("stack.community", null);
   }, true);
   const local = () => catalog().data?.local ?? [];
+  const noLocalEntries = computed(() => tab() === "Local" && local().length === 0);
   const available = computed(() => {
     const builtIn = catalog().data?.featured ?? [];
     const remote = community().data ?? [];
@@ -139,8 +140,8 @@ export function Stacks(props: ScreenProps) {
           selectedId={tab()} onSelect={pickTab}
           tabs={[{ id: "Local", label: t().Local, glyph: "layers" },
             { id: "catalog", label: t().Featured, glyph: "users" }]} />
-        <View style={viewport}>
-          <ResizablePanelGroup axis="horizontal" handleStyle={{ backgroundColor: props.theme.border }}
+        <If when={noLocalEntries()} else={
+          <ResizablePanelGroup axis="horizontal" style={viewport} handleStyle={{ backgroundColor: props.theme.border }}
             handleAccessibilityLabel={t().stacks}>
             <ResizablePanel size={width()} minSize={240} maxSize={500} onResize={({ size }) => width.set(size)}
               style={{ minHeight: 0, minWidth: 0, overflow: "hidden", backgroundColor: props.theme.background }}>
@@ -175,12 +176,9 @@ export function Stacks(props: ScreenProps) {
                 </View>
               </If>
               <If when={filtered().length > 0} else={
-                <If when={!catalog().pending && (tab() === "Local" || !community().pending)}>
-                  <CatalogEmpty theme={props.theme} title={tab() === "Local" ? t().noLocalStacks : t().noFeaturedStacks}
-                    description={t().emptyStacksDescription} showIcon>
-                    <Action theme={props.theme} label={t().createFirst} primary compact
-                      run={() => props.navigate({ page: "stacks", tab: "create" })} />
-                  </CatalogEmpty>
+                <If when={!catalog().pending && !community().pending && !catalog().error && !community().error}>
+                  <CatalogEmpty theme={props.theme}
+                    title={query().trim() || tag() ? t().noStacks : t().noFeaturedStacks} />
                 </If>
               }>
                 <List each={filtered()} keyExtractor={(stack) => `${stack.source}:${stack.id}`} estimatedItemSize={68} style={viewport}>
@@ -190,14 +188,23 @@ export function Stacks(props: ScreenProps) {
               </If>
             </ResizablePanel>
             <ResizablePanel minSize={240} style={{ minHeight: 0, minWidth: 0, overflow: "hidden", backgroundColor: props.theme.surface }}>
-              <If when={selected()} else={
-                <CatalogEmpty theme={props.theme} title={t().selectStack} description={t().selectStackDescription} />
-              }>
+              <If when={selected()}>
                 {(stack) => <StackDetail screen={props} stack={stack()} local={local()} open={open} />}
               </If>
             </ResizablePanel>
           </ResizablePanelGroup>
-        </View>
+        }>
+          <If when={catalog().pending || catalog().error} else={
+            <CatalogEmpty theme={props.theme} title={t().noLocalStacks} description={t().emptyStacksDescription}>
+              <Action theme={props.theme} label={t().createFirst} primary compact
+                run={() => props.navigate({ page: "stacks", tab: "create" })} />
+            </CatalogEmpty>
+          }>
+            <View style={{ padding: 12 }}>
+              <Feedback theme={props.theme} label={t().loading} pending={catalog().pending} error={catalog().error} />
+            </View>
+          </If>
+        </If>
       </>
     }>
       <If when={mode() === "create"}><StackEditor screen={props} saved={openLocal} /></If>
@@ -218,13 +225,17 @@ export function Stacks(props: ScreenProps) {
   </View>;
 }
 
-function CatalogEmpty(props: { theme: Theme; title: string; description: string; showIcon?: boolean; children?: JSX.Element }) {
+function CatalogEmpty(props: { theme: Theme; title: string; description?: string; children?: JSX.Element }) {
   return <View style={{ ...viewport, alignItems: "center", justifyContent: "center", padding: 16, gap: 8 }}>
-    <If when={props.showIcon}><Icon name="layout-dashboard" color={props.theme.muted} size={24} /></If>
+    <Icon name="layout-dashboard" color={props.theme.muted} size={24} />
     <Heading theme={props.theme} label={props.title} />
-    <Text style={{ ...textStyle(props.theme, { size: props.theme.fontSize - 2 }), color: props.theme.muted,
-      textAlign: "center", maxWidth: "100%" }}>{props.description}</Text>
-    {props.children}
+    <If when={props.description}>{(description) =>
+      <Text style={{ ...textStyle(props.theme, { size: props.theme.fontSize - 2 }), color: props.theme.muted,
+        textAlign: "center", width: "100%", maxWidth: 360 }}>{description()}</Text>
+    }</If>
+    <If when={props.children}>
+      <View style={{ ...row, justifyContent: "center" }}>{props.children}</View>
+    </If>
   </View>;
 }
 
@@ -400,18 +411,19 @@ function StackDetail(props: {
                 <Label theme={screen.theme} label={status().member.source}
                   title={[status().member.source, status().member.note].filter(Boolean).join("\n")} muted size={12} lines={1} />
               </View>
+              {status().source_conflict ? <Label theme={screen.theme} label={t().sourceConflict}
+                color={screen.theme.warning} size={12} lines={1} /> : null}
               <If when={status().installed} else={
                 <Action theme={screen.theme} label={t().install} compact glyph="arrow-down"
                   disabled={op.busy()} pending={op.busy() && pendingMember() === item().key} run={() => installMember(item())} />
               }>
                 {(skill) => <Button
-                  accessibilityLabel={status().source_conflict ? t().sourceConflict : t().inLibrary}
+                  accessibilityLabel={t().inLibrary}
                   onPress={() => screen.navigate({ page: "library", skillId: skill().id })}
                   focusVisibleStyle={focusOutline(screen.theme)}
                   style={{ flexShrink: 0, minHeight: 24, maxWidth: "46%", justifyContent: "center", borderWidth: 1,
                     borderColor: "transparent", borderRadius: screen.theme.control.radius }}>
-                  <Label theme={screen.theme} label={status().source_conflict ? t().sourceConflict : t().inLibrary}
-                    color={status().source_conflict ? screen.theme.warning : screen.theme.success} size={12} lines={1} />
+                  <Label theme={screen.theme} label={t().inLibrary} color={screen.theme.success} size={12} lines={1} />
                 </Button>}
               </If>
             </View>;

@@ -132,7 +132,7 @@ test("Library search releases focus on Escape and blank clicks without clearing 
   expect(app.value(search)).toBe("fixture two");
 });
 
-test("the title bar opens real update states with an accessible progress value", async () => {
+test("the update dialog keeps progress through polling and continuing in the background", async () => {
   const status = (download: unknown) => ({
     ok: true,
     value: { version: "0.6.2", available: release, platform: "linux_x64", checking: false, download },
@@ -140,6 +140,8 @@ test("the title bar opens real update states with an accessible progress value",
   let finish!: () => void;
   const download = new Promise((resolve) => { finish = () => resolve(status({ phase: "ready", verified: true })); });
   let downloadStarted = false;
+  let polledProgress: { phase: string; percent?: number } = { phase: "idle" };
+  let polls = 0;
   const installCalls: string[] = [];
   const app = await openHome((command) => {
     switch (command) {
@@ -147,7 +149,9 @@ test("the title bar opens real update states with an accessible progress value",
       case "update.download":
         downloadStarted = true;
         return download;
-      case "update.status": return status({ phase: "downloading", percent: 37 });
+      case "update.status":
+        polls++;
+        return status(polledProgress);
       case "update.install":
         installCalls.push(command);
         return { ok: true, value: { launched: true } };
@@ -158,9 +162,17 @@ test("the title bar opens real update states with an accessible progress value",
   const downloadPress = app.press(`label:${t.btn_download_update}`);
   try {
     await app.waitUntil(() => downloadStarted);
-    await app.wait(320);
+    await app.waitUntil(() => polls > 0);
+    expect(app.shows(`role:progressbar[${t.update_preparing}]`)).toBe(true);
+    polledProgress = { phase: "downloading", percent: 37 };
     await app.waitFor(`text:${t.update_downloading} 37%`);
     expect(app.shows(`role:progressbar[${t.update_downloading} 37%]`)).toBe(true);
+    await app.press(`label:${t.update_background}`);
+    await app.waitUntil(() => !app.shows(`role:dialog[${t.settings_updates}]`));
+    polledProgress = { phase: "verifying" };
+    await app.waitFor(`role:button[${t.update_verifying}]`);
+    await app.press(`role:button[${t.update_verifying}]`);
+    expect(app.shows(`role:progressbar[${t.update_verifying}]`)).toBe(true);
     expect(installCalls).toEqual([]);
     finish();
     await downloadPress;
@@ -169,5 +181,6 @@ test("the title bar opens real update states with an accessible progress value",
     expect(installCalls).toEqual(["update.install"]);
   } finally {
     finish();
+    await downloadPress;
   }
 });

@@ -1,3 +1,6 @@
+#[path = "backup_sync.rs"]
+mod backup_sync;
+
 #[path = "skill_revisions.rs"]
 mod skill_revisions;
 pub use skill_revisions::{PreparedSkillRevision, SkillRevisionPreview};
@@ -8,25 +11,20 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
-use crate::backup::{
-    DEFAULT_BACKUP_BRANCH, GitBackupOpts, list_synced_artifacts, mirror_commit_and_push,
-    normalize_branch, prepare_sync_repo,
-};
 use crate::domain::{
-    AdoptCandidate, AgentInfo, DeployMode, Deployment, GitBackupPullResult, GitBackupPushResult,
-    GitBackupStatus, MarketplacePage, MarketplaceSkill, ProjectDeployment, ProjectSkillPlacement,
-    ProjectSkillStatus, ProjectWorkspace, Skill, SkillLintReport, SkillUpdateResult, SourceType,
-    StackInstallSummary, StackManifest, StackProjectDeployStatus, StackProjectDeploySummary,
-    StackSkillRef, StackSource,
+    AdoptCandidate, AgentInfo, DeployMode, Deployment, MarketplacePage, MarketplaceSkill,
+    ProjectDeployment, ProjectSkillPlacement, ProjectSkillStatus, ProjectWorkspace, Skill,
+    SkillLintReport, SkillUpdateResult, SourceType, StackDeploymentFailure, StackInstallSummary,
+    StackManifest, StackProjectDeployStatus, StackProjectDeploySummary, StackSkillRef, StackSource,
 };
 use crate::parser::{
-    find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir, parse_skill_dir,
-    sanitize_slug,
+    checked_directory_hash, find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir,
+    parse_skill_dir, sanitize_slug,
 };
 use crate::registry::{CustomAgentRecord, resolve_agents};
 use crate::source::{
     ResolvedSource, fetch_git_skill, fetch_skillssh_leaderboard, fetch_skillssh_leaderboard_page,
-    resolve_source_ref, scan_adoptable_skills, search_skillssh,
+    resolve_source_ref, same_source, scan_adoptable_skills, search_skillssh,
 };
 use crate::stacks::{
     DefaultStackRegistry, DeviceCodeRequest, StackRegistry, export_stack_to_toml,
@@ -36,7 +34,7 @@ use crate::stacks::{
 use crate::store::Store;
 use crate::sync::{
     ReplacePolicy, TargetState, classify_target, copy_dir_recursive, deploy_skill_dir,
-    ensure_dst_not_overlapping_src, remove_managed_target,
+    ensure_dst_not_overlapping_src, remove_managed_target, verify_managed_target,
 };
 use crate::updater::{
     DEFAULT_RELEASES_API_URL, DownloadedUpdate, PlatformKind, ReleaseAsset, UpdateCheckOutcome,
@@ -51,7 +49,7 @@ pub struct UnoSkillsManager {
 }
 
 pub(crate) enum StackProjectTarget {
-    Deployed,
+    Deployed(DeployMode),
     Missing(Option<DeployMode>),
     Register(DeployMode),
     Local,
@@ -74,6 +72,11 @@ pub(crate) fn project_scope_directory(project: &ProjectWorkspace, scope: &Path) 
         ensure!(
             path.is_dir(),
             "Project directory no longer exists: {}",
+            path.display()
+        );
+        ensure!(
+            path.canonicalize()? == path,
+            "TARGET_CONFLICT: Project directory now points to another location: {}",
             path.display()
         );
     } else {
@@ -100,9 +103,6 @@ pub(crate) fn scoped_project_skills_dir(
 ) -> Result<PathBuf> {
     let mut dir = project_scope_directory(project, scope)?;
     let relative_dir = Path::new(project_skills_dir(agent));
-    if scope.as_os_str().is_empty() {
-        return Ok(dir.join(relative_dir));
-    }
     for part in relative_dir.components() {
         let Component::Normal(part) = part else {
             bail!("Invalid Agent skills directory: {}", relative_dir.display());
@@ -111,7 +111,10 @@ pub(crate) fn scoped_project_skills_dir(
         match std::fs::symlink_metadata(&dir) {
             Ok(entry) if entry.is_dir() && dir.canonicalize()? == dir => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Ok(_) => bail!("Invalid subproject skills directory: {}", dir.display()),
+            Ok(_) => bail!(
+                "TARGET_CONFLICT: Invalid project skills directory: {}",
+                dir.display()
+            ),
             Err(error) => {
                 return Err(error).with_context(|| format!("Cannot access {}", dir.display()));
             }
@@ -121,18 +124,25 @@ pub(crate) fn scoped_project_skills_dir(
 }
 
 fn safe_scoped_target(dep: &ProjectDeployment) -> Result<bool> {
-    if dep.scope_path.as_os_str().is_empty() {
-        return Ok(true);
-    }
     let parent = dep
         .target_path
         .parent()
         .context("Missing skills directory")?;
-    match parent.canonicalize() {
-        Ok(actual) => Ok(actual == parent),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error.into()),
+    for ancestor in parent.ancestors() {
+        match ancestor.symlink_metadata() {
+            Ok(metadata) => {
+                ensure!(
+                    metadata.is_dir() && ancestor.canonicalize()? == ancestor,
+                    "TARGET_CONFLICT: Deployment parent now points to another location: {}",
+                    ancestor.display()
+                );
+                return Ok(ancestor == parent);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
     }
+    Ok(false)
 }
 
 pub(crate) fn inspect_stack_project_target(
@@ -163,7 +173,7 @@ pub(crate) fn inspect_stack_project_target(
             if !is_valid_skill_dir(target) {
                 return StackProjectTarget::Conflict;
             }
-            let Ok(actual_hash) = hash_directory(target) else {
+            let Ok(actual_hash) = checked_directory_hash(target) else {
                 return StackProjectTarget::Conflict;
             };
             if !matching_records().any(|dep| {
@@ -183,7 +193,7 @@ pub(crate) fn inspect_stack_project_target(
         _ => return StackProjectTarget::Conflict,
     };
     if matching_records().any(|dep| is_current(&dep) && dep.mode == mode) {
-        StackProjectTarget::Deployed
+        StackProjectTarget::Deployed(mode)
     } else {
         StackProjectTarget::Register(mode)
     }
@@ -197,7 +207,7 @@ fn matches_skill_copy(skill: &Skill, target: &Path) -> bool {
         .content_hash
         .clone()
         .or_else(|| hash_directory(&skill.central_path).ok());
-    hash_directory(target).is_ok_and(|hash| Some(hash) == source_hash)
+    checked_directory_hash(target).is_ok_and(|hash| Some(hash) == source_hash)
 }
 
 fn is_globally_available(skill: &Skill, agent: &AgentInfo) -> bool {
@@ -355,7 +365,7 @@ impl UnoSkillsManager {
                         &agent,
                         &directory.join(&skill.slug),
                     ) {
-                        StackProjectTarget::Deployed => ProjectSkillPlacement::Managed,
+                        StackProjectTarget::Deployed(_) => ProjectSkillPlacement::Managed,
                         StackProjectTarget::Missing(_) => ProjectSkillPlacement::Missing,
                         StackProjectTarget::Register(_) | StackProjectTarget::Local => {
                             ProjectSkillPlacement::Local
@@ -449,7 +459,7 @@ impl UnoSkillsManager {
                     &path,
                     slug_hint.as_deref(),
                     SourceType::Local,
-                    Some(path.to_string_lossy().to_string()),
+                    Some(std::path::absolute(&path)?.to_string_lossy().into_owned()),
                     None,
                     None,
                 )
@@ -524,21 +534,46 @@ impl UnoSkillsManager {
         let central_path = self.skills_dir.join(&slug);
         ensure_dst_not_overlapping_src(source_dir, &central_path)?;
 
-        // Stage into a sibling temporary directory first so a failed copy never
-        // destroys an already-installed skill at `central_path`.
-        let staging_path = self
-            .skills_dir
-            .join(format!(".staging-{}-{}", slug, Uuid::new_v4()));
-        if let Err(err) = copy_dir_recursive(source_dir, &staging_path) {
-            let _ = std::fs::remove_dir_all(&staging_path);
-            return Err(err);
+        let existing = self
+            .store
+            .list_skills()?
+            .into_iter()
+            .find(|skill| skill.slug.eq_ignore_ascii_case(&slug));
+        if let Some(skill) = &existing {
+            ensure!(
+                skill.central_path == central_path
+                    && source_ref
+                        .as_deref()
+                        .zip(skill.source_ref.as_deref())
+                        .is_some_and(|(incoming, saved)| same_source(incoming, saved)),
+                "SKILL_SLUG_CONFLICT: A different skill already uses the library directory '{slug}'"
+            );
         }
-        if central_path.exists() {
-            std::fs::remove_dir_all(&central_path)?;
+        match std::fs::symlink_metadata(&central_path) {
+            Ok(entry) => {
+                if let Some(skill) = existing
+                    && entry.is_dir()
+                    && classify_target(source_dir, &central_path) == TargetState::RealDir
+                    && is_valid_skill_dir(&central_path)
+                {
+                    return Ok(skill);
+                }
+                bail!("SKILL_SLUG_CONFLICT: The library directory '{slug}' already exists");
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
-        std::fs::rename(&staging_path, &central_path)?;
 
-        let existing = self.store.find_skill(&slug)?;
+        let staging = tempfile::Builder::new()
+            .prefix(".staging-")
+            .tempdir_in(&self.skills_dir)?;
+        let candidate = staging.path().join("candidate");
+        copy_dir_recursive(source_dir, &candidate)?;
+        ensure!(
+            is_valid_skill_dir(&candidate),
+            "The staged skill has no SKILL.md"
+        );
+        let meta = parse_skill_dir(&candidate);
         let now = Utc::now().timestamp();
         let skill = Skill {
             id: existing
@@ -553,7 +588,7 @@ impl UnoSkillsManager {
             source_subpath,
             source_branch,
             central_path: central_path.clone(),
-            content_hash: hash_directory(&central_path).ok(),
+            content_hash: Some(hash_directory(&candidate)?),
             estimated_tokens: meta.estimated_tokens,
             tags: if !meta.tags.is_empty() {
                 meta.tags
@@ -575,7 +610,16 @@ impl UnoSkillsManager {
             updated_at: now,
         };
 
-        self.store.upsert_skill(&skill)?;
+        std::fs::rename(&candidate, &central_path)?;
+        if let Err(error) = self.store.upsert_skill(&skill) {
+            std::fs::rename(&central_path, &candidate).with_context(|| {
+                format!(
+                    "Could not undo the unindexed import at {}",
+                    central_path.display()
+                )
+            })?;
+            return Err(error);
+        }
         Ok(skill)
     }
 
@@ -585,6 +629,17 @@ impl UnoSkillsManager {
             .store
             .find_skill(skill_id_or_slug)?
             .context("Skill not found")?;
+        for dep in &skill.deployments {
+            verify_managed_target(
+                &skill.central_path,
+                &dep.target_path,
+                dep.mode,
+                dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
+            )?;
+        }
+        for dep in &skill.project_deployments {
+            Self::verify_project_removal(&skill, dep)?;
+        }
 
         // Undeploy from every global agent first (respecting shared directories).
         let agent_keys: Vec<String> = skill
@@ -593,12 +648,12 @@ impl UnoSkillsManager {
             .map(|d| d.agent_key.clone())
             .collect();
         for agent_key in agent_keys {
-            let _ = self.undeploy_global(&skill.id, &agent_key);
+            self.undeploy_global(&skill.id, &agent_key)?;
         }
 
         // Also undeploy from every attached project workspace.
         for dep in &skill.project_deployments {
-            let _ = self.remove_project_deployment(&skill, dep);
+            self.remove_project_deployment(&skill, dep)?;
         }
 
         if skill.central_path.exists() {
@@ -635,24 +690,58 @@ impl UnoSkillsManager {
             .with_context(|| format!("Unknown agent '{agent_key}'"))?;
 
         let target_path = agent.skills_dir.join(&skill.slug);
+        ensure_dst_not_overlapping_src(&skill.central_path, &target_path)?;
         let desired_mode = mode_override.unwrap_or_else(|| self.default_deploy_mode());
         let existing_dep = skill.deployments.iter().find(|d| d.agent_key == agent_key);
 
         let peer_mode =
             self.store
                 .peer_deployment_mode_for_skill(&skill.id, &target_path, agent_key)?;
-        let policy = if force {
-            ReplacePolicy::UserConfirmed
-        } else if let Some(dep) = existing_dep {
-            ReplacePolicy::Recorded(dep.mode)
-        } else if let Some(mode) = peer_mode {
-            ReplacePolicy::Recorded(mode)
+        let actual_mode = if force {
+            deploy_skill_dir(
+                &skill.central_path,
+                &target_path,
+                desired_mode,
+                ReplacePolicy::UserConfirmed,
+            )?
         } else {
-            ReplacePolicy::NoClobber
+            let recorded_mode = existing_dep
+                .filter(|dep| dep.target_path == target_path)
+                .map(|dep| dep.mode)
+                .or(peer_mode);
+            let current_mode = match classify_target(&skill.central_path, &target_path) {
+                TargetState::Absent => None,
+                TargetState::LinkToSource => Some(DeployMode::Symlink),
+                TargetState::RealDir
+                    if recorded_mode == Some(DeployMode::Copy)
+                        && checked_directory_hash(&skill.central_path)
+                            .ok()
+                            .zip(checked_directory_hash(&target_path).ok())
+                            .is_some_and(|(central, deployed)| central == deployed) =>
+                {
+                    Some(DeployMode::Copy)
+                }
+                _ => bail!(
+                    "TARGET_CONFLICT: Deployment target is occupied or has changed: {}",
+                    target_path.display()
+                ),
+            };
+            match current_mode {
+                Some(mode) if mode_override.is_none_or(|desired| desired == mode) => mode,
+                Some(mode) => deploy_skill_dir(
+                    &skill.central_path,
+                    &target_path,
+                    desired_mode,
+                    ReplacePolicy::Recorded(mode),
+                )?,
+                None => deploy_skill_dir(
+                    &skill.central_path,
+                    &target_path,
+                    desired_mode,
+                    ReplacePolicy::CreateOnly,
+                )?,
+            }
         };
-
-        let actual_mode =
-            deploy_skill_dir(&skill.central_path, &target_path, desired_mode, policy)?;
 
         let dep = Deployment {
             id: existing_dep
@@ -662,6 +751,9 @@ impl UnoSkillsManager {
             agent_key: agent.key.clone(),
             target_path,
             mode: actual_mode,
+            copy_hash: (actual_mode == DeployMode::Copy)
+                .then(|| checked_directory_hash(&skill.central_path).ok())
+                .flatten(),
             synced_at: Utc::now().timestamp(),
         };
         self.store.upsert_deployment(&dep)?;
@@ -687,9 +779,14 @@ impl UnoSkillsManager {
         // only remove the DB record and keep the on-disk link intact for the other agent!
         let peer_count = self
             .store
-            .count_deployments_at_path(&dep.target_path, agent_key)?;
+            .count_deployments_at_path(&dep.target_path, &dep.id)?;
         if peer_count == 0 {
-            remove_managed_target(&skill.central_path, &dep.target_path, dep.mode)?;
+            remove_managed_target(
+                &skill.central_path,
+                &dep.target_path,
+                dep.mode,
+                dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
+            )?;
         }
         self.store.delete_deployment(&skill.id, agent_key)?;
         Ok(())
@@ -761,9 +858,19 @@ impl UnoSkillsManager {
         let deps = self
             .store
             .list_project_deployments_for_project(&project.id)?;
-        for dep in deps {
-            if let Some(skill) = self.store.find_skill(&dep.skill_id)? {
-                let _ = self.remove_project_deployment(&skill, &dep);
+        let skills: HashMap<_, _> = self
+            .list_skills()?
+            .into_iter()
+            .map(|skill| (skill.id.clone(), skill))
+            .collect();
+        for dep in &deps {
+            if let Some(skill) = skills.get(&dep.skill_id) {
+                Self::verify_project_removal(skill, dep)?;
+            }
+        }
+        for dep in &deps {
+            if let Some(skill) = skills.get(&dep.skill_id) {
+                self.remove_project_deployment(skill, dep)?;
             }
         }
 
@@ -821,40 +928,62 @@ impl UnoSkillsManager {
             .with_context(|| format!("Unknown agent '{agent_key}'"))?;
 
         let target_path = scoped_project_skills_dir(&project, scope, agent)?.join(&skill.slug);
-        if !force
-            && matches!(
-                inspect_stack_project_target(&skill, &project, agent, &target_path),
-                StackProjectTarget::Conflict | StackProjectTarget::Local
-            )
-        {
-            bail!(
-                "TARGET_CONFLICT: Deployment target is occupied or has changed: {}",
-                target_path.display()
-            );
-        }
+        ensure_dst_not_overlapping_src(&skill.central_path, &target_path)?;
         let desired_mode = mode_override.unwrap_or_else(|| self.default_deploy_mode());
-        let existing_dep = skill.project_deployments.iter().find(|d| {
-            d.project_id == project.id && d.agent_key == agent_key && d.scope_path == scope
-        });
-
-        let peer_mode = self.store.peer_project_deployment_mode_for_skill(
-            &skill.id,
-            &project.id,
-            &target_path,
-            agent_key,
-        )?;
-        let policy = if force {
-            ReplacePolicy::UserConfirmed
-        } else if let Some(dep) = existing_dep {
-            ReplacePolicy::Recorded(dep.mode)
-        } else if let Some(mode) = peer_mode {
-            ReplacePolicy::Recorded(mode)
+        let actual_mode = if force {
+            deploy_skill_dir(
+                &skill.central_path,
+                &target_path,
+                desired_mode,
+                ReplacePolicy::UserConfirmed,
+            )?
         } else {
-            ReplacePolicy::NoClobber
+            match inspect_stack_project_target(&skill, &project, agent, &target_path) {
+                StackProjectTarget::Missing(recorded_mode) => deploy_skill_dir(
+                    &skill.central_path,
+                    &target_path,
+                    mode_override.or(recorded_mode).unwrap_or(desired_mode),
+                    ReplacePolicy::CreateOnly,
+                )?,
+                StackProjectTarget::Deployed(mode)
+                    if mode_override.is_none_or(|desired| desired == mode) =>
+                {
+                    return skill
+                        .project_deployments
+                        .into_iter()
+                        .find(|dep| {
+                            dep.project_id == project.id
+                                && dep.agent_key == agent_key
+                                && dep.scope_path == scope
+                                && dep.target_path == target_path
+                                && dep.mode == mode
+                        })
+                        .context("Project deployment record no longer matches the target");
+                }
+                StackProjectTarget::Register(mode)
+                    if mode_override.is_none_or(|desired| desired == mode) =>
+                {
+                    mode
+                }
+                StackProjectTarget::Deployed(mode) | StackProjectTarget::Register(mode) => {
+                    deploy_skill_dir(
+                        &skill.central_path,
+                        &target_path,
+                        desired_mode,
+                        ReplacePolicy::Recorded(mode),
+                    )?
+                }
+                StackProjectTarget::Unavailable => {
+                    bail!("The skill directory is no longer available")
+                }
+                StackProjectTarget::Conflict | StackProjectTarget::Local => {
+                    bail!(
+                        "TARGET_CONFLICT: Deployment target is occupied or has changed: {}",
+                        target_path.display()
+                    );
+                }
+            }
         };
-
-        let actual_mode =
-            deploy_skill_dir(&skill.central_path, &target_path, desired_mode, policy)?;
 
         self.record_project_skill_deployment(
             &skill,
@@ -876,7 +1005,7 @@ impl UnoSkillsManager {
         actual_mode: DeployMode,
     ) -> Result<ProjectDeployment> {
         let copy_hash = if actual_mode == DeployMode::Copy {
-            hash_directory(&target_path).ok()
+            checked_directory_hash(&target_path).ok()
         } else {
             None
         };
@@ -902,31 +1031,6 @@ impl UnoSkillsManager {
         };
         self.store.upsert_project_deployment(&dep)?;
         Ok(dep)
-    }
-
-    fn refresh_project_copies(&self, skill: &mut Skill) -> Result<usize> {
-        let mut refreshed = 0;
-        for dep in &mut skill.project_deployments {
-            if dep.mode == DeployMode::Copy
-                && safe_scoped_target(dep)?
-                && deploy_skill_dir(
-                    &skill.central_path,
-                    &dep.target_path,
-                    DeployMode::Copy,
-                    ReplacePolicy::Recorded(DeployMode::Copy),
-                )
-                .is_ok()
-            {
-                self.store.record_refreshed_project_copy(
-                    &skill.id,
-                    &dep.target_path,
-                    skill.content_hash.as_deref(),
-                )?;
-                dep.copy_hash = skill.content_hash.clone();
-                refreshed += 1;
-            }
-        }
-        Ok(refreshed)
     }
 
     pub fn undeploy_skill_from_project(
@@ -968,12 +1072,29 @@ impl UnoSkillsManager {
         self.remove_project_deployment(&skill, dep)
     }
 
+    fn verify_project_removal(skill: &Skill, dep: &ProjectDeployment) -> Result<()> {
+        if safe_scoped_target(dep)? {
+            verify_managed_target(
+                &skill.central_path,
+                &dep.target_path,
+                dep.mode,
+                dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
+            )?;
+        }
+        Ok(())
+    }
+
     fn remove_project_deployment(&self, skill: &Skill, dep: &ProjectDeployment) -> Result<()> {
         let peer_count = self
             .store
-            .count_project_deployments_at_path(&dep.target_path, &dep.id)?;
+            .count_deployments_at_path(&dep.target_path, &dep.id)?;
         if peer_count == 0 && safe_scoped_target(dep)? {
-            remove_managed_target(&skill.central_path, &dep.target_path, dep.mode)?;
+            remove_managed_target(
+                &skill.central_path,
+                &dep.target_path,
+                dep.mode,
+                dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
+            )?;
         }
         self.store.delete_project_deployment(&dep.id)
     }
@@ -1025,6 +1146,9 @@ impl UnoSkillsManager {
             agent_key: candidate.agent_key.clone(),
             target_path: candidate.path.clone(),
             mode: actual_mode,
+            copy_hash: skill
+                .content_hash
+                .filter(|_| actual_mode == DeployMode::Copy),
             synced_at: Utc::now().timestamp(),
         };
         self.store.upsert_deployment(&dep)?;
@@ -1186,11 +1310,35 @@ impl UnoSkillsManager {
         Ok(stacks)
     }
 
+    pub fn find_local_stack(&self, id: &str) -> Result<Option<StackManifest>> {
+        Ok(self.store.find_local_stack(id)?.map(|mut stack| {
+            stack.source = StackSource::Local;
+            stack
+        }))
+    }
+
+    pub fn save_local_stack_if_unchanged(
+        &self,
+        stack: &StackManifest,
+        previous: Option<&StackManifest>,
+    ) -> Result<()> {
+        let _lock = self.lock_skills()?;
+        let saved = self.find_local_stack(&stack.id)?;
+        ensure!(
+            saved.as_ref() == previous,
+            "STACK_ID_CONFLICT: The local stack already exists or has changed: {}",
+            stack.id
+        );
+        self.store.save_local_stack(stack, Utc::now().timestamp())
+    }
+
     pub fn save_local_stack(&self, stack: &StackManifest) -> Result<()> {
+        let _lock = self.lock_skills()?;
         self.store.save_local_stack(stack, Utc::now().timestamp())
     }
 
     pub fn delete_local_stack(&self, stack_id: &str) -> Result<()> {
+        let _lock = self.lock_skills()?;
         self.store.delete_local_stack(stack_id)
     }
 
@@ -1236,7 +1384,7 @@ impl UnoSkillsManager {
             source: StackSource::Local,
             skills: refs,
         };
-        self.save_local_stack(&manifest)?;
+        self.save_local_stack_if_unchanged(&manifest, None)?;
         Ok(manifest)
     }
 
@@ -1245,10 +1393,24 @@ impl UnoSkillsManager {
     }
 
     pub fn import_stack_toml(&self, toml_text: &str) -> Result<StackManifest> {
-        let mut manifest = parse_stack_from_toml(toml_text)?;
-        manifest.source = StackSource::Local;
-        self.save_local_stack(&manifest)?;
-        Ok(manifest)
+        self.keep_local_stack(&parse_stack_from_toml(toml_text)?)
+    }
+
+    fn keep_local_stack(&self, stack: &StackManifest) -> Result<StackManifest> {
+        let mut stack = stack.clone();
+        stack.source = StackSource::Local;
+        let _lock = self.lock_skills()?;
+        if let Some(saved) = self.find_local_stack(&stack.id)? {
+            ensure!(
+                saved == stack,
+                "STACK_ID_CONFLICT: A customized local stack uses this ID: {}",
+                stack.id
+            );
+        } else {
+            self.store
+                .save_local_stack(&stack, Utc::now().timestamp())?;
+        }
+        Ok(stack)
     }
 
     /// Installs every skill in a Stack (skipping ones already in the library),
@@ -1258,12 +1420,14 @@ impl UnoSkillsManager {
         stack: &StackManifest,
         deploy_agents: &[String],
     ) -> Result<StackInstallSummary> {
+        let stack = self.keep_local_stack(stack)?;
         let mut installed = Vec::new();
         let mut skipped_existing = Vec::new();
         let mut failed = Vec::new();
+        let mut deployment_failures = Vec::new();
 
         for item in &stack.skills {
-            let existing = item.installed_in(&self.store.list_skills()?).cloned();
+            let existing = item.deployable_in(&self.store.list_skills()?).cloned();
             let skill = if let Some(s) = existing {
                 skipped_existing.push(s.name.clone());
                 Some(s)
@@ -1282,18 +1446,37 @@ impl UnoSkillsManager {
 
             if let Some(sk) = skill {
                 for agent_key in deploy_agents {
-                    let _ = self.deploy_skill(&sk.id, agent_key, None, false);
+                    if let Err(error) = self.deploy_skill(&sk.id, agent_key, None, false) {
+                        deployment_failures.push(StackDeploymentFailure {
+                            skill: item.name.clone(),
+                            agent: agent_key.clone(),
+                            error: format!("{error:#}"),
+                        });
+                    }
                 }
             }
         }
 
-        self.save_local_stack(stack)?;
+        let deployed_agents = if failed.is_empty() && !stack.skills.is_empty() {
+            deploy_agents
+                .iter()
+                .filter(|key| {
+                    !deployment_failures
+                        .iter()
+                        .any(|failure| &failure.agent == *key)
+                })
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         Ok(StackInstallSummary {
             stack_id: stack.id.clone(),
             installed,
             skipped_existing,
             failed,
-            deployed_agents: deploy_agents.to_vec(),
+            deployed_agents,
+            deployment_failures,
         })
     }
 
@@ -1341,7 +1524,7 @@ impl UnoSkillsManager {
             };
             let target = directory.join(&skill.slug);
             match inspect_stack_project_target(skill, &project, &agent, &target) {
-                StackProjectTarget::Deployed => status.deployed += 1,
+                StackProjectTarget::Deployed(_) => status.deployed += 1,
                 StackProjectTarget::Local => status.project_local += 1,
                 StackProjectTarget::Missing(_) if is_globally_available(skill, &agent) => {
                     status.global_available += 1;
@@ -1403,7 +1586,7 @@ impl UnoSkillsManager {
             }
             let target = directory.join(&skill.slug);
             let mode = match inspect_stack_project_target(skill, &project, &agent, &target) {
-                StackProjectTarget::Deployed => {
+                StackProjectTarget::Deployed(_) => {
                     summary.already_deployed += 1;
                     continue;
                 }
@@ -1526,208 +1709,6 @@ impl UnoSkillsManager {
             token.as_deref(),
             progress,
         )
-    }
-
-    // ── Private Git Backup & Multi-Machine Sync ──
-
-    pub fn backup_repo_url(&self) -> Option<String> {
-        self.store
-            .get_setting("git_backup_repo_url")
-            .ok()
-            .flatten()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    }
-
-    pub fn backup_branch(&self) -> String {
-        self.store
-            .get_setting("git_backup_branch")
-            .ok()
-            .flatten()
-            .map(|s| normalize_branch(&s))
-            .unwrap_or_else(|| DEFAULT_BACKUP_BRANCH.to_string())
-    }
-
-    pub fn configure_git_backup(&self, repo_url: &str, branch: Option<&str>) -> Result<()> {
-        let trimmed = repo_url.trim();
-        self.store.set_setting("git_backup_repo_url", trimmed)?;
-        if let Some(b) = branch {
-            let norm = normalize_branch(b);
-            self.store.set_setting("git_backup_branch", &norm)?;
-        }
-        Ok(())
-    }
-
-    pub fn git_backup_status(&self) -> Result<GitBackupStatus> {
-        let last_pushed_at = self
-            .store
-            .get_setting("git_backup_last_pushed_at")?
-            .and_then(|s| s.parse::<i64>().ok());
-        let last_pulled_at = self
-            .store
-            .get_setting("git_backup_last_pulled_at")?
-            .and_then(|s| s.parse::<i64>().ok());
-        let local_skill_count = self.list_skills()?.len();
-        let local_stack_count = self.list_local_stacks()?.len();
-        Ok(GitBackupStatus {
-            repo_url: self.backup_repo_url(),
-            branch: self.backup_branch(),
-            last_pushed_at,
-            last_pulled_at,
-            local_skill_count,
-            local_stack_count,
-        })
-    }
-
-    /// Exports plain-text `skills/` and `stacks/*.toml` (never binary SQLite)
-    /// into `<root_dir>/sync-repo`, commits any changes, and pushes to remote.
-    pub fn git_backup_push(&self) -> Result<GitBackupPushResult> {
-        let repo_url = self
-            .backup_repo_url()
-            .context("No Git backup repository URL configured (Settings → Git Backup)")?;
-        let branch = self.backup_branch();
-        let proxy = self.http_proxy();
-        let token = self.github_token();
-        let skills = self.list_skills()?;
-        let local_stacks = self.list_local_stacks()?;
-        let sync_dir = self.root_dir.join("sync-repo");
-
-        let opts = GitBackupOpts {
-            repo_url: &repo_url,
-            branch: &branch,
-            proxy_url: proxy.as_deref(),
-            github_token: token.as_deref(),
-        };
-        let (committed, pushed, skills_exported, stacks_exported, commit_sha) =
-            mirror_commit_and_push(&sync_dir, &opts, &skills, &local_stacks)?;
-
-        if pushed || committed {
-            let _ = self.store.set_setting(
-                "git_backup_last_pushed_at",
-                &Utc::now().timestamp().to_string(),
-            );
-        }
-
-        Ok(GitBackupPushResult {
-            committed,
-            pushed,
-            skills_exported,
-            stacks_exported,
-            commit_sha,
-        })
-    }
-
-    /// Pulls plain-text `skills/` and `stacks/*.toml` from the bound backup
-    /// repository into `<root_dir>/sync-repo`, rebuilds/updates the local
-    /// SQLite index, and refreshes any `Copy`-mode deployments for updated skills.
-    pub fn git_backup_pull(&self) -> Result<GitBackupPullResult> {
-        let repo_url = self
-            .backup_repo_url()
-            .context("No Git backup repository URL configured (Settings → Git Backup)")?;
-        let branch = self.backup_branch();
-        let proxy = self.http_proxy();
-        let token = self.github_token();
-        let sync_dir = self.root_dir.join("sync-repo");
-
-        let opts = GitBackupOpts {
-            repo_url: &repo_url,
-            branch: &branch,
-            proxy_url: proxy.as_deref(),
-            github_token: token.as_deref(),
-        };
-        let remote_has_branch = prepare_sync_repo(&sync_dir, &opts)?;
-        if !remote_has_branch {
-            return Ok(GitBackupPullResult {
-                skills_imported: 0,
-                skills_updated: 0,
-                skills_unchanged: 0,
-                stacks_imported: 0,
-                refreshed_copies: 0,
-            });
-        }
-
-        let (skill_dirs, stack_files) = list_synced_artifacts(&sync_dir);
-        let mut skills_imported = 0usize;
-        let mut skills_updated = 0usize;
-        let mut skills_unchanged = 0usize;
-        let mut refreshed_copies = 0usize;
-
-        for (slug, dir) in skill_dirs {
-            if !is_valid_skill_dir(&dir) {
-                continue;
-            }
-            let incoming_hash = hash_directory(&dir).ok();
-            let existing = self.store.find_skill(&slug)?;
-
-            if let Some(prev) = &existing
-                && prev.content_hash.is_some()
-                && prev.content_hash == incoming_hash
-            {
-                skills_unchanged += 1;
-                continue;
-            }
-
-            let source_type = existing
-                .as_ref()
-                .map(|s| s.source_type)
-                .unwrap_or(SourceType::Local);
-            // Preserve any existing real upstream source_ref, but leave newly
-            // pulled skills with `None` instead of a synthetic non-resolvable ref.
-            let source_ref = existing.as_ref().and_then(|s| s.source_ref.clone());
-            let source_subpath = existing.as_ref().and_then(|s| s.source_subpath.clone());
-            let source_branch = existing.as_ref().and_then(|s| s.source_branch.clone());
-
-            let mut updated_skill = self.import_directory(
-                &dir,
-                Some(&slug),
-                source_type,
-                source_ref,
-                source_subpath,
-                source_branch,
-            )?;
-
-            if existing.is_some() {
-                skills_updated += 1;
-                for dep in &updated_skill.deployments {
-                    if dep.mode == DeployMode::Copy
-                        && deploy_skill_dir(
-                            &updated_skill.central_path,
-                            &dep.target_path,
-                            DeployMode::Copy,
-                            ReplacePolicy::Recorded(DeployMode::Copy),
-                        )
-                        .is_ok()
-                    {
-                        refreshed_copies += 1;
-                    }
-                }
-                refreshed_copies += self.refresh_project_copies(&mut updated_skill)?;
-            } else {
-                skills_imported += 1;
-            }
-        }
-
-        let mut stacks_imported = 0usize;
-        for path in stack_files {
-            if let Ok(toml_text) = std::fs::read_to_string(&path)
-                && self.import_stack_toml(&toml_text).is_ok()
-            {
-                stacks_imported += 1;
-            }
-        }
-
-        let _ = self.store.set_setting(
-            "git_backup_last_pulled_at",
-            &Utc::now().timestamp().to_string(),
-        );
-
-        Ok(GitBackupPullResult {
-            skills_imported,
-            skills_updated,
-            skills_unchanged,
-            stacks_imported,
-            refreshed_copies,
-        })
     }
 }
 

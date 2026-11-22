@@ -8,6 +8,40 @@ import supabase from "../../themes/supabase.json";
 import unoskills from "../../themes/unoskills.json";
 import vercel from "../../themes/vercel.json";
 
+test("startup matches system languages and loads the saved appearance and language when present", async () => {
+  const cases = [
+    { languages: ["zh-Hans-CN", "en-US"], language: null, theme: "system", expected: "zh-CN" },
+    { languages: ["fr-FR", "ja-JP", "en-US"], language: null, theme: "system", expected: "ja" },
+    { languages: ["de-DE", "fr-FR"], language: null, theme: "system", expected: "en" },
+    { languages: ["ja-JP"], language: "en", theme: "light", expected: "en" },
+  ] as const;
+
+  for (const { languages, language, theme, expected } of cases) {
+    const app = await open("../../App.tsx", {
+      width: 1240, height: 780, colorScheme: "dark",
+      localeSettings: { languages: [...languages] },
+      host: { handlers: {
+        "unoskills.command": (raw: unknown) => {
+          switch ((raw as { command: string }).command) {
+            case "settings.get": return { ok: true, value: { ...defaults, language, theme } };
+            case "home.summary": return { ok: true, value: {
+              skill_count: 0, deployed_count: 0, agent_count: 0, enabled_agent_count: 0,
+              project_count: 0, adoptable_count: 0, projects: [], recent: [],
+            } };
+            case "update.check": return { ok: true, value: { available: null } };
+            default: return { ok: true, value: [] };
+          }
+        },
+      } },
+    });
+    await app.waitFor(`text:${strings[expected].home_agents}`);
+    const shell = "id:desktop-shell";
+    expect(app.viewStyle(shell)?.backgroundColor).toBe(theme === "system" ? "#1c1917ff" : "#fdfbf7ff");
+    await app.setColorScheme("light");
+    await app.waitUntil(() => app.viewStyle(shell)?.backgroundColor === "#fdfbf7ff");
+  }
+});
+
 test("settings exposes deploy mode, appearance and text size as direct choices", async () => {
   const writes: unknown[] = [];
   const t = strings["zh-CN"];
@@ -48,6 +82,39 @@ test("settings exposes deploy mode, appearance and text size as direct choices",
   expect(writes).toEqual([
     "copy", { key: "theme", value: "light" }, { key: "font_size", value: "16" }, { key: "language", value: "ja" },
   ]);
+});
+
+test("backup restore shows which local item was preserved when a pull is partial", async () => {
+  const t = strings.en;
+  const conflict = "local-skill: The local skill differs from the last synchronized backup";
+  const app = await open("../../App.tsx", {
+    width: 1240, height: 780,
+    host: { handlers: {
+      "unoskills.command": (raw: unknown) => {
+        switch ((raw as { command: string }).command) {
+          case "settings.get": return { ok: true, value: { ...defaults, language: "en" } };
+          case "settings.backup_status": return { ok: true, value: {
+            repo_url: "/tmp/fixture.git", branch: "main", local_skill_count: 2, local_stack_count: 0,
+          } };
+          case "settings.backup_pull": return { ok: true, value: {
+            skills_imported: 0, skills_updated: 1, stacks_imported: 0, conflicts: [conflict],
+          } };
+          case "home.summary": return { ok: true, value: {
+            skill_count: 2, deployed_count: 0, agent_count: 0, enabled_agent_count: 0,
+            project_count: 0, adoptable_count: 0, projects: [], recent: [],
+          } };
+          case "update.check": return { ok: true, value: { available: null } };
+          default: return { ok: true, value: [] };
+        }
+      },
+    } },
+  });
+  await app.press(`role:button[${t.nav_settings}]`);
+  await app.press(`role:button[${t.settings_network}]`);
+  await app.waitFor(`text:2 ${t.skills_unit} · 0 ${t.nav_stacks}`);
+  await app.press(`role:button[${t.btn_backup_pull}]`);
+  await app.waitUntil(() => app.texts().some((text) => text.includes(conflict)));
+  expect(app.texts().some((text) => text.includes(t.backup_pull_conflicts))).toBe(true);
 });
 
 test("navigation follows appearance and palette changes and a long font list remains searchable", async () => {
@@ -158,8 +225,8 @@ test("each theme supplies its own fonts, layered radii and shadows with explicit
     ["ocean", "DM Sans", "IBM Plex Mono", 60, 120],
   ] as const;
   for (const [accent_palette, sans, monospace, control, panel] of examples) {
-    const light = makeTheme({ ...defaults, accent_palette, theme: "light" });
-    const dark = makeTheme({ ...defaults, accent_palette, theme: "dark" });
+    const light = makeTheme({ ...defaults, accent_palette, language: "zh-CN", theme: "light" });
+    const dark = makeTheme({ ...defaults, accent_palette, language: "zh-CN", theme: "dark" });
     expect(light.fontFamily?.split(",")[0]).toBe(sans);
     expect(light.monoFamily?.split(",")[0]).toBe(monospace);
     expect(Math.round(light.control.radius * 10)).toBe(control);

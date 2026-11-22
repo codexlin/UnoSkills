@@ -14,6 +14,296 @@ fn create_skill_dir(path: &std::path::Path, name: &str, desc: &str, tags: &[&str
 }
 
 #[test]
+fn install_preserves_the_existing_library_directory_on_slug_collision() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let first = tmp.path().join("first/shared");
+    let second = tmp.path().join("second/shared");
+    create_skill_dir(&first, "First Skill", "Original skill", &[]);
+    create_skill_dir(&second, "Second Skill", "Different source", &[]);
+    let installed = manager.install_from_ref(first.to_str().unwrap()).unwrap();
+    let notes = installed.central_path.join("local-notes.txt");
+    std::fs::write(&notes, "local changes").unwrap();
+
+    let error = manager
+        .install_from_ref(second.to_str().unwrap())
+        .unwrap_err();
+    assert!(error.to_string().contains("SKILL_SLUG_CONFLICT"));
+    let again = manager.install_from_ref(first.to_str().unwrap()).unwrap();
+    assert_eq!(again.id, installed.id);
+    assert_eq!(again.name, "First Skill");
+    assert_eq!(std::fs::read_to_string(notes).unwrap(), "local changes");
+
+    let orphan = manager.skills_dir().join("orphan");
+    create_skill_dir(&orphan, "Unindexed Skill", "Unindexed directory", &[]);
+    let candidate = tmp.path().join("second/orphan");
+    create_skill_dir(&candidate, "Candidate", "Unrelated skill", &[]);
+    let error = manager
+        .install_from_ref(candidate.to_str().unwrap())
+        .unwrap_err();
+    assert!(error.to_string().contains("SKILL_SLUG_CONFLICT"));
+    assert!(
+        std::fs::read_to_string(orphan.join("SKILL.md"))
+            .unwrap()
+            .contains("Unindexed Skill")
+    );
+}
+
+#[test]
+fn edited_deployment_copies_block_undeploy_and_bulk_removal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("library")).unwrap();
+    let source = tmp.path().join("source");
+    create_skill_dir(&source, "Source", "Original", &[]);
+    let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    manager
+        .add_custom_agent(&CustomAgentRecord {
+            key: "copy_agent".into(),
+            display_name: "Copy Agent".into(),
+            skills_dir: tmp.path().join("global").to_string_lossy().into_owned(),
+            category: AgentCategory::Coding,
+        })
+        .unwrap();
+    let global = manager
+        .deploy_skill(&skill.id, "copy_agent", Some(DeployMode::Copy), false)
+        .unwrap();
+    assert!(global.copy_hash.is_some());
+    let project_path = tmp.path().join("project");
+    std::fs::create_dir(&project_path).unwrap();
+    let project = manager.add_project(&project_path, None).unwrap();
+    let scoped = manager
+        .deploy_skill_to_project(
+            &skill.id,
+            &project.id,
+            "claude_code",
+            Some(DeployMode::Copy),
+            false,
+        )
+        .unwrap();
+
+    let global_note = global.target_path.join("global-notes.txt");
+    let project_note = scoped.target_path.join("project-notes.txt");
+    std::fs::write(&global_note, "Local global edit").unwrap();
+    std::fs::write(&project_note, "Local project edit").unwrap();
+    for result in [
+        manager.undeploy_skill(&skill.id, "copy_agent"),
+        manager.undeploy_skill_from_project(&skill.id, &project.id, "claude_code"),
+        manager.remove_skill(&skill.id),
+        manager.remove_project(&project.id),
+    ] {
+        assert!(result.unwrap_err().to_string().contains("TARGET_CONFLICT"));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&global_note).unwrap(),
+        "Local global edit"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&project_note).unwrap(),
+        "Local project edit"
+    );
+    let saved = manager.find_skill(&skill.id).unwrap().unwrap();
+    assert_eq!(
+        (saved.deployments.len(), saved.project_deployments.len()),
+        (1, 1)
+    );
+
+    std::fs::remove_file(&global_note).unwrap();
+    std::fs::remove_file(&project_note).unwrap();
+    manager
+        .save_skill_markdown(
+            &skill.id,
+            "---\nname: Source\ndescription: Library edit only\n---\n",
+        )
+        .unwrap();
+    manager.undeploy_skill(&skill.id, "copy_agent").unwrap();
+    manager.remove_project(&project.id).unwrap();
+    assert!(!global.target_path.exists());
+    assert!(!scoped.target_path.exists());
+}
+
+#[test]
+fn legacy_global_copy_uses_the_library_fingerprint_when_undeployed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("library");
+    let manager = UnoSkillsManager::open_at(root.clone()).unwrap();
+    let source = tmp.path().join("source");
+    create_skill_dir(&source, "Source", "Original", &[]);
+    let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    manager
+        .add_custom_agent(&CustomAgentRecord {
+            key: "legacy_agent".into(),
+            display_name: "Legacy Agent".into(),
+            skills_dir: tmp.path().join("global").to_string_lossy().into_owned(),
+            category: AgentCategory::Coding,
+        })
+        .unwrap();
+    let deployed = manager
+        .deploy_skill(&skill.id, "legacy_agent", Some(DeployMode::Copy), false)
+        .unwrap();
+    drop(manager);
+    let db = rusqlite::Connection::open(root.join("unoskills.db")).unwrap();
+    db.execute("ALTER TABLE deployments DROP COLUMN copy_hash", [])
+        .unwrap();
+    drop(db);
+
+    let manager = UnoSkillsManager::open_at(root).unwrap();
+    let record = manager
+        .find_skill(&skill.id)
+        .unwrap()
+        .unwrap()
+        .deployments
+        .remove(0);
+    assert!(record.copy_hash.is_none());
+    let note = deployed.target_path.join("notes.txt");
+    std::fs::write(&note, "Legacy edit").unwrap();
+    assert!(
+        manager
+            .undeploy_skill(&skill.id, "legacy_agent")
+            .unwrap_err()
+            .to_string()
+            .contains("TARGET_CONFLICT")
+    );
+    assert!(note.exists());
+    std::fs::remove_file(note).unwrap();
+    manager.undeploy_skill(&skill.id, "legacy_agent").unwrap();
+    assert!(!deployed.target_path.exists());
+}
+
+#[test]
+fn stack_installs_the_declared_source_and_reports_partial_deployment() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    manager.set_default_deploy_mode(DeployMode::Copy).unwrap();
+    let other = tmp.path().join("other");
+    let wanted = tmp.path().join("wanted");
+    create_skill_dir(&other, "Shared Name", "Other source", &[]);
+    create_skill_dir(&wanted, "Shared Name", "Declared source", &[]);
+    manager.install_from_ref(other.to_str().unwrap()).unwrap();
+
+    let mut agents = Vec::new();
+    for key in ["working_agent", "blocked_agent"] {
+        let directory = tmp.path().join(key);
+        manager
+            .add_custom_agent(&CustomAgentRecord {
+                key: key.into(),
+                display_name: key.into(),
+                skills_dir: directory.to_string_lossy().into_owned(),
+                category: AgentCategory::Coding,
+            })
+            .unwrap();
+        agents.push(key.to_string());
+    }
+    let blocked = tmp.path().join("blocked_agent/wanted");
+    create_skill_dir(&blocked, "Unmanaged", "Keep this skill", &[]);
+    let stack = manager.import_stack_toml(&format!(
+        "id = 'required-source'\nname = 'Required source'\n[[skills]]\nname = 'Shared Name'\nsource = {}\n",
+        toml::Value::String(wanted.to_string_lossy().into_owned())
+    )).unwrap();
+
+    let result = manager.install_stack(&stack, &agents).unwrap();
+    assert_eq!(result.installed, ["Shared Name"]);
+    assert!(result.skipped_existing.is_empty());
+    assert!(result.failed.is_empty());
+    assert_eq!(result.deployed_agents, ["working_agent"]);
+    assert_eq!(result.deployment_failures.len(), 1);
+    let failure = &result.deployment_failures[0];
+    assert_eq!(failure.agent, "blocked_agent");
+    assert!(failure.error.contains("TARGET_CONFLICT"));
+    assert!(!tmp.path().join("working_agent/other").exists());
+    assert!(
+        std::fs::read_to_string(tmp.path().join("working_agent/wanted/SKILL.md"))
+            .unwrap()
+            .contains("Declared source")
+    );
+    assert!(
+        std::fs::read_to_string(blocked.join("SKILL.md"))
+            .unwrap()
+            .contains("Keep this skill")
+    );
+
+    let notes = tmp.path().join("working_agent/wanted/local-notes.txt");
+    std::fs::write(&notes, "Local deployment edit").unwrap();
+    let retry = manager.install_stack(&stack, &agents).unwrap();
+    assert!(retry.deployed_agents.is_empty());
+    assert_eq!(retry.deployment_failures.len(), 2);
+    assert_eq!(
+        std::fs::read_to_string(notes).unwrap(),
+        "Local deployment edit"
+    );
+}
+
+#[test]
+fn stack_install_create_and_stale_save_preserve_an_existing_manifest() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let source = tmp.path().join("source");
+    create_skill_dir(&source, "Source", "Local manifest member", &[]);
+    let member = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    let ids = std::slice::from_ref(&member.id);
+    let original = manager
+        .create_stack_from_skills("Saved Stack", "", "Local edit", vec![], ids)
+        .unwrap();
+
+    let candidate_source = tmp.path().join("candidate");
+    create_skill_dir(
+        &candidate_source,
+        "Candidate",
+        "Must not be imported on conflict",
+        &[],
+    );
+    let mut candidate = original.clone();
+    candidate.description = "External stack".into();
+    candidate.skills[0].source = candidate_source.to_string_lossy().into_owned();
+    let raw = manager.export_stack_toml(&candidate).unwrap();
+    assert!(
+        manager
+            .import_stack_toml(&raw)
+            .unwrap_err()
+            .to_string()
+            .contains("STACK_ID_CONFLICT")
+    );
+    assert!(
+        manager
+            .install_stack(&candidate, &[])
+            .unwrap_err()
+            .to_string()
+            .contains("STACK_ID_CONFLICT")
+    );
+    assert!(manager.find_skill("candidate").unwrap().is_none());
+    assert!(
+        manager
+            .create_stack_from_skills("Saved Stack", "", "New value", vec![], ids)
+            .unwrap_err()
+            .to_string()
+            .contains("STACK_ID_CONFLICT")
+    );
+
+    // A desktop preview and a later confirm may straddle an edit from another process.
+    let second = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let mut concurrent_edit = original.clone();
+    concurrent_edit.description = "New local edit".into();
+    second
+        .save_local_stack_if_unchanged(&concurrent_edit, Some(&original))
+        .unwrap();
+    assert!(
+        manager
+            .save_local_stack_if_unchanged(&candidate, Some(&original))
+            .is_err()
+    );
+    assert_eq!(
+        manager.find_local_stack(&original.id).unwrap(),
+        Some(concurrent_edit.clone())
+    );
+    manager
+        .save_local_stack_if_unchanged(&candidate, Some(&concurrent_edit))
+        .unwrap();
+    assert_eq!(
+        manager.find_local_stack(&original.id).unwrap(),
+        Some(candidate)
+    );
+}
+
+#[test]
 fn adopt_symlinked_skill_preserves_files_and_does_not_create_empty_dir() {
     let tmp = tempfile::tempdir().unwrap();
     let mgr = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
@@ -1300,6 +1590,168 @@ fn project_stack_deployment_preserves_shared_agent_targets() {
 }
 
 #[test]
+#[cfg(unix)]
+fn project_deploy_and_removal_refuse_redirected_paths() {
+    use std::{fs, os::unix::fs::symlink};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("library")).unwrap();
+    let source = tmp.path().join("fixture");
+    create_skill_dir(&source, "Fixture", "Project path safety", &[]);
+    let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+
+    let project_dir = tmp.path().join("project");
+    let alias = tmp.path().join("project-alias");
+    let original = tmp.path().join("original");
+    let outside = tmp.path().join("elsewhere");
+    fs::create_dir(&project_dir).unwrap();
+    fs::create_dir(&outside).unwrap();
+    symlink(&project_dir, &alias).unwrap();
+    let project = manager.add_project(&alias, None).unwrap();
+    assert_eq!(project.path, project_dir.canonicalize().unwrap());
+    let deployment = manager
+        .deploy_skill_to_project(
+            &skill.id,
+            &project.id,
+            "codex",
+            Some(DeployMode::Copy),
+            false,
+        )
+        .unwrap();
+
+    fs::rename(&project_dir, &original).unwrap();
+    symlink(&outside, &project_dir).unwrap();
+    let deploy_error = manager
+        .deploy_skill_to_project(&skill.id, &project.id, "codex", None, true)
+        .unwrap_err();
+    assert!(deploy_error.to_string().contains("TARGET_CONFLICT"));
+    assert!(
+        manager
+            .undeploy_skill_from_project(&skill.id, &project.id, "codex")
+            .unwrap_err()
+            .to_string()
+            .contains("TARGET_CONFLICT")
+    );
+    assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+    fs::remove_file(&project_dir).unwrap();
+    fs::rename(&original, &project_dir).unwrap();
+    let agent_dir = original.join(".codex");
+    fs::create_dir(&original).unwrap();
+    fs::rename(project_dir.join(".codex"), &agent_dir).unwrap();
+    symlink(&agent_dir, project_dir.join(".codex")).unwrap();
+    assert!(
+        manager
+            .deploy_skill_to_project(&skill.id, &project.id, "codex", None, false)
+            .unwrap_err()
+            .to_string()
+            .contains("TARGET_CONFLICT")
+    );
+    assert!(
+        manager
+            .remove_project(&project.id)
+            .unwrap_err()
+            .to_string()
+            .contains("TARGET_CONFLICT")
+    );
+    assert!(deployment.target_path.join("SKILL.md").is_file());
+
+    fs::remove_file(project_dir.join(".codex")).unwrap();
+    fs::rename(&agent_dir, project_dir.join(".codex")).unwrap();
+    let retried = manager
+        .deploy_skill_to_project(&skill.id, &project.id, "codex", None, false)
+        .unwrap();
+    assert_eq!(retried.id, deployment.id);
+    assert_eq!(retried.synced_at, deployment.synced_at);
+    assert_eq!(retried.mode, DeployMode::Copy);
+    manager.remove_project(&project.id).unwrap();
+    assert!(!deployment.target_path.exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn project_redeploy_preserves_a_link_added_to_a_managed_copy() {
+    use std::{fs, os::unix::fs::symlink};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("fixture");
+    let project_dir = tmp.path().join("project");
+    let manager = UnoSkillsManager::open_at(tmp.path().join("library")).unwrap();
+    create_skill_dir(&source, "Fixture", "Managed project copy", &[]);
+    fs::create_dir(&project_dir).unwrap();
+    let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    let project = manager.add_project(&project_dir, None).unwrap();
+    let deployment = manager
+        .deploy_skill_to_project(
+            &skill.id,
+            &project.id,
+            "codex",
+            Some(DeployMode::Copy),
+            false,
+        )
+        .unwrap();
+    let local_link = deployment.target_path.join("local-link");
+    let outside = tmp.path().join("local.txt");
+    fs::write(&outside, "Local project data").unwrap();
+    symlink(&outside, &local_link).unwrap();
+
+    for mode in [None, Some(DeployMode::Symlink)] {
+        assert!(
+            manager
+                .deploy_skill_to_project(&skill.id, &project.id, "codex", mode, false)
+                .unwrap_err()
+                .to_string()
+                .contains("TARGET_CONFLICT")
+        );
+    }
+    assert_eq!(fs::read_link(&local_link).unwrap(), outside);
+    assert_eq!(
+        fs::read_to_string(&local_link).unwrap(),
+        "Local project data"
+    );
+    fs::remove_file(&local_link).unwrap();
+    let changed = manager
+        .deploy_skill_to_project(
+            &skill.id,
+            &project.id,
+            "codex",
+            Some(DeployMode::Symlink),
+            false,
+        )
+        .unwrap();
+    assert_eq!(changed.id, deployment.id);
+    assert_eq!(
+        fs::read_link(&changed.target_path).unwrap(),
+        skill.central_path
+    );
+    manager
+        .undeploy_skill_from_project(&skill.id, &project.id, "codex")
+        .unwrap();
+    assert!(skill.central_path.join("SKILL.md").is_file());
+}
+
+#[test]
+fn project_copy_rejects_a_destination_inside_the_skill_even_when_parents_are_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("fixture");
+    create_skill_dir(&source, "Fixture", "Overlapping project", &[]);
+    let manager = UnoSkillsManager::open_at(tmp.path().join("library")).unwrap();
+    let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    let project = manager.add_project(&skill.central_path, None).unwrap();
+    let error = manager
+        .deploy_skill_to_project(
+            &skill.id,
+            &project.id,
+            "codex",
+            Some(DeployMode::Copy),
+            false,
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("inside source"));
+    assert!(!skill.central_path.join(".codex").exists());
+}
+
+#[test]
 fn find_any_stack_resolves_local_and_featured_without_network() {
     let tmp = tempfile::tempdir().unwrap();
     let mgr = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
@@ -1357,6 +1809,569 @@ fn community_index_cache_invalidates_when_registry_url_changes() {
         mgr.community_stacks().is_err(),
         "stale cache from URL A must not be served for URL B"
     );
+}
+
+#[test]
+fn backup_rejects_unstaged_files_and_retries_after_the_remote_branch_appears() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "remote.git"]);
+    let remote = tmp.path().join("remote.git");
+    let url = remote.to_str().unwrap();
+    let author = UnoSkillsManager::open_at(tmp.path().join("author")).unwrap();
+    let publisher = UnoSkillsManager::open_at(tmp.path().join("publisher")).unwrap();
+    let source = tmp.path().join("fixture");
+    create_skill_dir(&source, "Fixture", "Staging and retry", &[]);
+    let skill = author.install_from_ref(source.to_str().unwrap()).unwrap();
+    let ignored = skill.central_path.join(".staging-manual.txt");
+    fs::write(&ignored, "A file the author expected to export").unwrap();
+    fs::write(skill.central_path.join("extra.txt"), "Early draft").unwrap();
+    author.configure_git_backup(url, Some("main")).unwrap();
+    let error = author.git_backup_push().unwrap_err().to_string();
+    assert!(error.contains("BACKUP_STAGE_CONFLICT"), "{error}");
+    assert!(error.contains(".staging-manual.txt"), "{error}");
+    assert_eq!(fixture_git(&remote, &["for-each-ref"]), "");
+
+    publisher
+        .install_from_ref(source.to_str().unwrap())
+        .unwrap();
+    assert!(publisher.git_backup_push_to(url, "main").unwrap().pushed);
+    let head = fixture_git(&remote, &["rev-parse", "refs/heads/main"]);
+    fs::remove_file(&ignored).unwrap();
+    fs::copy(
+        source.join("extra.txt"),
+        skill.central_path.join("extra.txt"),
+    )
+    .unwrap();
+    assert!(!author.git_backup_push().unwrap().pushed);
+    assert_eq!(
+        fixture_git(&remote, &["rev-parse", "refs/heads/main"]),
+        head
+    );
+    fs::write(skill.central_path.join("new-asset.txt"), "A portable asset").unwrap();
+    assert!(author.git_backup_push().unwrap().pushed);
+    assert_eq!(
+        fixture_git(
+            &remote,
+            &["show", "refs/heads/main:skills/fixture/new-asset.txt"]
+        ),
+        "A portable asset"
+    );
+    assert_eq!(
+        fixture_git(
+            &remote,
+            &["show", "refs/heads/main:skills/fixture/extra.txt"]
+        ),
+        "supporting asset"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn backup_refuses_an_external_file_link_and_succeeds_after_it_is_removed() {
+    use std::{fs, os::unix::fs::symlink};
+
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "remote.git"]);
+    let remote = tmp.path().join("remote.git");
+    let manager = UnoSkillsManager::open_at(tmp.path().join("library")).unwrap();
+    let source = tmp.path().join("fixture");
+    create_skill_dir(&source, "Fixture", "Link safety", &[]);
+    let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    let outside = tmp.path().join("outside.txt");
+    let link = skill.central_path.join("attachment.txt");
+    fs::write(&outside, "Synthetic external data").unwrap();
+    symlink(&outside, &link).unwrap();
+    let error = manager
+        .git_backup_push_to(remote.to_str().unwrap(), "main")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("BACKUP_PATH_CONFLICT"), "{error}");
+    assert!(error.contains("attachment.txt"), "{error}");
+    assert_eq!(fixture_git(&remote, &["for-each-ref"]), "");
+    assert_eq!(fs::read_link(&link).unwrap(), outside);
+
+    fs::remove_file(&link).unwrap();
+    fs::write(
+        skill.central_path.join("cache.db"),
+        "Intentionally excluded",
+    )
+    .unwrap();
+    assert!(manager.git_backup_push().unwrap().pushed);
+    let tree = fixture_git(
+        &remote,
+        &["ls-tree", "-r", "--name-only", "refs/heads/main"],
+    );
+    assert_eq!(
+        tree.lines().collect::<Vec<_>>(),
+        ["skills/fixture/SKILL.md", "skills/fixture/extra.txt"]
+    );
+    assert!(skill.central_path.join("cache.db").is_file());
+}
+
+#[test]
+fn backup_refuses_to_report_a_skill_with_no_entry_as_exported() {
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "remote.git"]);
+    let remote = tmp.path().join("remote.git");
+    let manager = UnoSkillsManager::open_at(tmp.path().join("library")).unwrap();
+    let source = tmp.path().join("fixture");
+    create_skill_dir(&source, "Fixture", "Entry safety", &[]);
+    let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    std::fs::rename(
+        skill.central_path.join("SKILL.md"),
+        skill.central_path.join("README.md"),
+    )
+    .unwrap();
+    let error = manager
+        .git_backup_push_to(remote.to_str().unwrap(), "main")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("BACKUP_PATH_CONFLICT"), "{error}");
+    assert_eq!(fixture_git(&remote, &["for-each-ref"]), "");
+    std::fs::rename(
+        skill.central_path.join("README.md"),
+        skill.central_path.join("skill.md"),
+    )
+    .unwrap();
+    assert!(manager.git_backup_push().unwrap().pushed);
+    let reader = UnoSkillsManager::open_at(tmp.path().join("reader")).unwrap();
+    assert_eq!(
+        reader
+            .git_backup_pull_from(remote.to_str().unwrap(), "main")
+            .unwrap()
+            .skills_imported,
+        1
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn backup_does_not_recreate_a_branch_deleted_between_fetch_and_push() {
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "remote.git"]);
+    let remote = tmp.path().join("remote.git");
+    let root = tmp.path().join("library");
+    let manager = UnoSkillsManager::open_at(root.clone()).unwrap();
+    let source = tmp.path().join("fixture");
+    create_skill_dir(&source, "Fixture", "Concurrent deletion", &[]);
+    let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    assert!(
+        manager
+            .git_backup_push_to(remote.to_str().unwrap(), "backup")
+            .unwrap()
+            .pushed
+    );
+    let mirror = fs::read_dir(root.join("backup-mirrors"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    fixture_git(&mirror, &["config", "core.hooksPath", ".git/hooks"]);
+    let hook = mirror.join(".git/hooks/pre-commit");
+    fs::write(
+        &hook,
+        "#!/bin/sh\ngit --git-dir=../../../remote.git update-ref -d refs/heads/backup\n",
+    )
+    .unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(
+        skill.central_path.join("extra.txt"),
+        "Local edits after backup",
+    )
+    .unwrap();
+
+    let error = manager.git_backup_push().unwrap_err().to_string();
+    assert!(error.starts_with("git push "), "{error}");
+    assert_eq!(fixture_git(&remote, &["for-each-ref"]), "");
+    fs::remove_file(hook).unwrap();
+    let retry = manager.git_backup_push().unwrap_err().to_string();
+    assert!(retry.contains("BACKUP_REMOTE_CONFLICT"), "{retry}");
+    assert_eq!(
+        fs::read_to_string(skill.central_path.join("extra.txt")).unwrap(),
+        "Local edits after backup"
+    );
+}
+
+#[test]
+fn backup_retains_previous_git_exports_of_now_excluded_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "remote.git"]);
+    fixture_git(tmp.path(), &["init", "-b", "main", "writer"]);
+    let remote = tmp.path().join("remote.git");
+    let writer = tmp.path().join("writer");
+    let tracked_skill = writer.join("skills/fixture");
+    create_skill_dir(&tracked_skill, "Fixture", "Previously backed up", &[]);
+    let legacy_file = "skills/fixture/old.db";
+    std::fs::write(writer.join(legacy_file), "Already tracked data").unwrap();
+    fixture_git(&writer, &["add", "-f", "--", "skills"]);
+    fixture_git(
+        &writer,
+        &[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-m",
+            "Existing backup",
+        ],
+    );
+    let url = remote.to_str().unwrap();
+    fixture_git(&writer, &["push", url, "main"]);
+
+    let manager = UnoSkillsManager::open_at(tmp.path().join("library")).unwrap();
+    assert_eq!(
+        manager
+            .git_backup_pull_from(url, "main")
+            .unwrap()
+            .skills_imported,
+        1
+    );
+    let local = manager.find_skill("fixture").unwrap().unwrap();
+    std::fs::write(local.central_path.join("old.db"), "Private local edit").unwrap();
+    std::fs::write(local.central_path.join("extra.txt"), "Portable change").unwrap();
+    assert!(manager.git_backup_push().unwrap().pushed);
+    assert_eq!(
+        fixture_git(
+            &remote,
+            &["show", &format!("refs/heads/main:{legacy_file}")]
+        ),
+        "Already tracked data"
+    );
+    assert_eq!(
+        fixture_git(
+            &remote,
+            &["show", "refs/heads/main:skills/fixture/extra.txt"]
+        ),
+        "Portable change"
+    );
+    assert_eq!(
+        std::fs::read_to_string(local.central_path.join("old.db")).unwrap(),
+        "Private local edit"
+    );
+}
+
+#[test]
+fn failed_backup_target_write_preserves_the_previous_repo_and_branch() {
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "old.git"]);
+    fixture_git(tmp.path(), &["init", "--bare", "new.git"]);
+    let old = tmp.path().join("old.git");
+    let new = tmp.path().join("new.git");
+    let new_url = new.to_str().unwrap();
+    let root = tmp.path().join("library");
+    let manager = UnoSkillsManager::open_at(root.clone()).unwrap();
+    let source = tmp.path().join("fixture");
+    create_skill_dir(&source, "Fixture", "Atomic backup target", &[]);
+    manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    manager
+        .configure_git_backup(old.to_str().unwrap(), Some("retained"))
+        .unwrap();
+    let connection = rusqlite::Connection::open(root.join("unoskills.db")).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER refuse_branch BEFORE UPDATE ON settings
+         WHEN NEW.key = 'git_backup_branch' AND NEW.value = 'denied'
+         BEGIN SELECT RAISE(FAIL, 'Fixture rejected branch write'); END;",
+        )
+        .unwrap();
+    for error in [
+        manager
+            .configure_git_backup(new_url, Some("denied"))
+            .unwrap_err(),
+        manager.git_backup_push_to(new_url, "denied").unwrap_err(),
+        manager.git_backup_pull_from(new_url, "denied").unwrap_err(),
+    ] {
+        assert!(error.to_string().contains("Fixture rejected branch write"));
+    }
+    let second_handle = UnoSkillsManager::open_at(root).unwrap();
+    let status = second_handle.git_backup_status().unwrap();
+    assert_eq!(status.repo_url.as_deref(), old.to_str());
+    assert_eq!(status.branch, "retained");
+    assert_eq!(fixture_git(&new, &["for-each-ref"]), "");
+    assert!(second_handle.git_backup_push().unwrap().pushed);
+    assert_eq!(
+        fixture_git(&old, &["for-each-ref", "--format=%(refname)"]),
+        "refs/heads/retained\n"
+    );
+}
+
+#[test]
+fn backup_switch_keeps_the_previous_repository_and_branch_out_of_the_new_history() {
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "old.git"]);
+    fixture_git(tmp.path(), &["init", "--bare", "new.git"]);
+    let old = tmp.path().join("old.git");
+    let new = tmp.path().join("new.git");
+    let library = tmp.path().join("library");
+    let manager = UnoSkillsManager::open_at(library.clone()).unwrap();
+    let private = tmp.path().join("private-skill");
+    create_skill_dir(&private, "Private", "Old repository only", &[]);
+    let installed = manager.install_from_ref(private.to_str().unwrap()).unwrap();
+    manager
+        .configure_git_backup(old.to_str().unwrap(), Some("main"))
+        .unwrap();
+    assert!(manager.git_backup_push().unwrap().pushed);
+    fixture_git(
+        &library,
+        &[
+            "clone",
+            "--branch",
+            "main",
+            old.to_str().unwrap(),
+            "sync-repo",
+        ],
+    );
+    manager.remove_skill(&installed.id).unwrap();
+
+    manager
+        .configure_git_backup(new.to_str().unwrap(), Some("main"))
+        .unwrap();
+    let pull = manager.git_backup_pull().unwrap();
+    assert_eq!(pull.skills_imported, 0);
+    assert!(manager.find_skill("private-skill").unwrap().is_none());
+    assert!(
+        library
+            .join("sync-repo/skills/private-skill/SKILL.md")
+            .is_file()
+    );
+
+    let shared = tmp.path().join("shared-skill");
+    create_skill_dir(&shared, "Shared", "New repository", &[]);
+    manager.install_from_ref(shared.to_str().unwrap()).unwrap();
+    manager
+        .configure_git_backup(new.to_str().unwrap(), Some("fresh"))
+        .unwrap();
+    assert!(manager.git_backup_push().unwrap().pushed);
+    assert_eq!(
+        fixture_git(&new, &["rev-list", "--count", "refs/heads/fresh"]).trim(),
+        "1"
+    );
+    let tree = fixture_git(&new, &["ls-tree", "-r", "--name-only", "refs/heads/fresh"]);
+    assert!(tree.contains("skills/shared-skill/SKILL.md"));
+    assert!(!tree.contains("skills/private-skill"));
+}
+
+#[test]
+fn backup_push_preserves_unmanaged_files_and_rejects_occupied_skill_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "remote.git"]);
+    fixture_git(tmp.path(), &["init", "-b", "main", "writer"]);
+    let remote = tmp.path().join("remote.git");
+    let writer = tmp.path().join("writer");
+    for (path, content) in [
+        (".gitignore", "# keep custom ignores\n"),
+        ("skills/notes.md", "Manual notes\n"),
+        ("stacks/README.md", "Manual readme\n"),
+        ("stacks/config.toml", "custom = true\n"),
+        ("skills/occupied/notes.md", "Unrelated directory\n"),
+    ] {
+        let file = writer.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, content).unwrap();
+    }
+    fixture_git(&writer, &["add", "-A"]);
+    fixture_git(
+        &writer,
+        &[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-m",
+            "Manual files",
+        ],
+    );
+    fixture_git(&writer, &["push", remote.to_str().unwrap(), "main"]);
+    let manager = UnoSkillsManager::open_at(tmp.path().join("library")).unwrap();
+    manager
+        .configure_git_backup(remote.to_str().unwrap(), Some("main"))
+        .unwrap();
+    let source = tmp.path().join("portable-skill");
+    create_skill_dir(&source, "Portable", "Backed up", &[]);
+    manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    assert!(manager.git_backup_push().unwrap().pushed);
+    let tree = fixture_git(
+        &remote,
+        &["ls-tree", "-r", "--name-only", "refs/heads/main"],
+    );
+    for retained in [
+        ".gitignore",
+        "skills/notes.md",
+        "stacks/README.md",
+        "stacks/config.toml",
+        "skills/occupied/notes.md",
+        "skills/portable-skill/SKILL.md",
+    ] {
+        assert!(
+            tree.lines().any(|path| path == retained),
+            "{retained} missing"
+        );
+    }
+    assert_eq!(
+        fixture_git(&remote, &["show", "refs/heads/main:.gitignore"]),
+        "# keep custom ignores\n"
+    );
+    let occupied = tmp.path().join("occupied");
+    create_skill_dir(&occupied, "Occupied", "Conflicting local folder", &[]);
+    manager
+        .install_from_ref(occupied.to_str().unwrap())
+        .unwrap();
+    let head = fixture_git(&remote, &["rev-parse", "refs/heads/main"]);
+    assert!(
+        manager
+            .git_backup_push()
+            .unwrap_err()
+            .to_string()
+            .contains("BACKUP_PATH_CONFLICT")
+    );
+    assert_eq!(
+        fixture_git(&remote, &["rev-parse", "refs/heads/main"]),
+        head
+    );
+}
+
+#[test]
+fn repeated_pull_keeps_remote_deletions_pending_until_locally_resolved() {
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "remote.git"]);
+    let remote = tmp.path().join("remote.git");
+    let primary = UnoSkillsManager::open_at(tmp.path().join("primary")).unwrap();
+    let secondary = UnoSkillsManager::open_at(tmp.path().join("secondary")).unwrap();
+    for manager in [&primary, &secondary] {
+        manager
+            .configure_git_backup(remote.to_str().unwrap(), Some("main"))
+            .unwrap();
+    }
+    let source = tmp.path().join("removed-item");
+    create_skill_dir(&source, "Removed", "Original", &[]);
+    let skill = primary.install_from_ref(source.to_str().unwrap()).unwrap();
+    let stack = primary
+        .create_stack_from_skills(
+            "Removed stack",
+            "",
+            "",
+            vec![],
+            std::slice::from_ref(&skill.id),
+        )
+        .unwrap();
+    assert!(primary.git_backup_push().unwrap().pushed);
+    assert_eq!(secondary.git_backup_pull().unwrap().skills_imported, 1);
+    primary.remove_skill(&skill.id).unwrap();
+    primary.delete_local_stack(&stack.id).unwrap();
+    assert!(primary.git_backup_push().unwrap().pushed);
+
+    let head = fixture_git(&remote, &["rev-parse", "refs/heads/main"]);
+    for _ in 0..2 {
+        let pull = secondary.git_backup_pull().unwrap();
+        assert_eq!(pull.conflicts.len(), 2);
+        assert!(pull.conflicts[0].contains("skills/removed-item"));
+        assert!(pull.conflicts[1].contains("stacks/removed-stack"));
+        assert!(secondary.find_skill("removed-item").unwrap().is_some());
+        assert!(secondary.find_local_stack(&stack.id).unwrap().is_some());
+        assert!(
+            secondary
+                .git_backup_push()
+                .unwrap_err()
+                .to_string()
+                .contains("BACKUP_REMOTE_CONFLICT")
+        );
+        assert_eq!(
+            fixture_git(&remote, &["rev-parse", "refs/heads/main"]),
+            head
+        );
+    }
+    secondary.remove_skill("removed-item").unwrap();
+    secondary.delete_local_stack(&stack.id).unwrap();
+    assert!(!secondary.git_backup_push().unwrap().pushed);
+    assert!(secondary.git_backup_pull().unwrap().conflicts.is_empty());
+}
+
+fn fixture_git(dir: &std::path::Path, args: &[&str]) -> String {
+    let result = std::process::Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{args:?}: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap()
+}
+
+#[test]
+fn stale_backup_push_preserves_new_and_changed_remote_skills() {
+    let tmp = tempfile::tempdir().unwrap();
+    let remote = tmp.path().join("backup.git");
+    let init = std::process::Command::new("git")
+        .args(["init", "--bare", "--quiet"])
+        .arg(&remote)
+        .status()
+        .unwrap();
+    assert!(init.success());
+    let head = || {
+        let result = std::process::Command::new("git")
+            .arg("--git-dir")
+            .arg(&remote)
+            .args(["rev-parse", "refs/heads/main"])
+            .output()
+            .unwrap();
+        assert!(result.status.success());
+        result.stdout
+    };
+    let primary = UnoSkillsManager::open_at(tmp.path().join("primary")).unwrap();
+    let second = UnoSkillsManager::open_at(tmp.path().join("second")).unwrap();
+    for manager in [&primary, &second] {
+        manager
+            .configure_git_backup(remote.to_str().unwrap(), Some("main"))
+            .unwrap();
+    }
+    let shared = tmp.path().join("shared");
+    create_skill_dir(&shared, "Shared", "Initial", &[]);
+    let shared = primary.install_from_ref(shared.to_str().unwrap()).unwrap();
+    primary.git_backup_push().unwrap();
+    second.git_backup_pull().unwrap();
+
+    let remote_only = tmp.path().join("remote-only");
+    create_skill_dir(&remote_only, "Remote Only", "New remote skill", &[]);
+    primary
+        .install_from_ref(remote_only.to_str().unwrap())
+        .unwrap();
+    primary
+        .save_skill_markdown(
+            &shared.id,
+            "---\nname: Shared\ndescription: Remote changes\n---\n",
+        )
+        .unwrap();
+    assert!(primary.git_backup_push().unwrap().pushed);
+    let before = head();
+
+    let second_only = tmp.path().join("second-only");
+    create_skill_dir(&second_only, "Second Only", "New local skill", &[]);
+    second
+        .install_from_ref(second_only.to_str().unwrap())
+        .unwrap();
+    let error = second.git_backup_push().unwrap_err().to_string();
+    assert!(error.contains("BACKUP_REMOTE_CONFLICT"));
+    assert!(error.contains("skills/shared"));
+    assert!(error.contains("skills/remote-only"));
+    assert_eq!(head(), before);
+
+    let pull = second.git_backup_pull().unwrap();
+    assert_eq!((pull.skills_imported, pull.skills_updated), (1, 1));
+    assert!(pull.conflicts.is_empty());
+    assert!(second.git_backup_push().unwrap().pushed);
+    let pull = primary.git_backup_pull().unwrap();
+    assert_eq!(pull.skills_imported, 1);
+    assert!(primary.find_skill("remote-only").unwrap().is_some());
 }
 
 #[test]
@@ -1465,4 +2480,69 @@ fn git_backup_push_and_pull_rebuilds_sqlite_and_refreshes_copies_without_syncing
     assert_eq!(pull2.refreshed_copies, 1);
     let copied_md = std::fs::read_to_string(custom_dir_b.join("alpha-skill/SKILL.md")).unwrap();
     assert!(copied_md.contains("Alpha v2 updated"));
+
+    // A local edit through the app updates SQLite's hash, so that hash alone
+    // does not show whether it is safe to replace the library files.
+    let beta_b = mgr_b.find_skill("beta-skill").unwrap().unwrap();
+    let local_beta = "---\nname: beta-skill\ndescription: Local beta edit\n---\n";
+    mgr_b.save_skill_markdown(&beta_b.id, local_beta).unwrap();
+    let deployed_alpha = custom_dir_b.join("alpha-skill/SKILL.md");
+    std::fs::write(&deployed_alpha, "Local deployment edit").unwrap();
+    let mut local_stack = mgr_b.list_local_stacks().unwrap().remove(0);
+    local_stack.description = "Local stack edit".into();
+    mgr_b.save_local_stack(&local_stack).unwrap();
+
+    let remote_alpha = "---\nname: alpha-skill\ndescription: Alpha v3 remote\n---\n";
+    let remote_beta = "---\nname: beta-skill\ndescription: Beta v2 remote\n---\n";
+    mgr_a.save_skill_markdown(&alpha.id, remote_alpha).unwrap();
+    mgr_a.save_skill_markdown(&beta.id, remote_beta).unwrap();
+    let mut remote_stack = mgr_a.list_local_stacks().unwrap().remove(0);
+    remote_stack.description = "Remote stack edit".into();
+    mgr_a.save_local_stack(&remote_stack).unwrap();
+    assert!(mgr_a.git_backup_push().unwrap().pushed);
+
+    // Reopening the manager must preserve the last synchronized fingerprints.
+    let mgr_b = UnoSkillsManager::open_at(tmp.path().join("machine-b")).unwrap();
+    let pull3 = mgr_b.git_backup_pull().unwrap();
+    assert_eq!(pull3.skills_updated, 1);
+    assert_eq!(pull3.refreshed_copies, 0);
+    assert_eq!(pull3.stacks_imported, 0);
+    assert_eq!(pull3.conflicts.len(), 3);
+    assert!(
+        pull3
+            .conflicts
+            .iter()
+            .any(|issue| issue.contains("beta-skill"))
+    );
+    assert!(
+        pull3
+            .conflicts
+            .iter()
+            .any(|issue| issue.contains("sync-combo.toml"))
+    );
+    assert!(
+        pull3.conflicts.iter().any(
+            |issue| issue.contains(deployed_alpha.parent().unwrap().to_string_lossy().as_ref())
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(&deployed_alpha).unwrap(),
+        "Local deployment edit"
+    );
+    assert_eq!(
+        std::fs::read_to_string(beta_b.central_path.join("SKILL.md")).unwrap(),
+        local_beta
+    );
+    assert_eq!(
+        std::fs::read_to_string(alpha_b.central_path.join("SKILL.md")).unwrap(),
+        remote_alpha
+    );
+    assert_eq!(mgr_b.list_local_stacks().unwrap().remove(0), local_stack);
+    assert!(mgr_b.has_skill_rollback(&alpha_b.id));
+
+    // Retrying a pull does not promote skipped items to a new baseline.
+    let retry = mgr_b.git_backup_pull().unwrap();
+    assert_eq!(retry.skills_updated, 0);
+    assert_eq!(retry.conflicts, pull3.conflicts);
+    assert_eq!(mgr_b.list_local_stacks().unwrap().remove(0), local_stack);
 }
