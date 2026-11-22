@@ -38,7 +38,10 @@ function openHome(
 test("Home keeps project and skill actions ahead of discovery in a narrow window", async () => {
   const app = await openHome((command) => ({
     ok: true,
-    value: command === "home.market" ? [{ id: "trending", name: "Trending fixture" }] : { available: null },
+    value: command === "home.market" ? [{
+      id: "trending", name: "Trending fixture", source: "owner/repo", installs: 1200,
+      url: "https://skills.sh/owner/repo/fixture",
+    }] : { available: null },
   }), { width: 960, height: 620 });
   const counts = "3 in library · 1 with deployment records";
 
@@ -50,12 +53,18 @@ test("Home keeps project and skill actions ahead of discovery in a narrow window
   expect(app.shows("role:button[Project fixture]")).toBe(true);
   expect(app.shows("role:button[Recent fixture]")).toBe(true);
   expect(app.shows(`label:${t.home_open_library}`)).toBe(true);
+  expect(app.shows("text:owner/repo")).toBe(true);
+  expect(app.shows(`text:${t.home_market_installs.replace("{count}", "1,200")}`)).toBe(true);
+  expect(app.shows(`role:link[Trending fixture · ${t.home_market_details}]`)).toBe(true);
+  expect(app.shows(`label:${t.tab_my_stacks}`)).toBe(true);
   expect(app.shows(`role:tab[${t.board_all_time}]`)).toBe(false);
   expect(app.shows("text:Added in the last 7 days")).toBe(false);
 });
 
 test("returning to Home keeps the loaded discovery preview", async () => {
-  const entries = ["First fixture", "Second fixture", "Third fixture"].map((name) => ({ id: name, name }));
+  const entries = ["First fixture", "Second fixture", "Third fixture"].map((name) => ({
+    id: name, name, source: "owner/repo", installs: 1200, url: null,
+  }));
   let requests = 0;
   const app = await openHome((command) => {
     if (command === "home.market") {
