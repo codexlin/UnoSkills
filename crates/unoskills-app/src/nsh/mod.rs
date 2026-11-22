@@ -181,6 +181,9 @@ fn home(manager: &UnoSkillsManager, command: &str) -> Result<Value> {
                     .map(|skill| json!({
                         "id": skill.id,
                         "name": skill.name,
+                        "source": skill.source,
+                        "installs": skill.installs,
+                        "url": unoskills_core::source::skillssh_detail_url(skill).map(|url| url.to_string()),
                     }))
                     .collect::<Vec<_>>()
             ))
