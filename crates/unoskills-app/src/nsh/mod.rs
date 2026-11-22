@@ -11,7 +11,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::{Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use chrono::{DateTime, Days, Local, NaiveDate};
+use chrono::{DateTime, Local};
 use nsh_engine::HostChannel;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -118,7 +118,7 @@ fn dispatch(
     match domain {
         "settings" => settings::dispatch(&manager, &command, input),
         "update" => updates.dispatch(&manager, &command),
-        "home" => home(&manager, &command, input),
+        "home" => home(&manager, &command),
         "library" | "discover" => library::dispatch(&manager, &command, input),
         "project" | "stack" => projects::dispatch(&manager, &command, input),
         _ => bail!("UNKNOWN_COMMAND: {command}"),
@@ -143,7 +143,7 @@ fn fonts() -> Result<Value> {
     Ok(serde_json::to_value(families)?)
 }
 
-fn home(manager: &UnoSkillsManager, command: &str, input: Value) -> Result<Value> {
+fn home(manager: &UnoSkillsManager, command: &str) -> Result<Value> {
     match command {
         "home.summary" => {
             let skills = manager.list_skills()?;
@@ -152,25 +152,16 @@ fn home(manager: &UnoSkillsManager, command: &str, input: Value) -> Result<Value
             let mut projects = manager.list_projects()?;
             projects.sort_by_key(|project| std::cmp::Reverse(project.created_at));
             projects.truncate(2);
-            let dates = skills.iter().filter_map(|skill| {
-                DateTime::from_timestamp(skill.created_at, 0).map(|date| date.with_timezone(&Local))
-            });
             let deployed = skills
                 .iter()
                 .filter(|skill| {
                     !skill.deployments.is_empty() || !skill.project_deployments.is_empty()
                 })
                 .count();
-            let agents = manager
-                .list_agents()?
-                .iter()
-                .filter(|agent| agent.installed)
-                .count();
             let adoptable = manager.scan_adoptable()?.len();
             Ok(json!({
                 "skill_count": skills.len(),
                 "deployed_count": deployed,
-                "agent_count": agents,
                 "adoptable_count": adoptable,
                 "recent": recent.iter().take(3).map(|skill| json!({
                     "id": skill.id,
@@ -179,65 +170,21 @@ fn home(manager: &UnoSkillsManager, command: &str, input: Value) -> Result<Value
                         .map(|date| date.with_timezone(&Local).format("%Y-%m-%d").to_string()),
                 })).collect::<Vec<_>>(),
                 "projects": projects,
-                "activity": activity(Local::now().date_naive(), dates.map(|date| date.date_naive())),
             }))
         }
         "home.market" => {
-            let board = input["board"].as_str().unwrap_or("trending");
-            if !matches!(board, "trending" | "all-time") {
-                bail!("INVALID_BOARD");
-            }
-            let page = manager.marketplace_leaderboard_page(board, 0)?;
-            Ok(json!(page.items.iter().take(5).map(|skill| json!({
-                "id": skill.id,
-                "name": skill.name,
-                "installs": skill.installs,
-                "source": skill.install_ref(),
-                "url": unoskills_core::source::skillssh_detail_url(skill).map(|url| url.to_string()),
-            })).collect::<Vec<_>>()))
+            let page = manager.marketplace_leaderboard_page("trending", 0)?;
+            Ok(json!(
+                page.items
+                    .iter()
+                    .take(3)
+                    .map(|skill| json!({
+                        "id": skill.id,
+                        "name": skill.name,
+                    }))
+                    .collect::<Vec<_>>()
+            ))
         }
         _ => bail!("UNKNOWN_COMMAND: {command}"),
-    }
-}
-
-fn activity(today: NaiveDate, dates: impl Iterator<Item = NaiveDate>) -> Vec<Value> {
-    let mut counts = [0; 7];
-    for date in dates {
-        if let Ok(index) = usize::try_from(today.signed_duration_since(date).num_days())
-            && let Some(count) = counts.get_mut(index)
-        {
-            *count += 1;
-        }
-    }
-    counts
-        .into_iter()
-        .enumerate()
-        .rev()
-        .filter_map(|(ago, count)| {
-            today
-                .checked_sub_days(Days::new(ago as u64))
-                .map(|date| json!({"label": date.format("%m/%d").to_string(), "count": count}))
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn activity_counts_today_and_six_preceding_days() {
-        let today = NaiveDate::from_ymd_opt(2026, 1, 3).unwrap();
-        let dates = [
-            today + Days::new(1),
-            today,
-            today,
-            today - Days::new(6),
-            today - Days::new(7),
-        ];
-        let days = activity(today, dates.into_iter());
-        assert_eq!(days[0], json!({"label": "12/28", "count": 1}));
-        assert_eq!(days[6], json!({"label": "01/03", "count": 2}));
-        assert_eq!(days.len(), 7);
     }
 }

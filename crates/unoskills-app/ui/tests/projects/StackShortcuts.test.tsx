@@ -28,8 +28,8 @@ async function openEditor() {
               return { ok: true, value: { available: null } };
             case "home.summary":
               return { ok: true, value: {
-                skill_count: 0, deployed_count: 0, agent_count: 0, adoptable_count: 0,
-                activity: [], projects: [], recent: [],
+                skill_count: 0, deployed_count: 0, adoptable_count: 0,
+                projects: [], recent: [],
               } };
             case "stack.list":
               return { ok: true, value: { local: [stack], featured: [] } };
@@ -50,7 +50,7 @@ async function openEditor() {
     },
   });
 
-  await app.press("label:My Stacks");
+  await app.press("label:Stacks");
   await app.waitFor("text:Duplicate member");
   expect(app.count("text:Duplicate member")).toBe(2);
   await app.press("label:Stack actions");
@@ -62,7 +62,7 @@ async function openEditor() {
   await app.press("text:Duplicate member >> nth=1");
   expect(app.enabled("label:Save to My Stacks")).toBe(true);
   await app.press("label:Home");
-  await app.waitFor("text:Local workspace");
+  await app.waitFor("text:Add your first skill");
   return { app, edits };
 }
 
@@ -71,7 +71,7 @@ test("only the visible stack editor handles save and retains duplicate member in
   await app.keyboard.press("mod+s");
   expect(edits).toHaveLength(0);
   await app.waitFor("text:save");
-  expect(app.shows("text:Local workspace")).toBe(true);
+  expect(app.shows("text:Add your first skill")).toBe(true);
 
   await app.press("label:Stacks");
   expect(app.value("label:Stack Name")).toBe("Edited stack");
@@ -86,7 +86,7 @@ test("only the visible stack editor handles save and retains duplicate member in
 test("only the visible stack editor handles Escape and a hidden draft survives", async () => {
   const { app, edits } = await openEditor();
   await app.keyboard.press("escape");
-  expect(app.shows("text:Local workspace")).toBe(true);
+  expect(app.shows("text:Add your first skill")).toBe(true);
   await app.waitFor("text:cancel");
   expect(edits).toHaveLength(0);
 

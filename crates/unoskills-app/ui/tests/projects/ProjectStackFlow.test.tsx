@@ -45,7 +45,7 @@ async function openFixture() {
           case "settings.get": return ok({ ...defaults, language: "en" });
           case "update.check": return ok({ available: null });
           case "home.summary": return ok({
-            skill_count: 0, deployed_count: 0, agent_count: 2, adoptable_count: 0, activity: [], projects: [project], recent: [],
+            skill_count: 0, deployed_count: 0, adoptable_count: 0, projects: [project], recent: [],
           });
           case "home.market":
           case "stack.library": return ok([]);
@@ -79,7 +79,7 @@ async function openFixture() {
 
 test("Stacks keeps the detail footer available at desktop minimum size and opens the catalog search with mod+k", async () => {
   const { app } = await openFixture();
-  await app.press("label:My Stacks");
+  await app.press("label:Stacks");
   await app.waitFor("text:Included Skills (48)");
   expect(app.shows("text:48 already in the library")).toBe(true);
   expect(app.shows("label:Stack actions")).toBe(true);
