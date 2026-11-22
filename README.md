@@ -44,8 +44,10 @@ Install the latest release over your existing UnoSkills installation. The deskto
 ## Quick start
 
 1. **Add a skill.** In **Discover**, browse skills.sh or choose **Install from Link** to add a GitHub skill, an `owner/repo@skill` reference, or a local folder. **Local skills** lists skills already on your machine that you can bring under management.
-2. **Deploy from your library.** Select a skill in **Library** and toggle deployment for the agents that need it. Symlink mode uses the central copy directly. Copy mode creates a local copy at the deployment destination.
+2. **Deploy from your library.** Select a skill in **Library** and toggle deployment for the agents that need it.
 3. **Save a reusable stack.** In **Stacks → My Stacks**, group skills into a named stack. Install its missing skills together, export the TOML, or share it with your team.
+
+UnoSkills uses symlink mode by default. If it can’t create a directory link, it copies the skill into the deployment folder. Agents using a link see the latest library contents the next time they read the skill files. Deployed copies keep their contents when you edit a skill in the library. Applying an update or restoring the previous version in the library can refresh unchanged managed copies while preserving locally modified copies.
 
 The library lives on your machine at `~/.unoskills`. Library management, local stacks, and TOML import and export work without an account.
 
@@ -126,7 +128,7 @@ nsh build crates/unoskills-app/ui --release
 nsh test crates/unoskills-app/ui
 ```
 
-The workspace uses Native Shell (NSH) for the desktop app, a shared Rust core for the library and safe deployment, and a thin CLI.
+The desktop app moved from GPUI to Native Shell (NSH). The app and CLI share a Rust core for the library and safe deployment.
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Desktop design standards](DESIGN.md)
