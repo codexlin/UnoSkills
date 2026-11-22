@@ -2,7 +2,7 @@ import { type InputRef, Text, View, effect, signal } from "nsh";
 import { Dialog } from "nsh/base";
 import type { Theme } from "../shared";
 import { ActionButton } from "./controls";
-import { AlertBanner, TextInput, dialogAnimation, textSize, textStyle } from "../components";
+import { AlertBanner, TextInput, dialogAnimation, popupSurface, textSize, textStyle } from "../components";
 import { errorMessage, installFromSource, pickFolder } from "./host";
 import { type Locale, busyInstalling, getStrings, toastInstalled } from "./strings";
 import type { Skill } from "./types";
@@ -87,16 +87,13 @@ export function QuickInstallDialog(props: {
           props.onOpenChange(open);
         }
       }}
-      backdropStyle={{ backgroundColor: props.theme.modalBackdrop ?? "#00000072" }}
+      backdropStyle={{ backgroundColor: props.theme.modalBackdrop }}
       style={{
+        ...popupSurface(props.theme),
         margin: "auto",
         width: 480,
         maxWidth: "92%",
         borderRadius: props.theme.panel.radius,
-        borderWidth: 1,
-        borderColor: props.theme.border,
-        backgroundColor: props.theme.popup.background,
-        boxShadow: props.theme.popup.shadow,
         padding: 20,
         gap: 14,
       }}
@@ -105,7 +102,7 @@ export function QuickInstallDialog(props: {
         style={{
           ...textStyle(props.theme, { size: textSize(props.theme, 16) }),
           fontWeight: "600",
-          color: props.theme.foreground,
+          color: props.theme.popup.foreground,
         }}
       >
         {s().quick_install_title}

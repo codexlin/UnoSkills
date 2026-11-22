@@ -1,6 +1,6 @@
 import { Text, View, type InputRef, type JSX } from "nsh";
-import { AlertDialog, Checkbox } from "nsh/base";
-import { Action as ButtonAction, AlertBanner, Hint, Icon, LoadingLine, PageHeader, SelectControl, TextInput, focusOutline, interactionStyles, textSize, textStyle } from "../components";
+import { AlertDialog } from "nsh/base";
+import { Action as ButtonAction, AlertBanner, CheckControl, Hint, LoadingLine, PageHeader, SelectControl, TextInput, textSize, textStyle } from "../components";
 import type { IconName } from "../icons";
 import type { ScreenProps, Theme } from "../shared";
 import { strings } from "./strings";
@@ -25,9 +25,9 @@ export function Banner(props: { theme: Theme; label: string; tone: "error" | "wa
   return <AlertBanner theme={props.theme} tone={props.tone} message={props.label} />;
 }
 
-export function Heading(props: { theme: Theme; label: string; size?: number; lines?: number }) {
+export function Heading(props: { theme: Theme; label: string; size?: number; lines?: number; color?: string }) {
   return <Text role="header" style={{ ...textStyle(props.theme, { size: textSize(props.theme, props.size ?? 18) }),
-    color: props.theme.foreground, fontWeight: "600", numberOfLines: props.lines,
+    color: props.color ?? props.theme.foreground, fontWeight: "600", numberOfLines: props.lines,
     minWidth: 0, flexShrink: 1 }}>{props.label}</Text>;
 }
 
@@ -80,20 +80,12 @@ export function Choice(props: {
 }
 
 export function Check(props: { theme: Theme; label: string; checked: boolean; update: (checked: boolean) => void; disabled?: boolean; compact?: boolean }) {
-  return <Checkbox checked={props.checked} disabled={props.disabled}
-    onChange={({ checked }) => props.update(checked)}
-    hoverStyle={interactionStyles(props.theme).hoverStyle}
-    activeStyle={interactionStyles(props.theme).activeStyle}
-    focusVisibleStyle={focusOutline(props.theme)} disabledStyle={{ opacity: 0.5 }}
-    style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0, minHeight: props.compact ? 24 : 28, borderWidth: 1, borderColor: "transparent", borderRadius: 4 }}
-    indicatorStyle={{
-      width: 16, height: 16, flexShrink: 0, alignItems: "center", justifyContent: "center", borderWidth: 1,
-      borderColor: props.checked ? props.theme.primary : props.theme.muted, borderRadius: 4,
-      backgroundColor: props.checked ? props.theme.primary : props.theme.background,
-    }}
-    indicator={props.checked ? <Icon name="check" color={props.theme.onPrimary} size={12} /> : null}>
+  return <CheckControl theme={props.theme} checked={props.checked} disabled={props.disabled}
+    onChange={props.update}
+    style={{ ...row, minWidth: 0, minHeight: props.compact ? 24 : 28,
+      borderWidth: 1, borderColor: "transparent", borderRadius: props.theme.control.radius }}>
     <Label theme={props.theme} label={props.label} lines={props.compact ? 1 : undefined} />
-  </Checkbox>;
+  </CheckControl>;
 }
 
 export function Feedback(props: { theme: Theme; pending?: boolean; error?: string; label: string }) {

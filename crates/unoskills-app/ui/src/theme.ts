@@ -33,34 +33,9 @@ export const defaults: Preferences = {
 export const palettes = ["claude", "vercel", "supabase", "catppuccin", "ocean", "unoskills"] as const;
 type Palette = typeof palettes[number];
 
-type Scheme = "light" | "dark";
-type Swatches = typeof unoSkills.cssVars.light;
-
 const presets: Record<Palette, typeof unoSkills> = {
   claude, vercel, supabase, catppuccin, ocean, unoskills: unoSkills,
 };
-
-// Adjust foregrounds where the published color pairs fall below 4.5:1 for small text.
-const readableInk: Partial<Record<Palette, Partial<Record<Scheme, Partial<Swatches>>>>> = {
-  unoskills: {
-    light: { "secondary-foreground": unoSkills.cssVars.light.foreground },
-    dark: { "primary-foreground": unoSkills.cssVars.dark.background },
-  },
-  claude: {
-    light: { "primary-foreground": "#141413" },
-    dark: { "primary-foreground": "#141413", "destructive-foreground": "#141413" },
-  },
-  vercel: { light: { "destructive-foreground": "#141413" } },
-  catppuccin: { light: { "accent-foreground": "#141413", "sidebar-accent-foreground": "#141413" } },
-  ocean: {
-    light: { "primary-foreground": ocean.cssVars.dark.background, "destructive-foreground": "#141413" },
-    dark: { "accent-foreground": ocean.cssVars.dark.foreground, "sidebar-accent-foreground": ocean.cssVars.dark.foreground },
-  },
-};
-
-function swatches(palette: Palette, scheme: Scheme): Swatches {
-  return { ...presets[palette].cssVars[scheme], ...readableInk[palette]?.[scheme] };
-}
 
 function mix(first: string, weight: number, second: string) {
   return `color-mix(in oklab, ${first} ${weight}%, ${second})`;
@@ -97,9 +72,8 @@ export function paletteFor(value: string): Palette {
 
 export function makeTheme(prefs: Preferences): Theme {
   const scheme = prefs.theme === "system" ? colorScheme() : prefs.theme;
-  const palette = paletteFor(prefs.accent_palette);
-  const preset = presets[palette];
-  const tokens = swatches(palette, scheme);
+  const preset = presets[paletteFor(prefs.accent_palette)];
+  const tokens = preset.cssVars[scheme];
   const shadows = preset.shadows[scheme];
   const baseRadius = parseFloat(preset.cssVars.theme.radius) * 16;
   const requestedRadius = prefs.corner_radius.trim() ? Number(prefs.corner_radius) : NaN;
@@ -111,7 +85,6 @@ export function makeTheme(prefs: Preferences): Theme {
   const autoMono = ["ui-monospace", "monospace"].includes(mono) ? "monospace"
     : `${mono}, SF Mono, Cascadia Mono, Ubuntu Mono, DejaVu Sans Mono, monospace`;
   const inputFill = scheme === "dark" ? mix(tokens.input, 30, "transparent") : "transparent";
-  const hoverWeight = palette === "catppuccin" && scheme === "dark" ? 24 : 56;
   return {
     background: tokens.background, surface: tokens.card, foreground: tokens.foreground,
     muted: tokens["muted-foreground"], border: tokens.border, primary: tokens.primary,
@@ -123,7 +96,7 @@ export function makeTheme(prefs: Preferences): Theme {
       onAccent: tokens["sidebar-accent-foreground"], ring: tokens["sidebar-ring"],
     },
     chrome: {
-      rail: tokens.sidebar, hover: mix(tokens.accent, hoverWeight, tokens.card), segmented: tokens.muted,
+      rail: tokens.sidebar, hover: tokens.muted, segmented: tokens.muted,
       primaryHover: mix(tokens.primary, 92, tokens.background),
       primaryActive: mix(tokens.primary, 86, tokens.background), inputBorder: tokens.input,
     },
@@ -139,7 +112,12 @@ export function makeTheme(prefs: Preferences): Theme {
       outlineFill: scheme === "dark" ? inputFill : tokens.background,
       shadow: shadows["shadow-xs"],
     },
-    panel: { radius: radiusOverride ?? baseRadius + 4, shadow: shadows["shadow-sm"] },
+    switch: {
+      offTrack: scheme === "dark" ? mix(tokens.input, 80, "transparent") : tokens.input,
+      offThumb: scheme === "dark" ? tokens.foreground : tokens.background,
+      onThumb: scheme === "dark" ? tokens["primary-foreground"] : tokens.background,
+    },
+    panel: { foreground: tokens["card-foreground"], radius: radiusOverride ?? baseRadius + 4, shadow: shadows["shadow-sm"] },
     popup: { background: tokens.popover, foreground: tokens["popover-foreground"], shadow: shadows["shadow-md"] },
     fontFamily: prefs.ui_font === "auto" || !prefs.ui_font.trim() ? autoSans : prefs.ui_font.trim(),
     monoFamily: prefs.mono_font === "auto" || !prefs.mono_font.trim() ? autoMono : prefs.mono_font.trim(),
@@ -147,11 +125,11 @@ export function makeTheme(prefs: Preferences): Theme {
 }
 
 export function applyNativeTheme(theme: Theme, paletteName: string) {
-  const palette = paletteFor(paletteName);
+  const { cssVars } = presets[paletteFor(paletteName)];
   setTheme({ cssVars: {
-    light: swatches(palette, "light"),
-    dark: swatches(palette, "dark"),
+    ...cssVars,
     theme: {
+      ...cssVars.theme,
       "radius": `${theme.radius}px`,
       "font-sans": theme.fontFamily ?? "sans-serif",
       "font-mono": theme.monoFamily ?? "monospace",

@@ -49,7 +49,7 @@ export function AlertBanner(props: { theme: Theme; tone: FeedbackTone; message: 
   return <View role={props.tone === "success" ? "summary" : "alert"}
     style={{ minWidth: 0, padding: 8, backgroundColor: props.theme.surface,
       borderRadius: props.theme.radius, borderColor: color(), borderWidth: 1 }}>
-    <Label theme={props.theme} color={props.tone === "error" ? color() : undefined}>{props.message}</Label>
+    <Label theme={props.theme} color={props.tone === "error" ? color() : props.theme.panel.foreground}>{props.message}</Label>
   </View>;
 }
 

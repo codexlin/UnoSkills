@@ -214,7 +214,7 @@ function ProjectDetail(props: {
         borderLeftWidth: 1, borderColor: screen.theme.border, backgroundColor: screen.theme.surface }}>
         <View style={{ ...actions, padding: 12, borderBottomWidth: 1, borderColor: screen.theme.border }}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Label theme={screen.theme} label={t().inventory} weight="600" />
+            <Label theme={screen.theme} color={screen.theme.panel.foreground} label={t().inventory} weight="600" />
           </View>
           <View style={{ width: 168, maxWidth: "100%", minWidth: 0 }}>
             <Choice theme={screen.theme} label={t().selectAgent} compact
@@ -235,7 +235,7 @@ function ProjectDetail(props: {
             borderBottomWidth: 1, borderColor: screen.theme.border }}>
             <View style={row}>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Label theme={screen.theme} label={skill().name} weight="500" lines={1} />
+                <Label theme={screen.theme} color={screen.theme.panel.foreground} label={skill().name} weight="500" lines={1} />
               </View>
               <Label theme={screen.theme} label={t()[skill().location]} muted size={12} lines={1} />
             </View>

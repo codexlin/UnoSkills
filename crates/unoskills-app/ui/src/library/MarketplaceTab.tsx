@@ -309,7 +309,7 @@ export function MarketplaceTab(props: {
                             minWidth: 0,
                             ...textStyle(props.theme),
                             fontWeight: "600",
-                            color: props.theme.foreground,
+                            color: props.theme.panel.foreground,
                           }}
                         >
                           {entry().item.name}
@@ -398,7 +398,7 @@ export function MarketplaceTab(props: {
                                 style={{
                                   ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                                   fontWeight: "600",
-                                  color: props.theme.foreground,
+                                  color: props.theme.panel.foreground,
                                 }}
                               >
                                 #1
@@ -438,7 +438,7 @@ export function MarketplaceTab(props: {
                                 ...textStyle(props.theme, { size: textSize(props.theme, 11) }),
                                 color:
                                   props.sourceFilter === entry().item.source
-                                    ? props.theme.primary
+                                    ? props.theme.onAccent
                                     : props.theme.muted,
                               }}
                             >
@@ -453,7 +453,7 @@ export function MarketplaceTab(props: {
                                 ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
                                 color:
                                   props.sourceFilter === entry().item.source
-                                    ? props.theme.primary
+                                    ? props.theme.onAccent
                                     : props.theme.muted,
                               }}
                             >

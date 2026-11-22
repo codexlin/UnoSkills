@@ -228,12 +228,15 @@ function CatalogEmpty(props: { theme: Theme; title: string; description: string;
   </View>;
 }
 
-function StackBadge(props: { theme: Theme; label: string; variant: "verified" | "community" | "local" }) {
+function StackBadge(props: { theme: Theme; label: string; variant: "verified" | "community" | "local"; selected?: boolean }) {
+  const color = () => props.variant === "verified" ? props.theme.success
+    : props.variant === "local" ? props.theme.panel.foreground
+    : props.selected ? props.theme.onAccent : props.theme.foreground;
   return <View style={{ flexShrink: 0, paddingHorizontal: 6, borderWidth: 1, borderRadius: 4,
     borderColor: props.variant === "verified" ? props.theme.success : props.theme.border,
     backgroundColor: props.variant === "local" ? props.theme.surface : "transparent" }}>
     <Label theme={props.theme} label={props.label} size={11} lines={1}
-      color={props.variant === "verified" ? props.theme.success : props.theme.foreground} />
+      color={color()} />
   </View>;
 }
 
@@ -253,7 +256,7 @@ function StackCard(props: { theme: Theme; stack: Stack; locale: ScreenProps["loc
           <Label theme={props.theme} color={props.selected ? props.theme.onAccent : undefined}
             label={props.stack.name} weight="600" lines={1} />
         </View>
-        <StackBadge theme={props.theme}
+        <StackBadge theme={props.theme} selected={props.selected}
           variant={props.stack.verified ? "verified" : props.stack.source === "Community" ? "community" : "local"}
           label={props.stack.verified ? t().verified : props.stack.source === "Community" ? t().Community : t().localBadge} />
       </View>
@@ -352,11 +355,13 @@ function StackDetail(props: {
         <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
           <View style={row}>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Heading theme={screen.theme} label={props.stack.name} lines={1} />
+              <Heading theme={screen.theme} color={screen.theme.panel.foreground} label={props.stack.name} lines={1} />
             </View>
             <If when={props.stack.verified}><StackBadge theme={screen.theme} variant="verified" label={t().verified} /></If>
           </View>
-          <If when={props.stack.description}><Label theme={screen.theme} label={props.stack.description} /></If>
+          <If when={props.stack.description}>
+            <Label theme={screen.theme} color={screen.theme.panel.foreground} label={props.stack.description} />
+          </If>
         </View>
         <View style={{ alignSelf: "flex-start", flexShrink: 0 }}>
           <ActionMenu theme={screen.theme} label={t().stackActions}>
@@ -381,7 +386,8 @@ function StackDetail(props: {
       <If when={props.stack.recommended_agents.length > 0}>
         <Label theme={screen.theme} muted label={`${t().recommendedAgents}  ${props.stack.recommended_agents.join(", ")}`} />
       </If>
-      <Label theme={screen.theme} label={`${t().includedSkills} (${props.stack.skills.length})`} weight="600" />
+      <Label theme={screen.theme} color={screen.theme.panel.foreground}
+        label={`${t().includedSkills} (${props.stack.skills.length})`} weight="600" />
       <Feedback theme={screen.theme} label={t().loading} pending={members().pending} error={op.error() ?? members().error} />
       <If when={installedResult()}>{(result) => <InstallReport screen={screen} result={result()} />}</If>
       <View style={{ borderTopWidth: 1, borderColor: screen.theme.border }}>
@@ -390,7 +396,7 @@ function StackDetail(props: {
             const status = () => item().item;
             return <View style={{ ...row, minHeight: 40, borderBottomWidth: 1, borderColor: screen.theme.border, paddingVertical: 8 }}>
               <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                <Label theme={screen.theme} label={status().member.name} weight="600" lines={1} />
+                <Label theme={screen.theme} color={screen.theme.panel.foreground} label={status().member.name} weight="600" lines={1} />
                 <Label theme={screen.theme} label={status().member.source}
                   title={[status().member.source, status().member.note].filter(Boolean).join("\n")} muted size={12} lines={1} />
               </View>
@@ -401,7 +407,7 @@ function StackDetail(props: {
                 {(skill) => <Button
                   accessibilityLabel={status().source_conflict ? t().sourceConflict : t().inLibrary}
                   onPress={() => screen.navigate({ page: "library", skillId: skill().id })}
-                  focusVisibleStyle={{ borderColor: screen.theme.primary }}
+                  focusVisibleStyle={focusOutline(screen.theme)}
                   style={{ flexShrink: 0, minHeight: 24, maxWidth: "46%", justifyContent: "center", borderWidth: 1,
                     borderColor: "transparent", borderRadius: screen.theme.control.radius }}>
                   <Label theme={screen.theme} label={status().source_conflict ? t().sourceConflict : t().inLibrary}

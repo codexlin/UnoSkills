@@ -39,7 +39,8 @@ export interface Theme {
   radius: number;
   ring: string;
   control: { radius: number; inputFill: string; outlineFill: string; shadow: string };
-  panel: { radius: number; shadow: string };
+  switch: { offTrack: string; offThumb: string; onThumb: string };
+  panel: { foreground: string; radius: number; shadow: string };
   popup: { background: string; foreground: string; shadow: string };
   chrome?: {
     rail: string;

@@ -7,8 +7,8 @@ import { Hint } from "./feedback";
 import { dialogAnimation } from "./motion";
 import type { Theme } from "../shared";
 
-function popupSurface(theme: Theme) {
-  return { padding: 4, borderWidth: 1, borderColor: theme.border, borderRadius: theme.radius,
+export function popupSurface(theme: Theme) {
+  return { borderWidth: 1, borderColor: theme.border,
     backgroundColor: theme.popup.background, boxShadow: theme.popup.shadow };
 }
 
@@ -27,13 +27,14 @@ function PopupTrigger(props: {
       paddingHorizontal: iconOnly() ? 0 : props.compact ? 8 : 10,
       borderRadius: props.theme.control.radius, borderWidth: 1,
       boxShadow: iconOnly() || props.open ? undefined : props.theme.control.shadow,
-      borderColor: props.open ? props.theme.primary : iconOnly() ? "transparent" : props.theme.border,
+      borderColor: props.open ? props.theme.ring : iconOnly() ? "transparent"
+        : props.theme.chrome?.inputBorder ?? props.theme.border,
       backgroundColor: props.open ? props.theme.accent : iconOnly() ? "transparent" : props.theme.control.outlineFill,
     }}
     hoverStyle={props.disabled ? undefined : states().hoverStyle}
     activeStyle={props.disabled ? undefined : states().activeStyle}
     focusVisibleStyle={focusOutline(props.theme, 1)} disabledStyle={disabledControlStyle}>
-    {iconOnly() ? <Icon name="ellipsis" color={props.theme.foreground} size={16} /> : <>
+    {iconOnly() ? <Icon name="ellipsis" color={props.open ? props.theme.onAccent : props.theme.foreground} size={16} /> : <>
       <View style={{ flexShrink: 1, minWidth: 0 }}>
         <Label theme={props.theme} truncate muted={props.muted} color={props.open ? props.theme.onAccent : undefined}>{props.value}</Label>
       </View>
@@ -48,7 +49,7 @@ export function ActionMenu(props: {
   const open = signal(false);
   return <Menu open={open()} onOpenChange={(event) => open.set(event.open)}
     align={props.value === undefined ? "end" : "start"} offset={4}
-    popupStyle={{ ...popupSurface(props.theme), minWidth: props.minWidth ?? 200 }}
+    popupStyle={{ ...popupSurface(props.theme), padding: 4, borderRadius: props.theme.radius, minWidth: props.minWidth ?? 200 }}
     trigger={<PopupTrigger theme={props.theme} title={props.label} hint={props.label}
       open={open()} value={props.value} maxWidth={props.maxTriggerWidth} toolbar={props.value !== undefined} />}>
     {props.children}
@@ -94,7 +95,8 @@ export function SelectControl(props: {
     onChange={({ value }) => props.onChange(value)} placeholder={props.label}
     searchable={props.searchable} searchPlaceholder={searchLabel()} searchAccessibilityLabel={searchLabel()}
     offset={4} cover={false}
-    popupStyle={{ ...popupSurface(props.theme), width: props.popupWidth, minWidth: props.popupMinWidth, maxHeight: height() }}
+    popupStyle={{ ...popupSurface(props.theme), padding: 4, borderRadius: props.theme.radius,
+      width: props.popupWidth, minWidth: props.popupMinWidth, maxHeight: height() }}
     listStyle={{ maxHeight: height() - (props.searchable ? 48 : 10), minHeight: 0, flexShrink: 1 }}
     itemClass="focus:bg-muted selected:bg-accent selected:focus:bg-accent focus:outline-1 focus:-outline-offset-1 focus:outline-ring disabled:opacity-50"
     itemStyle={{ borderRadius: props.theme.control.radius, paddingHorizontal: 8, paddingVertical: 6 }}
@@ -106,9 +108,11 @@ export function SelectControl(props: {
     }}
     renderItem={(item) => {
       const detail = () => props.items[item.index]?.detail;
+      const selected = () => item.value === props.value;
       return <View style={{ minWidth: 0, gap: 2 }}>
-        <Label theme={props.theme} truncate color={item.value === props.value ? props.theme.onAccent : props.theme.popup.foreground}>{item.title}</Label>
-        {detail() ? <Label theme={props.theme} muted truncate size={props.theme.fontSize - 2}>{detail()}</Label> : null}
+        <Label theme={props.theme} truncate color={selected() ? props.theme.onAccent : props.theme.popup.foreground}>{item.title}</Label>
+        {detail() ? <Label theme={props.theme} muted truncate color={selected() ? props.theme.onAccent : undefined}
+          size={props.theme.fontSize - 2}>{detail()}</Label> : null}
       </View>;
     }}
     trigger={<PopupTrigger theme={props.theme} open={open()} hint={props.hint} disabled={props.disabled}
@@ -154,7 +158,7 @@ export function Modal(props: {
       style={{ alignItems: "center", justifyContent: "center", padding: 24 }}>
       <View style={{ width: props.width ?? 440, maxWidth: "100%", gap: 16,
         ...popupSurface(props.theme), padding: 20, borderRadius: props.theme.panel.radius }}>
-        <Label theme={props.theme} heading size={20}>{props.label}</Label>
+        <Label theme={props.theme} heading size={20} color={props.theme.popup.foreground}>{props.label}</Label>
         {props.children}
       </View>
     </Dialog>

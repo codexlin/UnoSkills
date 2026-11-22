@@ -1,6 +1,6 @@
 import { List, Scroll, Text, View, computed, effect, host, nativeModule, signal, type JSX } from "nsh";
-import { Collapsible, Switch, Toggle, ToggleGroup } from "nsh/base";
-import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, NavigationControl, PageHeader, controlMotionClass, focusOutline, interactionStyles, panelSurface, textSize, textStyle } from "./components";
+import { Collapsible, Toggle, ToggleGroup } from "nsh/base";
+import { Action, ActionControl, Choice, FormText, Icon, InlineError, Label, Modal, NavigationControl, PageHeader, ToggleSwitch, controlMotionClass, focusOutline, interactionStyles, panelSurface, textSize, textStyle } from "./components";
 import { strings } from "./i18n";
 import { call, errorMessage, type ScreenProps, type Theme } from "./shared";
 import { bundledThemeFonts, paletteFor, palettes, type Preferences } from "./theme";
@@ -93,7 +93,7 @@ function SettingsGroup(props: { theme: Theme; title: string; children?: JSX.Elem
 function SettingRow(props: { theme: Theme; title: string; detail: string; mono?: boolean; children?: JSX.Element }) {
   return <View class="flex-row items-center justify-between flex-wrap gap-4">
     <View class="min-w-0 gap-1" style={{ flexGrow: 1, flexBasis: 140 }}>
-      <Label theme={props.theme}>{props.title}</Label>
+      <Label theme={props.theme} color={props.theme.panel.foreground}>{props.title}</Label>
       <Label theme={props.theme} mono={props.mono} truncate={props.mono} size={textSize(props.theme, 12)} muted>{props.detail}</Label>
     </View>
     {props.children}
@@ -374,22 +374,20 @@ function Agents(props: SettingsProps) {
   }
 
   function renderRows(items: Agent[]) {
-    return <View class="p-4" style={{ borderWidth: 1, borderRadius: props.theme.radius, borderColor: props.theme.border }}>
+    return <View class="p-4" style={{ borderWidth: 1, borderRadius: props.theme.radius,
+      borderColor: props.theme.border, backgroundColor: props.theme.surface }}>
       <List each={items} viewport="parent" estimatedItemSize={40} keyExtractor={(agent) => agent.key}>
         {(item) => (
           <View style={{ flexDirection: "row", gap: 8, alignItems: "center", minHeight: 40,
-            paddingHorizontal: 12, paddingVertical: 4, borderBottomWidth: 1, borderColor: props.theme.border,
-            backgroundColor: props.theme.background }}>
-            <View style={{ width: "32%", minWidth: 0 }}><Label theme={props.theme} truncate>{item().display_name}</Label></View>
+            paddingHorizontal: 12, paddingVertical: 4, borderBottomWidth: 1, borderColor: props.theme.border }}>
+            <View style={{ width: "32%", minWidth: 0 }}>
+              <Label theme={props.theme} color={props.theme.panel.foreground} truncate>{item().display_name}</Label>
+            </View>
             <View class="flex-1 min-w-0"><Label theme={props.theme} muted mono truncate size={textSize(props.theme, 12)}>{item().skills_dir}</Label></View>
             {item().is_custom ? <Action theme={props.theme} size="compact" variant="danger-outline" label={t().btn_delete}
               disabled={busy()} onPress={() => void mutate("settings.agent_remove", { key: item().key })} /> : null}
-            <Switch accessibilityLabel={item().display_name} checked={item().enabled} disabled={busy()}
-              onChange={({ checked }) => void mutate("settings.agent_enable", { key: item().key, enabled: checked })}
-              trackClass={`w-11 rounded-full p-0.5 ${controlMotionClass}`}
-              thumbClass="size-5 rounded-full checked:translate-x-5"
-              trackStyle={{ backgroundColor: item().enabled ? props.theme.primary : props.theme.border }}
-              thumbStyle={{ backgroundColor: item().enabled ? props.theme.onPrimary : props.theme.background }}
+            <ToggleSwitch theme={props.theme} accessibilityLabel={item().display_name} checked={item().enabled} disabled={busy()}
+              onChange={(checked) => void mutate("settings.agent_enable", { key: item().key, enabled: checked })}
             />
           </View>
         )}
