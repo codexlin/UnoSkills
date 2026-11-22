@@ -34,7 +34,6 @@ export function ProjectVersionDialog(props: {
   }
 
   function applied(message: string) {
-    review.set(undefined);
     props.close();
     screen.refresh();
     screen.notify(message, "success");
@@ -42,8 +41,11 @@ export function ProjectVersionDialog(props: {
 
   function apply(plan: VersionReview) {
     return op.run(async () => {
-      review.set(undefined);
-      await request("project.apply_version", { preview_id: plan.id });
+      try {
+        await request("project.apply_version", { preview_id: plan.id });
+      } finally {
+        if (active) review.set(undefined);
+      }
     }, () => applied(t().versionApplied));
   }
 
@@ -65,26 +67,30 @@ export function ProjectVersionDialog(props: {
         </If>
       </View>
     }>
-      {(plan) => <>
-        <View style={{ ...actions, gap: 16 }}>
-          <Label theme={screen.theme} muted>{t().versionCurrent} {plan().current_hash.slice(0, 12)}</Label>
-          <Label theme={screen.theme}>{t().versionCandidate} {plan().candidate_hash.slice(0, 12)}</Label>
-        </View>
-        <If when={plan().files.length > 0} else={<Label theme={screen.theme}>{t().noVersionChanges}</Label>}>
-          <Scroll style={{ minHeight: 0, height: 300, flexShrink: 1 }} contentStyle={{ gap: 12, paddingRight: 8 }}>
-            <Each of={plan().files} key={(file) => file.path}>
-              {(file) => <View style={{ gap: 4, minWidth: 0 }}>
-                <Label theme={screen.theme} mono weight="600">{file().path}</Label>
-                <Label theme={screen.theme} muted>{file().kind === "added" ? t().versionAdded
-                  : file().kind === "removed" ? t().versionRemoved : t().versionModified}</Label>
-                <If when={file().diff}>
-                  {(diff) => <Label theme={screen.theme} mono>{diff()}</Label>}
-                </If>
-              </View>}
-            </Each>
-          </Scroll>
-        </If>
-      </>}
+      {(reviewed) => {
+        // A review is immutable for the lifetime of this conditional branch.
+        const plan = reviewed();
+        return <>
+          <View style={{ ...actions, gap: 16 }}>
+            <Label theme={screen.theme} muted>{t().versionCurrent} {plan.current_hash.slice(0, 12)}</Label>
+            <Label theme={screen.theme}>{t().versionCandidate} {plan.candidate_hash.slice(0, 12)}</Label>
+          </View>
+          <If when={plan.files.length > 0} else={<Label theme={screen.theme}>{t().noVersionChanges}</Label>}>
+            <Scroll style={{ minHeight: 0, height: 300, flexShrink: 1 }} contentStyle={{ gap: 12, paddingRight: 8 }}>
+              <Each of={plan.files} key={(file) => file.path}>
+                {(file) => <View style={{ gap: 4, minWidth: 0 }}>
+                  <Label theme={screen.theme} mono weight="600">{file().path}</Label>
+                  <Label theme={screen.theme} muted>{file().kind === "added" ? t().versionAdded
+                    : file().kind === "removed" ? t().versionRemoved : t().versionModified}</Label>
+                  <If when={file().diff}>
+                    {(diff) => <Label theme={screen.theme} mono>{diff()}</Label>}
+                  </If>
+                </View>}
+              </Each>
+            </Scroll>
+          </If>
+        </>;
+      }}
     </If>
     <Feedback theme={screen.theme} label={t().working} pending={op.busy()} error={op.error()} />
     <View style={{ ...actions, justifyContent: "flex-end" }}>
@@ -101,8 +107,11 @@ export function ProjectVersionDialog(props: {
           </If>
         </If>
       }>
-        {(plan) => <Action theme={screen.theme} label={plan().intent === "upgrade" ? t().applyUpgrade : t().applyFollow}
-          primary disabled={op.busy()} run={() => apply(plan())} />}
+        {(reviewed) => {
+          const plan = reviewed();
+          return <Action theme={screen.theme} label={plan.intent === "upgrade" ? t().applyUpgrade : t().applyFollow}
+            primary disabled={op.busy()} run={() => apply(plan)} />;
+        }}
       </If>
     </View>
   </Modal>;
