@@ -148,11 +148,15 @@ export function Modal(props: {
   label: string;
   open: boolean;
   width?: number;
+  closeOnEscape?: boolean;
+  closeOnBackdropPress?: boolean;
   onClose: () => void;
   children?: JSX.Element;
 }) {
   return (
     <Dialog open={props.open} animation={dialogAnimation()} accessibilityLabel={props.label}
+      closeOnEscape={props.closeOnEscape}
+      closeOnBackdropPress={props.closeOnBackdropPress}
       onOpenChange={({ open }) => { if (!open) props.onClose(); }}
       backdropStyle={{ backgroundColor: props.theme.modalBackdrop }}
       style={{ ...popupSurface(props.theme), margin: "auto", width: props.width ?? 440,

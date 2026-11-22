@@ -33,9 +33,22 @@ export type Module = {
   recommendations: Recommendation[];
 };
 export type Location = "project_deployment" | "project_changed" | "project_local" | "global";
-export type InventoryRow = { name: string; path: string; location: Location };
+export type InventoryRow = {
+  name: string; path: string; location: Location;
+  skill_id?: string | null; locked_hash?: string | null; library_different?: boolean | null;
+};
+export type VersionTarget = ProjectScope & { skill_id: string };
+export type VersionIntent = "upgrade" | "follow";
+export type VersionReview = {
+  id: string; skill_id: string; skill_name: string; intent: VersionIntent;
+  current_hash: string; candidate_hash: string;
+  files: { path: string; kind: "added" | "modified" | "removed"; diff: string | null }[];
+};
 export type Failure = [name: string, message: string];
 export type InstallResult = { installed: string[]; skipped_existing: string[]; failed: Failure[] };
+export type DeployOutcome = "keep_local" | "occupied" | "unsafe_path" | "other_source" |
+  "duplicate" | "already_present" | "register" | "ready" | "global_only" | "unavailable";
+export type DeployRow = { index: number; name: string; target: string | null; outcome: DeployOutcome };
 export type DeployStatus = {
   deployed: number;
   global_available: number;
@@ -43,10 +56,13 @@ export type DeployStatus = {
   pending: number;
   unavailable: number;
   conflicts: number;
+  rows: DeployRow[];
 };
-export type DeployResult = Omit<DeployStatus, "pending" | "conflicts"> & {
+export type DeployResult = Omit<DeployStatus, "pending" | "conflicts" | "rows"> & {
   already_deployed: number;
+  registered: number;
   failed: Failure[];
+  skipped: Failure[];
 };
 export type StackFormData = { name: string; description: string; author: string; tags: string[]; skill_ids: string[] };
 
@@ -60,6 +76,10 @@ type Commands = {
   "project.scan": [{ project_id: string }, Module[]];
   "project.scopes": [{ project_id: string }, string[]];
   "project.inventory": [ProjectScope, InventoryRow[]];
+  "project.lock_skill": [VersionTarget, null];
+  "project.prepare_version": [VersionTarget & { intent: VersionIntent }, VersionReview];
+  "project.apply_version": [{ preview_id: string }, null];
+  "project.cancel_version": [{ preview_id: string }, null];
   "project.save_recommendations": [{ project_id: string; scope_path: string; members: StackMember[] }, Stack];
   "stack.list": [null, { featured: Stack[]; local: Stack[] }];
   "stack.community": [null, Stack[]];
@@ -76,7 +96,7 @@ type Commands = {
   "stack.install": [StackRef, InstallResult];
   "stack.install_member": [StackRef & { member_source: string; member_name: string }, LibrarySkill];
   "stack.preview_deploy": [StackRef & ProjectScope, DeployStatus];
-  "stack.confirm_deploy": [StackRef & ProjectScope & { include_global: boolean }, DeployResult];
+  "stack.confirm_deploy": [StackRef & ProjectScope & { include_global: boolean; reviewed: DeployStatus }, DeployResult];
 };
 
 export function request<K extends keyof Commands>(command: K, args: Commands[K][0]): Promise<Commands[K][1]> {

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::domain::{ProjectWorkspace, Skill, StackManifest, StackSkillRef, StackSource};
+use crate::manager::project_versions::project_version_hash;
 use crate::manager::{
     StackProjectTarget, UnoSkillsManager, inspect_stack_project_target, scoped_project_skills_dir,
 };
@@ -86,6 +87,9 @@ pub struct ProjectSkill {
     pub name: String,
     pub path: PathBuf,
     pub location: SkillLocation,
+    pub skill_id: Option<String>,
+    pub locked_hash: Option<String>,
+    pub library_different: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -183,8 +187,13 @@ impl UnoSkillsManager {
                 skill
                     .project_deployments
                     .iter()
-                    .filter(|dep| dep.project_id == project.id && dep.agent_key == agent.key)
-                    .map(move |dep| (dep.target_path.as_path(), skill))
+                    .filter(|dep| {
+                        dep.project_id == project.id
+                            && dep.agent_key == agent.key
+                            && dep.scope_path == scope
+                            && dep.target_path.parent() == Some(local.as_path())
+                    })
+                    .map(move |dep| (dep.target_path.as_path(), (skill, dep)))
             })
             .collect::<BTreeMap<_, _>>();
         let mut inventory = Vec::new();
@@ -205,10 +214,11 @@ impl UnoSkillsManager {
                 let entry = entry?;
                 let path = entry.path();
                 if is_valid_skill_dir(&path) && seen.insert(path.clone()) {
+                    let deployment = project_scope.then(|| managed.get(path.as_path())).flatten();
                     let location = if !project_scope {
                         SkillLocation::Global
-                    } else if let Some(skill) = managed.get(path.as_path()) {
-                        match inspect_stack_project_target(skill, &project, &agent, &path) {
+                    } else if let Some((skill, _)) = deployment {
+                        match inspect_stack_project_target(skill, &project, &agent, scope, &path) {
                             StackProjectTarget::Deployed(_) => SkillLocation::ProjectDeployment,
                             _ => SkillLocation::ProjectChanged,
                         }
@@ -217,10 +227,30 @@ impl UnoSkillsManager {
                     };
                     inventory.push(ProjectSkill {
                         name: entry.file_name().to_string_lossy().into_owned(),
+                        skill_id: deployment.map(|(skill, _)| skill.id.clone()),
+                        locked_hash: deployment.and_then(|(_, dep)| dep.locked_hash.clone()),
+                        library_different: deployment.and_then(|(skill, dep)| {
+                            let hash = dep.locked_hash.as_ref()?;
+                            project_version_hash(&skill.central_path)
+                                .ok()
+                                .map(|current| &current != hash)
+                        }),
                         path,
                         location,
                     });
                 }
+            }
+        }
+        for (path, (skill, dep)) in managed {
+            if dep.locked_hash.is_some() && !seen.contains(path) {
+                inventory.push(ProjectSkill {
+                    name: skill.name.clone(),
+                    path: path.into(),
+                    location: SkillLocation::ProjectChanged,
+                    skill_id: Some(skill.id.clone()),
+                    locked_hash: dep.locked_hash.clone(),
+                    library_different: None,
+                });
             }
         }
         inventory

@@ -11,5 +11,9 @@ pub mod sync;
 pub mod updater;
 
 pub use domain::*;
-pub use manager::{PreparedSkillRevision, SkillRevisionPreview, UnoSkillsManager};
+pub use manager::{
+    PreparedProjectVersion, PreparedSkillRevision, ProjectDeployOutcome, ProjectDeployPreview,
+    ProjectDeployRow, ProjectVersionIntent, ProjectVersionReview, SkillRevisionPreview,
+    UnoSkillsManager,
+};
 pub use registry::CustomAgentRecord;

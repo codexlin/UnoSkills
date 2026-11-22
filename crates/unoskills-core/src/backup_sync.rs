@@ -358,9 +358,13 @@ impl UnoSkillsManager {
             if local == incoming {
                 result.skills_unchanged += 1;
                 result.conflicts.extend(
-                    backup_deployment_issues(&skill, &local)
-                        .into_iter()
-                        .map(deployment_issue),
+                    backup_deployment_issues(
+                        &skill,
+                        &local,
+                        &self.store.locked_project_target_paths()?,
+                    )
+                    .into_iter()
+                    .map(deployment_issue),
                 );
             } else {
                 ensure!(

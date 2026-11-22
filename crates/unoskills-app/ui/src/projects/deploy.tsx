@@ -1,4 +1,4 @@
-import { computed, Scroll, signal, View } from "nsh";
+import { computed, Scroll, signal, View, windowSize } from "nsh";
 import { Dialog } from "nsh/base";
 import { dialogAnimation, popupSurface } from "../components";
 import type { ScreenProps } from "../shared";
@@ -6,7 +6,7 @@ import { Action, Banner, Check, Choice, Feedback, Heading, Label, actions, row }
 import { load, operation } from "./state";
 import { attachProjectFromPicker, request, stackRef, type DeployResult, type InstallResult, type ProjectScope, type Stack } from "./host";
 import { Failures, InstallReport } from "./reports";
-import { deploymentConflicts, deploymentProgress, deploymentResult, deploymentUnavailable, strings } from "./strings";
+import { deploymentProgress, deploymentResult, deployOutcome, strings } from "./strings";
 
 export function StackDeploy(props: { screen: ScreenProps; stack: Stack; back: () => void }) {
   const screen = props.screen;
@@ -90,13 +90,16 @@ export function StackDeploy(props: { screen: ScreenProps; stack: Stack; back: ()
 
   function deploy() {
     const scope = target();
-    if (!scope || ready() === 0 || preview().pending) return;
-    const args = { ...stackRef(props.stack), ...scope, include_global: includeGlobal() };
+    const reviewed = preview().data;
+    if (!scope || !reviewed || ready() === 0 || preview().pending) return;
+    const args = { ...stackRef(props.stack), ...scope, reviewed, include_global: includeGlobal() };
     return op.run(() => request("stack.confirm_deploy", args), (deployed) => {
       if (deployed) {
         result.set(deployed);
         screen.refresh();
-        if (deployed.failed.length === 0) screen.notify(`${t().deployed} ${deployed.deployed}`, "success");
+        if (deployed.failed.length === 0 && deployed.skipped.length === 0) {
+          screen.notify(deploymentResult(screen.locale, deployed), "success");
+        }
       }
     });
   }
@@ -120,7 +123,7 @@ export function StackDeploy(props: { screen: ScreenProps; stack: Stack; back: ()
     onOpenChange={({ open }) => { if (!open && !op.busy()) props.back(); }}
     backdropStyle={{ backgroundColor: screen.theme.modalBackdrop }}
     style={{ alignItems: "center", justifyContent: "flex-start", paddingTop: 76, paddingHorizontal: 16, paddingBottom: 16 }}>
-    <View style={{ width: 464, maxWidth: "100%", maxHeight: "100%", gap: 8, padding: 16,
+    <View style={{ width: 532, maxWidth: "100%", minHeight: 0, gap: 8, padding: 16,
       ...popupSurface(screen.theme), borderRadius: screen.theme.panel.radius }}>
       <View style={row}>
         <View style={{ flex: 1, minWidth: 0 }}>
@@ -130,7 +133,7 @@ export function StackDeploy(props: { screen: ScreenProps; stack: Stack; back: ()
           <Action theme={screen.theme} label={t().close} iconOnly compact ghost glyph="x" run={props.back} />
         </If>
       </View>
-      <Scroll style={{ minWidth: 0, minHeight: 0, flexShrink: 1 }} contentStyle={{ gap: 12 }}>
+      <Scroll style={{ minWidth: 0, minHeight: 0, maxHeight: windowSize().height - 210 }} contentStyle={{ gap: 12 }}>
         <Label theme={screen.theme} label={props.stack.name} color={screen.theme.popup.foreground} weight="600" lines={1} />
         <View style={row}>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -201,27 +204,35 @@ export function StackDeploy(props: { screen: ScreenProps; stack: Stack; back: ()
               run={() => { result.set(undefined); reload.update((value) => value + 1); }} />
           </View>
         </If>
+        <If when={installed()}>{(summary) => <InstallReport screen={screen} result={summary()} />}</If>
+        <If when={result()}>
+          {(summary) => <View style={{ gap: 4 }}>
+            <Banner theme={screen.theme} label={deploymentResult(screen.locale, summary())}
+              tone={summary().failed.length > 0 ? "error" : summary().skipped.length > 0 ? "warning" : "success"} />
+            <Failures screen={screen} failures={summary().failed.map(([name, error]) =>
+              [name, error.includes("TARGET_CONFLICT") ? t().targetConflict : error])} />
+            <Each of={summary().skipped}>
+              {(item) => <Label theme={screen.theme} label={`${item()[0]} · ${t().deployChanged}`} />}
+            </Each>
+          </View>}
+        </If>
         <If when={status()}>{(checked) => <>
           <If when={checked().global_available > 0}>
             <Check theme={screen.theme} label={t().includeGlobal} checked={includeGlobal()}
               disabled={op.busy()} update={includeGlobal.set} />
           </If>
-          <If when={checked().unavailable > 0}>
-            <Banner theme={screen.theme} label={deploymentUnavailable(screen.locale, checked().unavailable)} tone="warning" />
-          </If>
-          <If when={checked().conflicts > 0}>
-            <Banner theme={screen.theme} label={deploymentConflicts(screen.locale, checked().conflicts)} tone="warning" />
-          </If>
+          <View>
+            <Each of={checked().rows} key={(item) => String(item.index)}>
+              {(item) => <View style={{ gap: 2, paddingVertical: 8, borderTopWidth: 1, borderColor: screen.theme.border }}>
+                <Label theme={screen.theme} label={item().name} weight="600" />
+                <If when={item().target}>
+                  {(path) => <Label theme={screen.theme} label={path()} title={path()} muted lines={1} />}
+                </If>
+                <Label theme={screen.theme} label={deployOutcome(screen.locale, item().outcome, includeGlobal())} />
+              </View>}
+            </Each>
+          </View>
         </>}</If>
-        <If when={installed()}>{(summary) => <InstallReport screen={screen} result={summary()} />}</If>
-        <If when={result()}>
-          {(summary) => <View style={{ gap: 4 }}>
-            <Banner theme={screen.theme} label={deploymentResult(screen.locale, summary())}
-              tone={summary().failed.length === 0 ? "success" : "error"} />
-            <Failures screen={screen} failures={summary().failed.map(([name, error]) =>
-              [name, error.includes("TARGET_CONFLICT") ? t().targetConflict : error])} />
-          </View>}
-        </If>
       </Scroll>
       <View style={{ ...actions, justifyContent: "flex-end" }}>
         <If when={missing()}>

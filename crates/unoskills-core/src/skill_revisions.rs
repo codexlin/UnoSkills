@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use uuid::Uuid;
 
+use super::project_versions::{paths_overlap, physical_target_path};
 use super::{UnoSkillsManager, safe_scoped_target};
 use crate::domain::{
     DeployMode, DeploymentImpact, DeploymentImpactKind, Skill, SkillUpdateResult, SourceType,
@@ -257,7 +258,12 @@ impl UnoSkillsManager {
                 && revision_hash(&candidate)? == candidate_hash,
             "STALE_SKILL_REVISION: The skill changed while preparing the file list."
         );
-        let targets = planned_targets(&skill, &base_hash, &candidate_hash);
+        let targets = planned_targets(
+            &skill,
+            &base_hash,
+            &candidate_hash,
+            &self.store.locked_project_target_paths()?,
+        );
         Ok(Some(PreparedSkillRevision {
             preview: SkillRevisionPreview {
                 id: Uuid::new_v4().to_string(),
@@ -280,7 +286,7 @@ impl UnoSkillsManager {
         }))
     }
 
-    fn check_library_path(&self, skill: &Skill) -> Result<()> {
+    pub(super) fn check_library_path(&self, skill: &Skill) -> Result<()> {
         ensure!(
             sanitize_slug(&skill.slug).as_deref() == Some(&skill.slug)
                 && self.skills_dir.join(&skill.slug).canonicalize()?
@@ -309,8 +315,12 @@ impl UnoSkillsManager {
                 && skill.source_subpath == prepared.previous_source_subpath
                 && revision_hash(&skill.central_path)? == prepared.base_hash
                 && revision_hash(&candidate)? == prepared.candidate_hash
-                && planned_targets(&skill, &prepared.base_hash, &prepared.candidate_hash)
-                    == prepared.targets
+                && planned_targets(
+                    &skill,
+                    &prepared.base_hash,
+                    &prepared.candidate_hash,
+                    &self.store.locked_project_target_paths()?
+                ) == prepared.targets
                 && (!prepared.preview.rollback
                     || revision_hash(&self.previous_revision_path(&skill.id))?
                         == prepared.candidate_hash),
@@ -459,8 +469,12 @@ impl UnoSkillsManager {
     }
 }
 
-pub(super) fn backup_deployment_issues(skill: &Skill, hash: &str) -> Vec<DeploymentImpact> {
-    planned_targets(skill, hash, hash)
+pub(super) fn backup_deployment_issues(
+    skill: &Skill,
+    hash: &str,
+    locked_paths: &[PathBuf],
+) -> Vec<DeploymentImpact> {
+    planned_targets(skill, hash, hash, locked_paths)
         .into_iter()
         .map(|target| target.impact)
         .filter(|impact| {
@@ -548,9 +562,29 @@ fn compare_files(current: &Path, candidate: &Path) -> Result<Vec<SkillFileChange
         .collect())
 }
 
-fn planned_targets(skill: &Skill, base_hash: &str, candidate_hash: &str) -> Vec<PlannedTarget> {
+fn planned_targets(
+    skill: &Skill,
+    base_hash: &str,
+    candidate_hash: &str,
+    locked_paths: &[PathBuf],
+) -> Vec<PlannedTarget> {
+    let locked = |path: &Path| {
+        if locked_paths.is_empty() {
+            return false;
+        }
+        let physical = physical_target_path(path);
+        locked_paths.iter().any(|target| {
+            paths_overlap(target, path)
+                || physical
+                    .as_deref()
+                    .is_some_and(|path| paths_overlap(target, path))
+        })
+    };
     let mut records: BTreeMap<&Path, Vec<TargetRecord<'_>>> = BTreeMap::new();
     for dep in &skill.deployments {
+        if locked(&dep.target_path) {
+            continue;
+        }
         records
             .entry(&dep.target_path)
             .or_default()
@@ -562,6 +596,9 @@ fn planned_targets(skill: &Skill, base_hash: &str, candidate_hash: &str) -> Vec<
             });
     }
     for dep in &skill.project_deployments {
+        if locked(&dep.target_path) {
+            continue;
+        }
         records
             .entry(&dep.target_path)
             .or_default()

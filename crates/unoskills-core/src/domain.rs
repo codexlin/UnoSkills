@@ -112,11 +112,20 @@ pub struct Skill {
     pub deployments: Vec<Deployment>,
     #[serde(default)]
     pub project_deployments: Vec<ProjectDeployment>,
+    #[serde(skip)]
+    pub(crate) project_locks: Vec<ProjectSkillLock>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 impl Skill {
+    pub(crate) fn project_lock(&self, project_id: &str, scope: &Path) -> Option<&str> {
+        self.project_locks
+            .iter()
+            .find(|lock| lock.project_id == project_id && lock.scope_path == scope)
+            .map(|lock| lock.hash.as_str())
+    }
+
     pub fn is_deployed_to(&self, agent_key: &str) -> bool {
         self.deployments.iter().any(|d| d.agent_key == agent_key)
     }
@@ -150,6 +159,13 @@ pub struct ProjectWorkspace {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ProjectSkillLock {
+    pub project_id: String,
+    pub scope_path: PathBuf,
+    pub hash: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectDeployment {
     pub id: String,
@@ -162,6 +178,10 @@ pub struct ProjectDeployment {
     pub mode: DeployMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked_hash: Option<String>,
+    #[serde(skip)]
+    pub(crate) follow_mode: Option<DeployMode>,
     pub synced_at: i64,
 }
 
@@ -261,7 +281,7 @@ impl StackSkillRef {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct StackProjectDeployStatus {
     pub deployed: usize,
     pub global_available: usize,
@@ -282,14 +302,16 @@ impl StackProjectDeployStatus {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct StackProjectDeploySummary {
     pub deployed: usize,
+    pub registered: usize,
     pub already_deployed: usize,
     pub global_available: usize,
     pub project_local: usize,
     pub unavailable: usize,
     pub failed: Vec<(String, String)>,
+    pub skipped: Vec<(String, String)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
