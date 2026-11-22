@@ -36,4 +36,4 @@ nsh build crates/unoskills-app/ui --release
 nsh test crates/unoskills-app/ui
 ```
 
-Use the NSH 0.6.1 CLI for the last three commands. Desktop UI changes should include evidence from the affected workflows in the native app. Use temporary libraries for tests that deploy or edit files. [Engineering rules](AGENTS.md) · [Project structure and verification](docs/ARCHITECTURE.md)
+Use the NSH 0.6.1 CLI for the last three commands. For desktop changes, follow the shared component and token rules and verify affected workflows in the native app. Use temporary libraries for tests that deploy or edit files. [Desktop design standards](DESIGN.md) · [Engineering rules](AGENTS.md) · [Project structure and verification](docs/ARCHITECTURE.md)

@@ -129,6 +129,7 @@ nsh test crates/unoskills-app/ui
 桌面端基于 Native Shell（NSH），技能库和部署逻辑由 Rust 核心实现，桌面端与 CLI 共用同一套核心逻辑。
 
 - [架构](docs/ARCHITECTURE.md)
+- [桌面设计规范](DESIGN.md)
 - [技能组合格式](docs/STACKS_SPEC.md)
 - [路线图](docs/ROADMAP.md)
 - [贡献指南](CONTRIBUTING.md)及[工程规范](AGENTS.md)
