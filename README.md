@@ -129,6 +129,7 @@ nsh test crates/unoskills-app/ui
 The workspace uses Native Shell (NSH) for the desktop app, a shared Rust core for the library and safe deployment, and a thin CLI.
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Desktop design standards](DESIGN.md)
 - [Skill stack format](docs/STACKS_SPEC.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Contributing](CONTRIBUTING.md) and [engineering guidelines](AGENTS.md)

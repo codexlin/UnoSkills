@@ -52,9 +52,11 @@ unoskills-app (NSH TSX + Rust host)   unoskills-cli (clap + --json)
 
 ## 3. Desktop UI
 
+- Follow [DESIGN.md](DESIGN.md) for the maintained desktop design system and component states.
 - **Must** use the shared theme tokens for Light, Dark, and System appearance and support keyboard focus, selection, disabled, loading, errors, and destructive actions.
+- **Must** use the active preset's color pairs in both TSX and the native theme. Keep preset colors in `ui/themes/` and apply common state styles across presets.
 - **Must** prefer documented NSH base controls for input, selection, dialogs, progress and buttons. Supply accessible names, meaningful focus targets, and keyboard shortcuts.
-- **Should** compose shared controls from `ui/src/components/`. Add reusable sizes, variants and interaction styles to the component that owns them. Use NSH Tabs for tab activation, focus, and the moving indicator.
+- **Should** compose shared controls from `ui/src/components/`. Add reusable sizes, variants and interaction styles to the component that owns them. Use `ToggleSwitch` and `CheckControl` for binary controls and NSH Tabs for tab activation, focus, and the moving indicator.
 - **Should** use `Label` for plain text and `textStyle` for customized NSH `Text`, `TextView`, `Editor`, and `Input`. Size supporting labels relative to the base size with `textSize`. Reserve enough height for the text and its font fallback at the largest supported size. Follow the [NSH v0.6.1 text guide](https://github.com/longbridge/nsh/blob/v0.6.1/website/zh-CN/docs/text.md).
 - **Must** get navigation colors from the preset. The current page uses the primary color and its paired foreground. Hover on an unselected item uses the relevant accent. Keep the keyboard focus outline visible around selected items.
 - **Should** use a compact, consistent spacing and type scale. Put path and label text in a shrinking column so actions remain visible on narrow windows.
