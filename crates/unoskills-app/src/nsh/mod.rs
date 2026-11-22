@@ -150,8 +150,11 @@ fn home(manager: &UnoSkillsManager, command: &str) -> Result<Value> {
             let mut recent = skills.iter().collect::<Vec<_>>();
             recent.sort_by_key(|skill| std::cmp::Reverse(skill.created_at));
             let mut projects = manager.list_projects()?;
+            let project_count = projects.len();
             projects.sort_by_key(|project| std::cmp::Reverse(project.created_at));
             projects.truncate(2);
+            let agents = manager.list_agents()?;
+            let detected = agents.iter().filter(|agent| agent.installed);
             let deployed = skills
                 .iter()
                 .filter(|skill| {
@@ -162,6 +165,9 @@ fn home(manager: &UnoSkillsManager, command: &str) -> Result<Value> {
             Ok(json!({
                 "skill_count": skills.len(),
                 "deployed_count": deployed,
+                "project_count": project_count,
+                "agent_count": detected.clone().count(),
+                "enabled_agent_count": detected.filter(|agent| agent.enabled).count(),
                 "adoptable_count": adoptable,
                 "recent": recent.iter().take(3).map(|skill| json!({
                     "id": skill.id,
@@ -177,7 +183,7 @@ fn home(manager: &UnoSkillsManager, command: &str) -> Result<Value> {
             Ok(json!(
                 page.items
                     .iter()
-                    .take(3)
+                    .take(6)
                     .map(|skill| json!({
                         "id": skill.id,
                         "name": skill.name,

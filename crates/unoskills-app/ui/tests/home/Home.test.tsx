@@ -10,7 +10,7 @@ const release = {
   checksums_asset: { name: "SHA256SUMS.txt", size: 252 },
 };
 const summary = {
-  skill_count: 3, deployed_count: 1, adoptable_count: 0,
+  skill_count: 3, deployed_count: 1, agent_count: 3, enabled_agent_count: 2, project_count: 4, adoptable_count: 0,
   recent: [{ id: "fixture", name: "Recent fixture", date: "2026-11-21" }],
   projects: [{ id: "project", name: "Project fixture", path: "/tmp/project" }],
 };
@@ -35,19 +35,26 @@ function openHome(
   });
 }
 
-test("Home keeps project and skill actions ahead of discovery in a narrow window", async () => {
+const rankedSkills = ["Trending fixture", "Second fixture", "Third fixture", "Fourth fixture", "Fifth fixture", "Sixth fixture"]
+  .map((name, index) => ({
+    id: name, name, source: "owner/repo", installs: 1200 - index,
+    url: "https://skills.sh/owner/repo/fixture",
+  }));
+
+test("Home keeps status shortcuts and work above the expandable list in a narrow window", async () => {
   const app = await openHome((command) => ({
     ok: true,
-    value: command === "home.market" ? [{
-      id: "trending", name: "Trending fixture", source: "owner/repo", installs: 1200,
-      url: "https://skills.sh/owner/repo/fixture",
-    }] : { available: null },
+    value: command === "home.market" ? rankedSkills : { available: null },
   }), { width: 960, height: 620 });
   const counts = "3 in library · 1 with deployment records";
 
   await app.waitFor(`text:${counts}`);
   await app.waitFor("text:Trending fixture");
   const texts = app.texts();
+  expect(texts.indexOf(t.home_agents)).toBeLessThan(texts.indexOf(t.home_projects));
+  expect(app.shows(`label:${t.home_agents} · 3 detected · 2 enabled`)).toBe(true);
+  expect(app.shows(`label:${t.home_linked_projects} · 4`)).toBe(true);
+  expect(app.shows(`text:${t.home_adoptable_skills}`)).toBe(false);
   expect(texts.indexOf(t.home_projects)).toBeLessThan(texts.indexOf(counts));
   expect(texts.indexOf(counts)).toBeLessThan(texts.indexOf(t.home_market_trending));
   expect(app.shows("role:button[Project fixture]")).toBe(true);
@@ -59,26 +66,30 @@ test("Home keeps project and skill actions ahead of discovery in a narrow window
   expect(app.shows(`label:${t.tab_my_stacks}`)).toBe(true);
   expect(app.shows(`role:tab[${t.board_all_time}]`)).toBe(false);
   expect(app.shows("text:Added in the last 7 days")).toBe(false);
+  expect(app.shows("text:Third fixture")).toBe(true);
+  expect(app.shows("text:Fourth fixture")).toBe(false);
+  await app.press(`label:${t.home_market_show_more}`);
+  await app.waitFor("text:Sixth fixture");
+  await app.press(`label:${t.home_market_show_less}`);
+  expect(app.shows("text:Fourth fixture")).toBe(false);
 });
 
 test("returning to Home keeps the loaded discovery preview", async () => {
-  const entries = ["First fixture", "Second fixture", "Third fixture"].map((name) => ({
-    id: name, name, source: "owner/repo", installs: 1200, url: null,
-  }));
   let requests = 0;
   const app = await openHome((command) => {
     if (command === "home.market") {
       requests += 1;
-      return { ok: true, value: entries };
+      return { ok: true, value: rankedSkills };
     }
     return { ok: true, value: command === "update.check" ? { available: null } : [] };
   });
 
-  await app.waitFor("text:Third fixture");
+  await app.waitFor("text:Sixth fixture");
+  expect(app.shows(`label:${t.home_market_show_more}`)).toBe(false);
   expect(app.shows("id:home-ranking-skeleton")).toBe(false);
   await app.press(`label:${t.nav_settings}`);
   await app.press(`label:${t.nav_home}`);
-  expect(app.shows("text:Third fixture")).toBe(true);
+  expect(app.shows("text:Sixth fixture")).toBe(true);
   expect(requests).toBe(1);
 });
 
@@ -89,12 +100,12 @@ test("the empty library offers the first install even when discovery is offline"
     if (command === "discover.leaderboard") return { ok: true, value: { items: [], has_more: false } };
     if (command === "discover.scan_adoptable") return { ok: true, value: { candidates: [] } };
     return { ok: true, value: command === "update.check" ? { available: null } : [] };
-  }, { data: { skill_count: 0, deployed_count: 0, adoptable_count: 2, projects: [], recent: [] } });
+  }, { data: { ...summary, skill_count: 0, deployed_count: 0, project_count: 0, adoptable_count: 2, projects: [], recent: [] } });
 
   await app.waitFor(`text:${t.home_first_skill}`);
   await app.waitFor(`text:${t.home_market_unavailable}`);
   expect(app.shows(`label:${t.home_browse_stacks}`)).toBe(true);
-  expect(app.shows(`label:${t.home_adopt_count.replace("{count}", "2")}`)).toBe(true);
+  expect(app.shows(`label:${t.home_adoptable_skills} · 2`)).toBe(true);
   expect(app.shows(`text:${t.home_recent}`)).toBe(false);
   await app.press(`label:${t.btn_install_from_link}`);
   await app.waitFor(`text:${getStrings("en").quick_install_title}`);

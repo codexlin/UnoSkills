@@ -45,7 +45,7 @@ async function openFixture() {
           case "settings.get": return ok({ ...defaults, language: "en" });
           case "update.check": return ok({ available: null });
           case "home.summary": return ok({
-            skill_count: 0, deployed_count: 0, adoptable_count: 0, projects: [project], recent: [],
+            skill_count: 0, deployed_count: 0, agent_count: 0, enabled_agent_count: 0, project_count: 1, adoptable_count: 0, projects: [project], recent: [],
           });
           case "home.market":
           case "stack.library": return ok([]);

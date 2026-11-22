@@ -28,7 +28,7 @@ async function openEditor() {
               return { ok: true, value: { available: null } };
             case "home.summary":
               return { ok: true, value: {
-                skill_count: 0, deployed_count: 0, adoptable_count: 0,
+                skill_count: 0, deployed_count: 0, agent_count: 0, enabled_agent_count: 0, project_count: 0, adoptable_count: 0,
                 projects: [], recent: [],
               } };
             case "stack.list":
