@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::project_versions::{project_version_hash, rename_without_replacing};
 use super::{
     StackProjectTarget, UnoSkillsManager, inspect_stack_project_target, is_globally_available,
-    project_scope_directory, project_skills_dir, scoped_project_skills_dir,
+    project_scope_directory, project_scope_key, project_skills_dir, scoped_project_skills_dir,
 };
 use crate::domain::{
     DeployMode, StackManifest, StackProjectDeployStatus, StackProjectDeploySummary,
@@ -158,7 +158,7 @@ impl UnoSkillsManager {
     ) -> Result<ProjectDeployPreview> {
         let (project, agent) = self.stack_deploy_destination(project_id, agent_key)?;
         let scope_root = project_scope_directory(&project, scope)?;
-        let scope: PathBuf = scope.components().collect();
+        let scope = project_scope_key(scope);
         let directory = scoped_project_skills_dir(&project, &scope, &agent);
         let directories = match &directory {
             Ok(path) => path
@@ -320,7 +320,7 @@ impl UnoSkillsManager {
         include_global: bool,
     ) -> Result<StackProjectDeploySummary> {
         let _lock = self.lock_skills()?;
-        let scope: PathBuf = scope.components().collect();
+        let scope = project_scope_key(scope);
         let scope = scope.as_path();
         ensure!(
             reviewed.stack_id == stack.id

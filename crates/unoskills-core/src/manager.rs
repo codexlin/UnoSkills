@@ -104,6 +104,18 @@ pub(crate) fn project_scope_directory(project: &ProjectWorkspace, scope: &Path) 
     Ok(path)
 }
 
+// Keep scope keys stable across the filesystem, SQLite and the desktop API.
+fn project_scope_key(scope: &Path) -> PathBuf {
+    let mut key = std::ffi::OsString::new();
+    for component in scope.components() {
+        if !key.is_empty() {
+            key.push("/");
+        }
+        key.push(component.as_os_str());
+    }
+    key.into()
+}
+
 pub(crate) fn scoped_project_skills_dir(
     project: &ProjectWorkspace,
     scope: &Path,
@@ -977,9 +989,9 @@ impl UnoSkillsManager {
             .find(|a| a.key == agent_key)
             .with_context(|| format!("Unknown agent '{agent_key}'"))?;
 
-        let scope: PathBuf = scope.components().collect();
-        let scope = scope.as_path();
         let target_path = scoped_project_skills_dir(&project, scope, agent)?.join(&skill.slug);
+        let scope = project_scope_key(scope);
+        let scope = scope.as_path();
         let locked =
             self.project_deploy_snapshot(&skill, &project.id, scope, agent_key, &target_path)?;
         let source = locked
@@ -1690,7 +1702,7 @@ impl UnoSkillsManager {
         let _lock = self.lock_skills()?;
         let (project, agent) = self.stack_deploy_destination(project_id, agent_key)?;
         let directory = scoped_project_skills_dir(&project, scope, &agent)?;
-        let scope: PathBuf = scope.components().collect();
+        let scope = project_scope_key(scope);
         let skills = self.list_skills()?;
         let mut completed = HashSet::new();
         let mut summary = StackProjectDeploySummary::default();

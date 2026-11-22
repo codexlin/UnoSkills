@@ -809,6 +809,13 @@ fn migrate(conn: &mut Connection) -> Result<()> {
             PRIMARY KEY(project_id, scope_path, skill_id)
         );",
     )?;
+    #[cfg(windows)]
+    transaction.execute_batch(
+        "UPDATE project_deployments SET scope_path = REPLACE(scope_path, char(92), '/')
+         WHERE INSTR(scope_path, char(92)) > 0;
+         UPDATE project_skill_locks SET scope_path = REPLACE(scope_path, char(92), '/')
+         WHERE INSTR(scope_path, char(92)) > 0;",
+    )?;
     let has_locked_hash: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_deployments') WHERE name = 'locked_hash')",
         [],
