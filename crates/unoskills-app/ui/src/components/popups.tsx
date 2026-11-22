@@ -155,12 +155,10 @@ export function Modal(props: {
     <Dialog open={props.open} animation={dialogAnimation()} accessibilityLabel={props.label}
       onOpenChange={({ open }) => { if (!open) props.onClose(); }}
       backdropStyle={{ backgroundColor: props.theme.modalBackdrop }}
-      style={{ alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <View style={{ width: props.width ?? 440, maxWidth: "100%", gap: 16,
-        ...popupSurface(props.theme), padding: 20, borderRadius: props.theme.panel.radius }}>
-        <Label theme={props.theme} heading size={20} color={props.theme.popup.foreground}>{props.label}</Label>
-        {props.children}
-      </View>
+      style={{ ...popupSurface(props.theme), margin: "auto", width: props.width ?? 440,
+        maxWidth: "92%", maxHeight: "92%", gap: 16, padding: 20, borderRadius: props.theme.panel.radius }}>
+      <Label theme={props.theme} heading size={20} color={props.theme.popup.foreground}>{props.label}</Label>
+      {props.children}
     </Dialog>
   );
 }
