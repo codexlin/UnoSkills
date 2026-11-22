@@ -479,6 +479,8 @@ fn build_git_command(sync_dir: &Path, opts: &GitBackupOpts<'_>, args: &[&str]) -
     let mut cmd = Command::new("git");
     cmd.current_dir(sync_dir)
         .args(["--git-dir=.git", "--work-tree=."])
+        // Library fingerprints and restores must not depend on the host's Git EOL defaults.
+        .args(["-c", "core.autocrlf=false", "-c", "core.eol=lf"])
         .env("GIT_TERMINAL_PROMPT", "0");
     for local in [
         "GIT_DIR",

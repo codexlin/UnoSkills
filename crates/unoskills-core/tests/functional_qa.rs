@@ -1998,6 +1998,67 @@ fn backup_does_not_recreate_a_branch_deleted_between_fetch_and_push() {
 }
 
 #[test]
+fn backup_preserves_lf_and_crlf_with_git_line_ending_defaults_enabled() {
+    let tmp = tempfile::tempdir().unwrap();
+    fixture_git(tmp.path(), &["init", "--bare", "remote.git"]);
+    let remote = tmp.path().join("remote.git");
+    let url = remote.to_str().unwrap();
+    let first = UnoSkillsManager::open_at(tmp.path().join("first")).unwrap();
+    let second = UnoSkillsManager::open_at(tmp.path().join("second")).unwrap();
+    for manager in [&first, &second] {
+        assert_eq!(
+            manager
+                .git_backup_pull_from(url, "main")
+                .unwrap()
+                .skills_imported,
+            0
+        );
+        let mirror = std::fs::read_dir(manager.root_dir().join("backup-mirrors"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        fixture_git(&mirror, &["config", "core.autocrlf", "true"]);
+        fixture_git(&mirror, &["config", "core.eol", "crlf"]);
+    }
+
+    let source = tmp.path().join("fixture");
+    create_skill_dir(&source, "Fixture", "Backup line endings", &[]);
+    let marker = std::fs::read_to_string(source.join("SKILL.md")).unwrap();
+    let crlf_file = "First line\r\nSecond line\r\n";
+    std::fs::write(source.join("extra.txt"), crlf_file).unwrap();
+    first.install_from_ref(source.to_str().unwrap()).unwrap();
+    assert!(first.git_backup_push().unwrap().pushed);
+    assert_eq!(
+        fixture_git(
+            &remote,
+            &["show", "refs/heads/main:skills/fixture/SKILL.md"]
+        ),
+        marker
+    );
+    assert_eq!(
+        fixture_git(
+            &remote,
+            &["show", "refs/heads/main:skills/fixture/extra.txt"]
+        ),
+        crlf_file
+    );
+
+    assert_eq!(second.git_backup_pull().unwrap().skills_imported, 1);
+    let restored = second.find_skill("fixture").unwrap().unwrap().central_path;
+    assert_eq!(
+        std::fs::read_to_string(restored.join("SKILL.md")).unwrap(),
+        marker
+    );
+    assert_eq!(
+        std::fs::read_to_string(restored.join("extra.txt")).unwrap(),
+        crlf_file
+    );
+    assert!(!second.git_backup_push().unwrap().pushed);
+}
+
+#[test]
 fn backup_retains_previous_git_exports_of_now_excluded_files() {
     let tmp = tempfile::tempdir().unwrap();
     fixture_git(tmp.path(), &["init", "--bare", "remote.git"]);
