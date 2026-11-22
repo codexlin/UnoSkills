@@ -1,6 +1,12 @@
 import { expect, open, test } from "nsh/test";
 import { strings } from "../../src/i18n";
 import { defaults, makeTheme } from "../../src/theme";
+import catppuccin from "../../themes/catppuccin.json";
+import claude from "../../themes/claude.json";
+import ocean from "../../themes/ocean.json";
+import supabase from "../../themes/supabase.json";
+import unoskills from "../../themes/unoskills.json";
+import vercel from "../../themes/vercel.json";
 
 test("settings exposes deploy mode, appearance and text size as direct choices", async () => {
   const writes: unknown[] = [];
@@ -44,18 +50,18 @@ test("settings exposes deploy mode, appearance and text size as direct choices",
   ]);
 });
 
-test("navigation uses the current palette and a long font list remains searchable", async () => {
+test("navigation follows appearance and palette changes and a long font list remains searchable", async () => {
   const t = strings.en;
   const font = "Fixture Narrow Mono";
   const writes: unknown[] = [];
   const app = await open("../../App.tsx", {
-    width: 1240, height: 780, platform: "linux",
+    width: 1240, height: 780, platform: "linux", colorScheme: "light",
     host: { handlers: {
       "unoskills.command": (raw: unknown) => {
         const { command, input } = raw as { command: string; input: unknown };
         switch (command) {
           case "settings.get":
-            return { ok: true, value: { ...defaults, language: "en", theme: "light" } };
+            return { ok: true, value: { ...defaults, language: "en" } };
           case "settings.fonts":
             return { ok: true, value: [...Array.from({ length: 80 }, (_, i) => `Fixture Font ${i}`), font] };
           case "settings.preference":
@@ -81,6 +87,13 @@ test("navigation uses the current palette and a long font list remains searchabl
   expect(app.viewStyle(shell)?.backgroundColor).toBe("#fdfbf7ff");
   expect(app.viewStyle(settings)?.backgroundColor).toBe("#b45309ff");
   expect(app.viewStyle(appearance)?.backgroundColor).toBe("#b45309ff");
+  await app.setColorScheme("dark");
+  await app.waitUntil(() => app.viewStyle(shell)?.backgroundColor === "#1c1917ff");
+  expect(app.viewStyle(settings)?.backgroundColor).toBe("#f97316ff");
+  expect(app.spanStyle(`${settings} >> text:${t.nav_settings}`).color).toBe("#ffffffff");
+  await app.setColorScheme("light");
+  await app.waitUntil(() => app.viewStyle(shell)?.backgroundColor === "#fdfbf7ff");
+
   await app.press(`label:${t.theme_dark}`);
   await app.waitUntil(() => app.viewStyle(shell)?.backgroundColor === "#1c1917ff");
   expect(app.viewStyle(settings)?.backgroundColor).toBe("#f97316ff");
@@ -100,10 +113,13 @@ test("navigation uses the current palette and a long font list remains searchabl
   await app.press(`label:${t.settings_accent_palette}`);
   await app.press("text:Claude");
   await app.waitUntil(() => app.viewStyle(shell)?.backgroundColor === "#faf9f5ff");
+  expect(app.spanStyle(`text:${t.settings_accent_palette}`).color).toBe("#141413ff");
   await app.hover(library);
   expect(app.viewStyle(library)?.backgroundColor).toBe("#e9e6dcff");
   await app.hover(settings);
   expect(app.viewStyle(settings)?.backgroundColor).toBe("#c96442ff");
+  expect(app.spanStyle(`${settings} >> text:${t.nav_settings}`).color).toBe("#ffffffff");
+  expect(app.spanStyle(`${appearance} >> text:${t.settings_appearance_tab}`).color).toBe("#ffffffff");
 
   const fontChoice = `role:combobox[${t.settings_ui_font}]`;
   await app.press(fontChoice);
@@ -122,6 +138,10 @@ test("navigation uses the current palette and a long font list remains searchabl
   expect(app.viewStyle(automatic)?.backgroundColor).toBe("#e9e6dcff");
   await app.type(`label:${t.search_fonts}`, "Narrow Mono");
   await app.press(`text:${font}`);
+  await app.press(`role:button[${t.settings_agents_registry}]`);
+  await app.press(`role:button[${t.settings_add_custom_agent}]`);
+  expect(app.spanStyle(`role:dialog[${t.settings_add_custom_agent}] >> text:${t.settings_add_custom_agent}`).color)
+    .toBe("#28261bff");
   expect(writes).toEqual([
     { key: "theme", value: "dark" }, { key: "theme", value: "light" },
     { key: "accent_palette", value: "claude" }, { key: "ui_font", value: font },
@@ -152,4 +172,34 @@ test("each theme supplies its own fonts, layered radii and shadows with explicit
   const custom = makeTheme({ ...defaults, theme: "light", corner_radius: "0", ui_font: "Custom UI", mono_font: "Custom Mono" });
   expect([custom.control.radius, custom.panel.radius]).toEqual([0, 0]);
   expect([custom.fontFamily, custom.monoFamily]).toEqual(["Custom UI", "Custom Mono"]);
+});
+
+test("every preset preserves its light and dark color pairs", () => {
+  const presets = { catppuccin, claude, ocean, supabase, unoskills, vercel };
+  for (const [accent_palette, { cssVars }] of Object.entries(presets)) {
+    for (const scheme of ["light", "dark"] as const) {
+      const colors = cssVars[scheme];
+      const theme = makeTheme({ ...defaults, accent_palette, theme: scheme });
+      expect([theme.surface, theme.panel.foreground]).toEqual([colors.card, colors["card-foreground"]]);
+      expect([theme.popup.background, theme.popup.foreground]).toEqual([colors.popover, colors["popover-foreground"]]);
+      expect(theme.chrome?.hover).toBe(colors.muted);
+      expect([theme.primary, theme.onPrimary, theme.accent, theme.onAccent]).toEqual([
+        colors.primary, colors["primary-foreground"], colors.accent, colors["accent-foreground"],
+      ]);
+      expect(theme.secondary).toEqual({
+        background: colors.secondary, foreground: colors["secondary-foreground"],
+      });
+      expect(theme.destructive).toEqual({
+        background: colors.destructive, foreground: colors["destructive-foreground"],
+      });
+      expect(theme.sidebar?.onAccent).toBe(colors["sidebar-accent-foreground"]);
+      expect(theme.switch).toEqual(scheme === "dark" ? {
+        offTrack: `color-mix(in oklab, ${colors.input} 80%, transparent)`,
+        offThumb: colors.foreground,
+        onThumb: colors["primary-foreground"],
+      } : {
+        offTrack: colors.input, offThumb: colors.background, onThumb: colors.background,
+      });
+    }
+  }
 });

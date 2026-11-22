@@ -1,6 +1,5 @@
 import { type InputRef, List, type ListRef, Text, View } from "nsh";
-import { Checkbox } from "nsh/base";
-import { ActionControl, AlertBanner, Icon, Label, LoadingLine, controlMotionClass, focusOutline, interactionStyles, textSize, textStyle } from "../components";
+import { ActionControl, AlertBanner, CheckControl, Icon, Label, LoadingLine, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, TokenBadge, hintTooltip } from "./controls";
 import { type Locale, adoptSelectedCount, busyAdoptingAll, getStrings, labelWithCount } from "./strings";
@@ -101,7 +100,8 @@ export function AdoptTab(props: {
                         borderColor: props.theme.border,
                       }}
                     >
-                      <Checkbox
+                      <CheckControl
+                        theme={props.theme}
                         hitSlop={8}
                         checked={Boolean(
                           row().kind === "candidate" &&
@@ -115,41 +115,12 @@ export function AdoptTab(props: {
                             ? (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.name
                             : ""
                         }
-                        onChange={({ checked }) => {
+                        onChange={(checked) => {
                           const current = row();
                           if (current.kind === "candidate") {
                             props.onToggleCandidateSelected(current.candidate.path, checked);
                           }
                         }}
-                        hoverStyle={interactionStyles(props.theme).hoverStyle}
-                        activeStyle={interactionStyles(props.theme).activeStyle}
-                        focusVisibleStyle={focusOutline(props.theme)}
-                        indicatorClass={controlMotionClass}
-                        indicatorStyle={{
-                          width: 16,
-                          height: 16,
-                          borderRadius: 4,
-                          borderWidth: 1,
-                          borderColor:
-                            row().kind === "candidate" &&
-                            props.selectedPaths[
-                              (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                            ]
-                              ? props.theme.primary
-                              : props.theme.border,
-                          backgroundColor:
-                            row().kind === "candidate" &&
-                            props.selectedPaths[
-                              (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                            ]
-                              ? props.theme.primary
-                              : props.theme.background,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                        indicator={row().kind === "candidate" && props.selectedPaths[
-                          (row() as Extract<AdoptRow, { kind: "candidate" }>).candidate.path
-                        ] ? <Icon name="check" color={props.theme.onPrimary} size={12} /> : null}
                       />
 
                       <Text
@@ -240,7 +211,7 @@ export function AdoptTab(props: {
                           minWidth: 0,
                           ...textStyle(props.theme, { size: textSize(props.theme, 13) }),
                           fontWeight: "600",
-                          color: props.theme.foreground,
+                          color: props.theme.panel.foreground,
                         }}
                       >
                         {row().kind === "group"

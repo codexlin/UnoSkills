@@ -128,7 +128,7 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
               : null}
           </View>
           {emptyLibrary() ? <View style={{ ...panelSurface(theme()), gap: 8, padding: 16 }}>
-            <Label theme={theme()} heading size={textSize(theme(), 20)}>{t().home_first_skill}</Label>
+            <Label theme={theme()} color={theme().panel.foreground} heading size={textSize(theme(), 20)}>{t().home_first_skill}</Label>
             <Label theme={theme()} muted>{t().home_first_skill_desc}</Label>
             <View style={wrapRow}>
               <Action theme={theme()} variant="primary" glyph="plus" label={t().btn_install_from_link} onPress={installSkill} />
@@ -140,7 +140,7 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
           <View style={panelSurface(theme())}>
             <View style={{ flexDirection: splitWorkspace() ? "row" : "column" }}>
               <View style={{ ...pane, flex: splitWorkspace() ? 1 : undefined }}>
-                <HomeHeading theme={theme()} title={data().projects.length ? t().home_projects : t().home_projects_empty_title}>
+                <HomeHeading theme={theme()} inPanel title={data().projects.length ? t().home_projects : t().home_projects_empty_title}>
                   <Action theme={theme()} variant="ghost" size="compact" glyph="plus" label={t().btn_add_project}
                     pending={attaching()} onPress={attachProject} />
                 </HomeHeading>
@@ -157,14 +157,14 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
 
               {!emptyLibrary() ? <View style={{ ...pane, flex: splitWorkspace() ? 1 : undefined, borderColor: theme().border,
                 borderLeftWidth: splitWorkspace() ? 1 : 0, borderTopWidth: splitWorkspace() ? 0 : 1 }}>
-                <HomeHeading theme={theme()} title={t().nav_library}>
+                <HomeHeading theme={theme()} inPanel title={t().nav_library}>
                   <Action theme={theme()} variant="ghost" size="compact" glyph="arrow-right" label={t().home_open_library}
                     onPress={() => props.navigate({ page: "library" })} />
                 </HomeHeading>
                 <Label theme={theme()} muted size={textSize(theme(), 13)}>{t().home_library_count
                   .replace("{total}", formatCount(data().skill_count))
                   .replace("{deployed}", formatCount(data().deployed_count))}</Label>
-                <Label theme={theme()} weight="600" size={textSize(theme(), 12)}>{t().home_recent}</Label>
+                <Label theme={theme()} color={theme().panel.foreground} weight="600" size={textSize(theme(), 12)}>{t().home_recent}</Label>
                 <View>
                   <Each of={data().recent} key={(skill) => skill.id}>{(skill) =>
                     <HomeRow theme={theme()} glyph="file-text" title={skill().name} detail={skill().date ?? undefined}
@@ -210,7 +210,7 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                     onPress={() => void openTrending(skill())}>
                     <View style={{ ...row, flex: 1, minWidth: 0, gap: 10 }}>
                       <View style={{ maxWidth: skill().source ? "62%" : "100%", flexShrink: 1, minWidth: 0 }}>
-                        <Label theme={theme()} weight="500" truncate>{skill().name}</Label>
+                        <Label theme={theme()} color={theme().panel.foreground} weight="500" truncate>{skill().name}</Label>
                       </View>
                       {skill().source
                         ? <View style={{ flex: 1, minWidth: 0 }}>
@@ -247,16 +247,17 @@ function StatusShortcut(props: {
       borderRadius: props.theme.control.radius }}>
     <Icon name={props.glyph} color={props.theme.muted} />
     <View style={{ flex: 1, minWidth: 0 }}>
-      <Label theme={props.theme} weight="500">{props.label}</Label>
+      <Label theme={props.theme} color={props.theme.panel.foreground} weight="500">{props.label}</Label>
       <Label theme={props.theme} muted size={textSize(props.theme, 12)}>{props.value}</Label>
     </View>
     <Icon name="chevron-right" color={props.theme.muted} size={12} />
   </ActionControl>;
 }
 
-function HomeHeading(props: { theme: Theme; title: string; children?: JSX.Element }) {
+function HomeHeading(props: { theme: Theme; title: string; inPanel?: boolean; children?: JSX.Element }) {
   return <View style={{ ...wrapRow, justifyContent: "space-between", minHeight: 30 }}>
-    <Label theme={props.theme} heading size={textSize(props.theme, 18)}>{props.title}</Label>
+    <Label theme={props.theme} color={props.inPanel ? props.theme.panel.foreground : undefined}
+      heading size={textSize(props.theme, 18)}>{props.title}</Label>
     {props.children}
   </View>;
 }
@@ -277,7 +278,7 @@ function HomeRow(props: {
         borderColor: "transparent", borderRadius: props.theme.control.radius }}>
       <Icon name={props.glyph} color={props.theme.muted} />
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Label theme={props.theme} weight={props.path ? "500" : "400"} truncate>{props.title}</Label>
+        <Label theme={props.theme} color={props.theme.panel.foreground} weight={props.path ? "500" : "400"} truncate>{props.title}</Label>
         {props.path && props.detail
           ? <Label theme={props.theme} muted mono truncate size={textSize(props.theme, 12)}>{detail()}</Label>
           : null}

@@ -24,7 +24,8 @@ const TEST_THEME: Theme = {
   radius: 8,
   ring: "#2563eb",
   control: { radius: 6, inputFill: "#ffffff", outlineFill: "#ffffff", shadow: "none" },
-  panel: { radius: 12, shadow: "none" },
+  switch: { offTrack: "#e5e7eb", offThumb: "#ffffff", onThumb: "#ffffff" },
+  panel: { foreground: "#111827", radius: 12, shadow: "none" },
   popup: { background: "#f7f7f8", foreground: "#111827", shadow: "none" },
 };
 

@@ -1,6 +1,6 @@
 import { computed, Scroll, signal, View } from "nsh";
 import { Dialog } from "nsh/base";
-import { dialogAnimation } from "../components";
+import { dialogAnimation, popupSurface } from "../components";
 import type { ScreenProps } from "../shared";
 import { Action, Banner, Check, Choice, Feedback, Heading, Label, actions, row } from "./controls";
 import { load, operation } from "./state";
@@ -121,18 +121,17 @@ export function StackDeploy(props: { screen: ScreenProps; stack: Stack; back: ()
     backdropStyle={{ backgroundColor: screen.theme.modalBackdrop }}
     style={{ alignItems: "center", justifyContent: "flex-start", paddingTop: 76, paddingHorizontal: 16, paddingBottom: 16 }}>
     <View style={{ width: 464, maxWidth: "100%", maxHeight: "100%", gap: 8, padding: 16,
-      backgroundColor: screen.theme.popup.background, borderWidth: 1, borderColor: screen.theme.border,
-      borderRadius: screen.theme.panel.radius, boxShadow: screen.theme.popup.shadow }}>
+      ...popupSurface(screen.theme), borderRadius: screen.theme.panel.radius }}>
       <View style={row}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Heading theme={screen.theme} label={t().deploy} size={16} lines={1} />
+          <Heading theme={screen.theme} label={t().deploy} size={16} lines={1} color={screen.theme.popup.foreground} />
         </View>
         <If when={!op.busy()}>
           <Action theme={screen.theme} label={t().close} iconOnly compact ghost glyph="x" run={props.back} />
         </If>
       </View>
       <Scroll style={{ minWidth: 0, minHeight: 0, flexShrink: 1 }} contentStyle={{ gap: 12 }}>
-        <Label theme={screen.theme} label={props.stack.name} weight="600" lines={1} />
+        <Label theme={screen.theme} label={props.stack.name} color={screen.theme.popup.foreground} weight="600" lines={1} />
         <View style={row}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Choice theme={screen.theme} label={t().selectProject} searchable

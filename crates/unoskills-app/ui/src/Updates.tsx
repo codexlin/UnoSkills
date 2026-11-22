@@ -147,7 +147,7 @@ export function UpdatePanel(props: Props & { version: string }) {
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <View style={{ flexGrow: 1, flexBasis: 220, minWidth: 0, gap: 4 }}>
             <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-              <Label theme={props.theme} weight="500">{t().settings_current_version}</Label>
+              <Label theme={props.theme} color={props.theme.panel.foreground} weight="500">{t().settings_current_version}</Label>
               <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: Math.min(props.theme.radius, 4),
                 backgroundColor: props.theme.chrome?.hover ?? props.theme.accent }}>
                 <Label theme={props.theme} size={textSize(props.theme, 12)}>{`v${props.version}`}</Label>

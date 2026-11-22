@@ -1,9 +1,11 @@
 export { Action, ActionControl, type ActionVariant } from "./buttons";
+export { CheckControl } from "./checkbox";
 export { AlertBanner, Hint, InlineError, LoadingLine, ProgressBar, SkeletonBlock } from "./feedback";
 export { FormText, TextInput } from "./fields";
 export { focusOutline, interactionStyles } from "./interaction";
 export { Icon, Label, PageHeader, panelSurface, textSize, textStyle } from "./layout";
 export { controlMotionClass, dialogAnimation } from "./motion";
 export { NavigationControl } from "./navigation";
-export { ActionMenu, Choice, MenuAction, MenuDivider, Modal, SelectControl } from "./popups";
+export { ActionMenu, Choice, MenuAction, MenuDivider, Modal, SelectControl, popupSurface } from "./popups";
+export { ToggleSwitch } from "./switch";
 export { PageTabs, TabList } from "./tabs";

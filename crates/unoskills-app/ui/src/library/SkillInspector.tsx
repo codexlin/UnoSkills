@@ -1,6 +1,6 @@
 import { Clipboard, Scroll, Text, View, openUrl } from "nsh";
-import { Editor, Switch, TextView } from "nsh/base";
-import { ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, MenuDivider, PageTabs, controlMotionClass, textSize, textStyle } from "../components";
+import { Editor, TextView } from "nsh/base";
+import { ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, MenuDivider, PageTabs, ToggleSwitch, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, hintTooltip } from "./controls";
 import { isSkillDeployedTo, joinPath } from "./format";
@@ -97,7 +97,7 @@ export function SkillInspector(props: {
             }}
           >
             <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-              <Label theme={props.theme} heading size={18} truncate>
+              <Label theme={props.theme} color={props.theme.panel.foreground} heading size={18} truncate>
                 {skill().name}
               </Label>
               <Text
@@ -201,7 +201,7 @@ export function SkillInspector(props: {
                   else={
                     <View style={{ gap: 8 }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Label theme={props.theme} heading size={14}>
+                        <Label theme={props.theme} color={props.theme.panel.foreground} heading size={14}>
                           {s().library_deployment_targets}
                         </Label>
                         <View style={{ flex: 1 }} />
@@ -303,7 +303,7 @@ export function SkillInspector(props: {
                                   flex: 1,
                                   minWidth: 0,
                                   ...textStyle(props.theme),
-                                  color: props.theme.foreground,
+                                  color: props.theme.panel.foreground,
                                 }}
                               >
                                 {agent().display_name}
@@ -312,7 +312,9 @@ export function SkillInspector(props: {
                               <If
                                 when={props.activeProject}
                                 else={
-                                  <Switch
+                                  <ToggleSwitch
+                                    theme={props.theme}
+                                    compact
                                     checked={isSkillDeployedTo(skill(), agent().key)}
                                     disabled={props.deploying}
                                     accessibilityLabel={`${s().library_deployment} · ${agent().display_name} · ${s().scope_global}`}
@@ -325,30 +327,11 @@ export function SkillInspector(props: {
                                             : s().library_not_deployed
                                         } · ${s().scope_global}`,
                                     )}
-                                    onChange={({ checked }) => {
+                                    onChange={(checked) => {
                                       const current = isSkillDeployedTo(skill(), agent().key);
                                       if (checked !== current) {
                                         props.onGlobalDeployToggle(skill(), agent(), current);
                                       }
-                                    }}
-                                    trackClass={controlMotionClass}
-                                    trackStyle={{
-                                      width: 36,
-                                      height: 20,
-                                      padding: 2,
-                                      borderRadius: 999,
-                                      backgroundColor: isSkillDeployedTo(skill(), agent().key)
-                                        ? props.theme.primary
-                                        : props.theme.border,
-                                    }}
-                                    thumbStyle={{
-                                      width: 16,
-                                      height: 16,
-                                      borderRadius: 999,
-                                      backgroundColor: props.theme.background,
-                                      transform: isSkillDeployedTo(skill(), agent().key)
-                                        ? [{ translateX: 16 }]
-                                        : [{ translateX: 0 }],
                                     }}
                                   />
                                 }
@@ -373,7 +356,7 @@ export function SkillInspector(props: {
                                               ? props.theme.warning
                                               : status().placement === "managed" ||
                                                   status().placement === "local"
-                                                ? props.theme.foreground
+                                                ? props.theme.panel.foreground
                                                 : props.theme.muted
                                           }
                                         >
@@ -391,7 +374,9 @@ export function SkillInspector(props: {
                                         </Label>
 
                                         <If when={status().placement === "managed"}>
-                                          <Switch
+                                          <ToggleSwitch
+                                            theme={props.theme}
+                                            compact
                                             checked
                                             disabled={props.deploying}
                                             accessibilityLabel={`${s().library_project_deployed} · ${agent().display_name}`}
@@ -399,7 +384,7 @@ export function SkillInspector(props: {
                                               () => props.theme,
                                               () => s().library_remove_project_deployment,
                                             )}
-                                            onChange={({ checked }) => {
+                                            onChange={(checked) => {
                                               if (!checked) {
                                                 props.onProjectDeployToggle(
                                                   skill(),
@@ -408,21 +393,6 @@ export function SkillInspector(props: {
                                                   true,
                                                 );
                                               }
-                                            }}
-                                            trackClass={controlMotionClass}
-                                            trackStyle={{
-                                              width: 36,
-                                              height: 20,
-                                              padding: 2,
-                                              borderRadius: 999,
-                                              backgroundColor: props.theme.primary,
-                                            }}
-                                            thumbStyle={{
-                                              width: 16,
-                                              height: 16,
-                                              borderRadius: 999,
-                                              backgroundColor: props.theme.background,
-                                              transform: [{ translateX: 16 }],
                                             }}
                                           />
                                         </If>
@@ -511,7 +481,7 @@ export function SkillInspector(props: {
                         <Text
                           style={{
                             ...textStyle(props.theme),
-                            color: props.theme.foreground,
+                            color: props.theme.panel.foreground,
                           }}
                         >
                           {skill().description ?? ""}
@@ -527,7 +497,7 @@ export function SkillInspector(props: {
                       }}
                       styles={{
                         root: {
-                          color: props.theme.foreground,
+                          color: props.theme.panel.foreground,
                           ...textStyle(props.theme, { leading: 1.55 }),
                         },
                         link: { color: props.theme.primary },
@@ -564,7 +534,7 @@ export function SkillInspector(props: {
                 {...textStyle(props.theme, { mono: true, leading: 1.5 })}
                 styles={{ content: { paddingRight: 12 }, line: { color: props.theme.foreground },
                   gutter: { backgroundColor: props.theme.surface, borderRightWidth: 1, borderColor: props.theme.border } }}
-                focusStyle={{ borderColor: props.theme.primary }}
+                focusStyle={{ borderColor: props.theme.ring }}
                 style={{
                   flex: 1,
                   minHeight: 0,
