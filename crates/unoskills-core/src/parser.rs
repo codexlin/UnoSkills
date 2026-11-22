@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use walkdir::WalkDir;
@@ -265,19 +265,23 @@ pub fn sanitize_slug(raw: &str) -> Option<String> {
 
 /// Compute a deterministic SHA-256 hash of a skill directory's files (excluding `.git`).
 pub fn hash_directory(dir: &Path) -> Result<String> {
-    let mut rel_files: Vec<(String, std::path::PathBuf)> = Vec::new();
-    for entry in WalkDir::new(dir)
+    let files = WalkDir::new(dir)
         .into_iter()
         .filter_entry(|e| e.file_name() != ".git")
         .filter_map(|e| e.ok())
-    {
-        if entry.file_type().is_file()
-            && let Ok(rel) = entry.path().strip_prefix(dir)
-        {
-            let norm = rel.to_string_lossy().replace('\\', "/");
-            rel_files.push((norm, entry.into_path()));
-        }
-    }
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| entry.into_path());
+    hash_files(dir, files)
+}
+
+fn hash_files(dir: &Path, files: impl IntoIterator<Item = std::path::PathBuf>) -> Result<String> {
+    let mut rel_files = files
+        .into_iter()
+        .map(|path| {
+            let relative = path.strip_prefix(dir)?;
+            Ok((relative.to_string_lossy().replace('\\', "/"), path))
+        })
+        .collect::<Result<Vec<_>>>()?;
     rel_files.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut hasher = Sha256::new();
@@ -290,6 +294,35 @@ pub fn hash_directory(dir: &Path) -> Result<String> {
         hasher.update(b"\n");
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+pub(crate) fn checked_entries(directory: &Path) -> impl Iterator<Item = Result<walkdir::DirEntry>> {
+    WalkDir::new(directory).into_iter().map(|entry| {
+        let entry = entry?;
+        ensure!(
+            entry.file_name() != ".git"
+                && (entry.file_type().is_dir() || entry.file_type().is_file()),
+            "Unsupported file in skill directory: {}",
+            entry.path().display()
+        );
+        Ok(entry)
+    })
+}
+
+pub(crate) fn checked_directory_hash(directory: &Path) -> Result<String> {
+    ensure!(
+        std::fs::symlink_metadata(directory)?.is_dir(),
+        "Expected a skill directory: {}",
+        directory.display()
+    );
+    let files = checked_entries(directory)
+        .filter_map(|entry| match entry {
+            Ok(entry) if entry.file_type().is_file() => Some(Ok(entry.into_path())),
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    hash_files(directory, files)
 }
 
 #[cfg(test)]

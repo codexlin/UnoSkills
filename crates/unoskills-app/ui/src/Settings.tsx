@@ -17,7 +17,7 @@ type BackupStatus = {
   last_pushed_at: number | null; last_pulled_at: number | null;
 };
 type BackupPush = { pushed: boolean; skills_exported: number; stacks_exported: number };
-type BackupPull = { skills_imported: number; skills_updated: number; stacks_imported: number };
+type BackupPull = { skills_imported: number; skills_updated: number; stacks_imported: number; conflicts: string[] };
 type Agent = { key: string; display_name: string; installed: boolean; enabled: boolean; is_custom: boolean; skills_dir: string };
 
 export function Settings(props: SettingsProps) {
@@ -223,6 +223,7 @@ function Network(props: SettingsProps) {
   const repo = signal("");
   const branch = signal("");
   const statusError = signal("");
+  const pullConflicts = signal<string[]>([]);
   async function backupStatus(seed = false) {
     try {
       const value = await call<null, BackupStatus>("settings.backup_status", null);
@@ -254,6 +255,7 @@ function Network(props: SettingsProps) {
   async function backup(action: "save" | "push" | "pull") {
     if (backupBusy()) return;
     backupBusy.set(action);
+    pullConflicts.set([]);
     const config = { repo_url: repo(), branch: branch() };
     try {
       if (action === "push") {
@@ -263,7 +265,13 @@ function Network(props: SettingsProps) {
           : t().toast_backup_noop, "success");
       } else if (action === "pull") {
         const result = await call<typeof config, BackupPull>("settings.backup_pull", config);
-        props.notify(`${t().btn_backup_pull} · ${result.skills_imported + result.skills_updated} ${t().skills_unit} · ${result.stacks_imported} ${t().nav_stacks}`, "success");
+        pullConflicts.set(result.conflicts);
+        const counts = `${result.skills_imported + result.skills_updated} ${t().skills_unit} · ${result.stacks_imported} ${t().nav_stacks}`;
+        if (result.conflicts.length) {
+          props.notify(`${t().backup_pull_conflicts} · ${counts}`, "info");
+        } else {
+          props.notify(`${t().btn_backup_pull} · ${counts}`, "success");
+        }
         props.refresh();
       } else {
         await call("settings.backup_save", config);
@@ -299,6 +307,8 @@ function Network(props: SettingsProps) {
           </View>
         </SettingRow>
         {statusError() ? <InlineError theme={props.theme} message={statusError()} /> : null}
+        {pullConflicts().length ? <InlineError theme={props.theme}
+          message={[t().backup_pull_conflicts, ...pullConflicts()].join("\n")} /> : null}
         <View class="flex-row flex-wrap items-center gap-2">
           <View class="flex-1 min-w-0">
             {status() ? <Label theme={props.theme} muted size={textSize(props.theme, 12)}>

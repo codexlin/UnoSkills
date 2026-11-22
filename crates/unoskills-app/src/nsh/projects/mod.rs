@@ -4,7 +4,6 @@ use std::sync::Mutex;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
-use unoskills_core::parser::sanitize_slug;
 use unoskills_core::project_analysis::{RecommendationPurpose, SkillLocation};
 use unoskills_core::stacks::parse_stack_from_toml;
 use unoskills_core::{Skill, StackManifest, StackSkillRef, StackSource, UnoSkillsManager};
@@ -68,14 +67,22 @@ pub(super) fn dispatch(manager: &UnoSkillsManager, command: &str, input: Value) 
         "stack.members" => {
             let stack = find_stack(manager, &input)?;
             let skills = manager.list_skills()?;
-            Ok(json!(stack.skills.iter().map(|member| {
-                let installed = member.installed_in(&skills);
-                json!({
-                    "member": member,
-                    "installed": installed.map(library_row),
-                    "source_conflict": installed.is_some_and(|skill| member.has_source_conflict(skill)),
-                })
-            }).collect::<Vec<_>>()))
+            Ok(json!(
+                stack
+                    .skills
+                    .iter()
+                    .map(|member| {
+                        let installed = member.installed_in(&skills);
+                        let source_conflict =
+                            installed.is_some_and(|skill| member.has_source_conflict(skill));
+                        json!({
+                            "member": member,
+                            "installed": installed.filter(|_| !source_conflict).map(library_row),
+                            "source_conflict": source_conflict,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            ))
         }
         "stack.create" => create_stack(manager, &input),
         "stack.edit" => edit_stack(manager, &input),
@@ -220,9 +227,7 @@ fn library_row(skill: &Skill) -> Value {
 
 fn find_local_stack(manager: &UnoSkillsManager, id: &str) -> Result<StackManifest> {
     manager
-        .list_local_stacks()?
-        .into_iter()
-        .find(|stack| stack.id == id)
+        .find_local_stack(id)?
         .context("Local stack no longer exists")
 }
 
@@ -243,16 +248,6 @@ fn find_stack(manager: &UnoSkillsManager, input: &Value) -> Result<StackManifest
 fn create_stack(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
     let name = required(input, "name")?.trim();
     ensure!(!name.is_empty(), "Enter a stack name");
-    if let Some(slug) = sanitize_slug(name) {
-        let id = slug.to_lowercase().replace(' ', "-");
-        ensure!(
-            !manager
-                .list_local_stacks()?
-                .iter()
-                .any(|stack| stack.id == id),
-            "A local stack with this name already exists"
-        );
-    }
     let ids: Vec<String> = serde_json::from_value(input["skill_ids"].clone())?;
     let library = manager.list_skills()?;
     ensure!(
@@ -278,6 +273,7 @@ fn edit_stack(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
         input["previous"] == json!(stack),
         "The local stack changed. Reopen the editor"
     );
+    let previous = stack.clone();
     let name = required(input, "name")?.trim();
     ensure!(!name.is_empty(), "Enter a stack name");
     let remove: Vec<usize> = serde_json::from_value(input["remove_indices"].clone())?;
@@ -300,7 +296,7 @@ fn edit_stack(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
             .context("Library skill no longer exists")?;
         if !stack.skills.iter().any(|member| {
             member
-                .installed_in(&skills)
+                .deployable_in(&skills)
                 .is_some_and(|existing| existing.id == id)
         }) {
             stack.skills.push(StackSkillRef {
@@ -318,46 +314,35 @@ fn edit_stack(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
     stack.author = required(input, "author")?.trim().to_owned();
     stack.description = required(input, "description")?.trim().to_owned();
     stack.tags = serde_json::from_value(input["tags"].clone())?;
-    manager.save_local_stack(&stack)?;
+    manager.save_local_stack_if_unchanged(&stack, Some(&previous))?;
     Ok(json!(stack))
 }
 
 fn import_stack(manager: &UnoSkillsManager, command: &str, input: &Value) -> Result<Value> {
     let raw = required(input, "toml")?;
-    let stack = parse_stack_from_toml(raw)?;
-    let previous = manager
-        .list_local_stacks()?
-        .into_iter()
-        .find(|local| local.id == stack.id);
-    let previous = previous
-        .as_ref()
-        .map(|stack| manager.export_stack_toml(stack))
-        .transpose()?;
+    let mut stack = parse_stack_from_toml(raw)?;
+    stack.source = StackSource::Local;
     if command == "stack.preview_import" {
+        let previous = manager
+            .find_local_stack(&stack.id)?
+            .as_ref()
+            .map(|stack| manager.export_stack_toml(stack))
+            .transpose()?;
         return Ok(json!({ "stack": stack, "previous": previous }));
     }
-    ensure!(
-        input.get("previous").is_some() && input["previous"] == json!(previous),
-        "The local stack changed. Preview this import again"
-    );
-    Ok(json!(manager.import_stack_toml(raw)?))
+    let previous: Option<String> = serde_json::from_value(
+        input
+            .get("previous")
+            .context("Preview this import before confirming")?
+            .clone(),
+    )?;
+    let previous = previous.as_deref().map(parse_stack_from_toml).transpose()?;
+    manager.save_local_stack_if_unchanged(&stack, previous.as_ref())?;
+    Ok(json!(stack))
 }
 
 fn install_stack(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
-    let mut stack = find_stack(manager, input)?;
-    if stack.source != StackSource::Local {
-        stack.source = StackSource::Local;
-        if let Some(local) = manager
-            .list_local_stacks()?
-            .into_iter()
-            .find(|local| local.id == stack.id)
-        {
-            ensure!(
-                json!(local) == json!(stack),
-                "STACK_ID_CONFLICT: A customized local stack uses this ID"
-            );
-        }
-    }
+    let stack = find_stack(manager, input)?;
     Ok(json!(manager.install_stack(&stack, &[])?))
 }
 
@@ -370,7 +355,7 @@ fn install_member(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
         .iter()
         .find(|member| member.source == source && member.name == name)
         .context("Stack member no longer exists")?;
-    if let Some(existing) = member.installed_in(&manager.list_skills()?) {
+    if let Some(existing) = member.deployable_in(&manager.list_skills()?) {
         return Ok(library_row(existing));
     }
     Ok(library_row(&manager.install_from_ref(&member.source)?))
@@ -412,4 +397,33 @@ fn deploy(manager: &UnoSkillsManager, command: &str, input: &Value) -> Result<Va
         "unavailable": result.unavailable,
         "failed": result.failed,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stack_import_confirm_requires_the_same_manifest_seen_at_preview() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = UnoSkillsManager::open_at(dir.path().join("library")).unwrap();
+        let older = "id = 'saved'\nname = 'Original'\n";
+        let incoming = "id = 'saved'\nname = 'Incoming'\n";
+        let saved = manager.import_stack_toml(older).unwrap();
+        let request = json!({ "toml": incoming });
+        let preview = dispatch(&manager, "stack.preview_import", request.clone()).unwrap();
+        let confirm = json!({ "toml": incoming, "previous": preview["previous"] });
+
+        let mut edited = saved;
+        edited.name = "Concurrent edit".into();
+        manager.save_local_stack(&edited).unwrap();
+        let error = dispatch(&manager, "stack.import", confirm).unwrap_err();
+        assert!(error.to_string().contains("STACK_ID_CONFLICT"));
+        assert_eq!(manager.find_local_stack("saved").unwrap(), Some(edited));
+
+        let preview = dispatch(&manager, "stack.preview_import", request).unwrap();
+        let confirm = json!({ "toml": incoming, "previous": preview["previous"] });
+        let committed = dispatch(&manager, "stack.import", confirm).unwrap();
+        assert_eq!(committed["name"], "Incoming");
+    }
 }

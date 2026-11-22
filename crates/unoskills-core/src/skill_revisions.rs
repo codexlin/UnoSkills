@@ -8,13 +8,15 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use uuid::Uuid;
-use walkdir::WalkDir;
 
 use super::{UnoSkillsManager, safe_scoped_target};
 use crate::domain::{
     DeployMode, DeploymentImpact, DeploymentImpactKind, Skill, SkillUpdateResult, SourceType,
 };
-use crate::parser::{hash_directory, is_valid_skill_dir, parse_skill_dir, sanitize_slug};
+use crate::parser::{
+    checked_directory_hash as revision_hash, checked_entries, is_valid_skill_dir, parse_skill_dir,
+    sanitize_slug,
+};
 use crate::source::{ResolvedSource, fetch_git_skill, resolve_source_ref};
 use crate::sync::{
     TargetState, classify_target, copy_dir_recursive, ensure_dst_not_overlapping_src,
@@ -171,6 +173,25 @@ impl UnoSkillsManager {
             "STALE_SKILL_REVISION: The skill source changed while checking for updates."
         );
         self.prepare_revision(current, staging, branch, subpath, false)
+    }
+
+    pub(super) fn apply_backup_revision(
+        &self,
+        skill: Skill,
+        source: &Path,
+        expected: &str,
+    ) -> Result<SkillUpdateResult> {
+        let branch = skill.source_branch.clone();
+        let subpath = skill.source_subpath.clone();
+        let staging = self.stage_revision(source)?;
+        let prepared = self
+            .prepare_revision(skill, staging, branch, subpath, false)?
+            .context("The skill changed while reading the backup. Pull again.")?;
+        ensure!(
+            prepared.base_hash == expected,
+            "STALE_SKILL_REVISION: The local skill changed while reading the backup"
+        );
+        self.apply_skill_revision(prepared)
     }
 
     pub fn prepare_skill_rollback(
@@ -341,6 +362,11 @@ impl UnoSkillsManager {
                         .refresh_revision_copy(&skill, &impact.path, &baseline)
                         .is_ok()
                     {
+                        for dep in skill.deployments.iter_mut().filter(|dep| {
+                            dep.mode == DeployMode::Copy && dep.target_path == impact.path
+                        }) {
+                            dep.copy_hash.clone_from(&skill.content_hash);
+                        }
                         for dep in skill.project_deployments.iter_mut().filter(|dep| {
                             dep.mode == DeployMode::Copy && dep.target_path == impact.path
                         }) {
@@ -358,13 +384,18 @@ impl UnoSkillsManager {
                 DeploymentImpactKind::Current => {
                     if self
                         .store
-                        .record_refreshed_project_copy(
+                        .record_refreshed_copy(
                             &skill.id,
                             &impact.path,
                             skill.content_hash.as_deref(),
                         )
                         .is_ok()
                     {
+                        for dep in skill.deployments.iter_mut().filter(|dep| {
+                            dep.mode == DeployMode::Copy && dep.target_path == impact.path
+                        }) {
+                            dep.copy_hash.clone_from(&skill.content_hash);
+                        }
                         for dep in skill.project_deployments.iter_mut().filter(|dep| {
                             dep.mode == DeployMode::Copy && dep.target_path == impact.path
                         }) {
@@ -419,13 +450,26 @@ impl UnoSkillsManager {
                 path.display()
             );
             self.store
-                .record_refreshed_project_copy(&skill.id, path, skill.content_hash.as_deref())
+                .record_refreshed_copy(&skill.id, path, skill.content_hash.as_deref())
         });
         if result.is_err() && previous.exists() {
             staging.disable_cleanup(true);
         }
         result
     }
+}
+
+pub(super) fn backup_deployment_issues(skill: &Skill, hash: &str) -> Vec<DeploymentImpact> {
+    planned_targets(skill, hash, hash)
+        .into_iter()
+        .map(|target| target.impact)
+        .filter(|impact| {
+            matches!(
+                impact.kind,
+                DeploymentImpactKind::Missing | DeploymentImpactKind::Conflict
+            )
+        })
+        .collect()
 }
 
 fn move_if_present(path: &Path, destination: &Path) -> Result<bool> {
@@ -464,31 +508,6 @@ fn replace_directory(
         return Err(error);
     }
     Ok(())
-}
-
-fn checked_entries(directory: &Path) -> impl Iterator<Item = Result<walkdir::DirEntry>> {
-    WalkDir::new(directory).into_iter().map(|entry| {
-        let entry = entry?;
-        ensure!(
-            entry.file_name() != ".git"
-                && (entry.file_type().is_dir() || entry.file_type().is_file()),
-            "Unsupported file in skill directory: {}",
-            entry.path().display()
-        );
-        Ok(entry)
-    })
-}
-
-fn revision_hash(directory: &Path) -> Result<String> {
-    ensure!(
-        fs::symlink_metadata(directory)?.is_dir(),
-        "Expected a skill directory: {}",
-        directory.display()
-    );
-    for entry in checked_entries(directory) {
-        entry?;
-    }
-    hash_directory(directory)
 }
 
 fn file_hashes(directory: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>> {
@@ -538,7 +557,7 @@ fn planned_targets(skill: &Skill, base_hash: &str, candidate_hash: &str) -> Vec<
             .push(TargetRecord {
                 agent: &dep.agent_key,
                 mode: dep.mode,
-                hash: base_hash,
+                hash: dep.copy_hash.as_deref().unwrap_or(base_hash),
                 scope_valid: true,
             });
     }

@@ -20,22 +20,32 @@ type Status = {
   download: Download;
 };
 
+function sameDownload(previous: Download, next: Download) {
+  if (previous.phase !== next.phase) return false;
+  if (previous.phase === "downloading" && next.phase === "downloading") return previous.percent === next.percent;
+  if (previous.phase === "ready" && next.phase === "ready") return previous.verified === next.verified;
+  if (previous.phase === "failed" && next.phase === "failed") return previous.error === next.error;
+  return true;
+}
+
 export function createUpdates(locale: Accessor<Locale>, notify: (message: string, tone?: Tone) => void) {
-  const status = signal<Status | null>(null);
+  // A progress poll should only update the existing release's progress.
+  const releaseStatus = signal<Pick<Status, "available" | "platform"> | null>(null);
+  const downloadState = signal<Download>({ phase: "idle" }, { equals: sameDownload });
   const checking = signal(false);
   const downloading = signal(false);
   const open = signal(false);
   const installBusy = signal(false);
   const t = () => strings[locale()];
-  const available = () => status()?.available;
-  const downloadState = (): Download => status()?.download ?? { phase: "idle" };
+  const available = () => releaseStatus()?.available;
 
   async function check(silent = false) {
     if (checking() || downloading()) return;
     checking.set(true);
     try {
       const outcome = await call<null, Status>("update.check", null);
-      status.set(outcome);
+      releaseStatus.set({ available: outcome.available, platform: outcome.platform });
+      downloadState.set(outcome.download);
       if (!silent) {
         notify(outcome.available
           ? `${t().badge_update_available} ${outcome.available.latest.tag_name}`
@@ -51,24 +61,28 @@ export function createUpdates(locale: Accessor<Locale>, notify: (message: string
   async function download() {
     if (downloading() || checking()) return;
     downloading.set(true);
-    status.update((state) => state ? { ...state, download: { phase: "preparing" } } : state);
+    downloadState.set({ phase: "preparing" });
     let current = true;
     let polling = false;
     const timer = setInterval(() => {
       if (polling) return;
       polling = true;
       call<null, Status>("update.status", null)
-        .then((value) => { if (current) status.set(value); })
+        .then(({ download }) => {
+          if (current && (download.phase === "preparing" || download.phase === "downloading" || download.phase === "verifying")) {
+            downloadState.set(download);
+          }
+        })
         .catch((error) => { if (current) console.warn(errorMessage(error)); })
         .finally(() => { polling = false; });
     }, 300);
     try {
       const value = await call<null, Status>("update.download", null);
       current = false;
-      status.set(value);
+      downloadState.set(value.download);
     } catch (error) {
       const message = errorMessage(error);
-      status.update((state) => state ? { ...state, download: { phase: "failed", error: message } } : state);
+      downloadState.set({ phase: "failed", error: message });
       notify(message, "error");
     } finally {
       current = false;
@@ -103,7 +117,7 @@ export function createUpdates(locale: Accessor<Locale>, notify: (message: string
   }
 
   const installLabel = () => {
-    switch (status()?.platform) {
+    switch (releaseStatus()?.platform) {
       case "windows_x64": return t().btn_install_update_win;
       case "macos_arm64": return t().btn_install_update_mac;
       default: return t().btn_install_update_linux;
@@ -128,7 +142,7 @@ export function createUpdates(locale: Accessor<Locale>, notify: (message: string
       default: return "arrow-down";
     }
   };
-  return { status, checking, downloading, open, installBusy, available, downloadState,
+  return { checking, downloading, open, installBusy, available, downloadState,
     installLabel, phaseLabel, phaseIcon, check, download, openRelease, install };
 }
 
@@ -207,7 +221,7 @@ export function UpdateModal(props: Props) {
       {update.downloading() ? (
         <View style={{ gap: 8 }}>
           <Label theme={props.theme}>{update.phaseLabel()}</Label>
-          <ProgressBar theme={props.theme} value={progress()} label={update.phaseLabel()} />
+          <ProgressBar theme={props.theme} value={progress()} label={update.phaseLabel()} animateIndeterminate={false} />
         </View>
       ) : state().phase === "failed" ? (
         <InlineError theme={props.theme} message={`${t().update_download_failed}\n${failure()}`} />

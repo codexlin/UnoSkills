@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -142,12 +142,13 @@ impl Store {
     pub fn upsert_deployment(&self, dep: &Deployment) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO deployments (id, skill_id, agent_key, target_path, mode, synced_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO deployments (id, skill_id, agent_key, target_path, mode, synced_at, copy_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(skill_id, agent_key) DO UPDATE SET
                 target_path = excluded.target_path,
                 mode = excluded.mode,
-                synced_at = excluded.synced_at",
+                synced_at = excluded.synced_at,
+                copy_hash = excluded.copy_hash",
             params![
                 dep.id,
                 dep.skill_id,
@@ -155,6 +156,7 @@ impl Store {
                 dep.target_path.to_string_lossy().to_string(),
                 dep.mode.as_str(),
                 dep.synced_at,
+                dep.copy_hash,
             ],
         )?;
         Ok(())
@@ -172,13 +174,15 @@ impl Store {
     pub fn count_deployments_at_path(
         &self,
         target_path: &Path,
-        exclude_agent_key: &str,
+        exclude_deployment_id: &str,
     ) -> Result<usize> {
         let conn = self.conn.lock().unwrap();
         let target_str = target_path.to_string_lossy().to_string();
         let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM deployments WHERE target_path = ?1 AND agent_key != ?2",
-            params![target_str, exclude_agent_key],
+            "SELECT
+                 (SELECT COUNT(*) FROM deployments WHERE target_path = ?1 AND id != ?2) +
+                 (SELECT COUNT(*) FROM project_deployments WHERE target_path = ?1 AND id != ?2)",
+            params![target_str, exclude_deployment_id],
             |row| row.get(0),
         )?;
         Ok(count.max(0) as usize)
@@ -216,6 +220,19 @@ impl Store {
             }
         }
         Ok(stacks)
+    }
+
+    pub(crate) fn find_local_stack(&self, id: &str) -> Result<Option<StackManifest>> {
+        let conn = self.conn.lock().unwrap();
+        let raw: Option<String> = conn
+            .query_row(
+                "SELECT manifest_json FROM local_stacks WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        raw.map(|raw| serde_json::from_str(&raw).context("Invalid saved stack manifest"))
+            .transpose()
     }
 
     pub fn save_local_stack(&self, stack: &StackManifest, now: i64) -> Result<()> {
@@ -258,6 +275,29 @@ impl Store {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![key, value],
         )?;
+        Ok(())
+    }
+
+    pub(crate) fn get_backup_target(&self) -> Result<(Option<String>, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT
+                 (SELECT value FROM settings WHERE key = 'git_backup_repo_url'),
+                 (SELECT value FROM settings WHERE key = 'git_backup_branch')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?)
+    }
+
+    pub(crate) fn set_backup_target(&self, repo_url: &str, branch: &str) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        transaction.execute(
+            "INSERT INTO settings (key, value) VALUES ('git_backup_repo_url', ?1), ('git_backup_branch', ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![repo_url, branch],
+        )?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -420,18 +460,25 @@ impl Store {
         Ok(())
     }
 
-    pub fn record_refreshed_project_copy(
+    pub(crate) fn record_refreshed_copy(
         &self,
         skill_id: &str,
         target_path: &Path,
         copy_hash: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        transaction.execute(
+            "UPDATE deployments SET copy_hash = ?1
+             WHERE skill_id = ?2 AND target_path = ?3 AND mode = 'copy'",
+            params![copy_hash, skill_id, target_path.to_string_lossy()],
+        )?;
+        transaction.execute(
             "UPDATE project_deployments SET copy_hash = ?1
              WHERE skill_id = ?2 AND target_path = ?3 AND mode = 'copy'",
             params![copy_hash, skill_id, target_path.to_string_lossy()],
         )?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -453,43 +500,6 @@ impl Store {
         let rows = stmt.query_map(params![project_id], project_deployment_from_row)?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
-
-    pub fn count_project_deployments_at_path(
-        &self,
-        target_path: &Path,
-        exclude_id: &str,
-    ) -> Result<usize> {
-        let conn = self.conn.lock().unwrap();
-        let target_str = target_path.to_string_lossy().to_string();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM project_deployments
-             WHERE target_path = ?1 AND id != ?2",
-            params![target_str, exclude_id],
-            |row| row.get(0),
-        )?;
-        Ok(count.max(0) as usize)
-    }
-
-    pub fn peer_project_deployment_mode_for_skill(
-        &self,
-        skill_id: &str,
-        project_id: &str,
-        target_path: &Path,
-        exclude_agent_key: &str,
-    ) -> Result<Option<DeployMode>> {
-        let conn = self.conn.lock().unwrap();
-        let target_str = target_path.to_string_lossy().to_string();
-        let mode_str = conn
-            .query_row(
-                "SELECT mode FROM project_deployments
-                 WHERE skill_id = ?1 AND project_id = ?2 AND target_path = ?3 AND agent_key != ?4
-                 LIMIT 1",
-                params![skill_id, project_id, target_str, exclude_agent_key],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        Ok(mode_str.map(|s| DeployMode::from_str_lossy(&s)))
-    }
 }
 
 fn load_all_tags(conn: &Connection) -> Result<HashMap<String, Vec<String>>> {
@@ -507,7 +517,7 @@ fn load_all_tags(conn: &Connection) -> Result<HashMap<String, Vec<String>>> {
 
 fn load_all_deployments(conn: &Connection) -> Result<HashMap<String, Vec<Deployment>>> {
     let mut stmt = conn.prepare(
-        "SELECT id, skill_id, agent_key, target_path, mode, synced_at
+        "SELECT id, skill_id, agent_key, target_path, mode, synced_at, copy_hash
          FROM deployments ORDER BY agent_key ASC",
     )?;
     let mut map: HashMap<String, Vec<Deployment>> = HashMap::new();
@@ -519,6 +529,7 @@ fn load_all_deployments(conn: &Connection) -> Result<HashMap<String, Vec<Deploym
             target_path: PathBuf::from(row.get::<_, String>(3)?),
             mode: DeployMode::from_str_lossy(&row.get::<_, String>(4)?),
             synced_at: row.get(5)?,
+            copy_hash: row.get(6)?,
         })
     })?;
     for row in rows {
@@ -589,6 +600,7 @@ fn migrate(conn: &mut Connection) -> Result<()> {
             target_path TEXT NOT NULL,
             mode TEXT NOT NULL,
             synced_at INTEGER NOT NULL,
+            copy_hash TEXT,
             UNIQUE(skill_id, agent_key)
         );
 
@@ -632,6 +644,14 @@ fn migrate(conn: &mut Connection) -> Result<()> {
         );",
     )?;
     let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let has_global_copy_hash: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('deployments') WHERE name = 'copy_hash')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_global_copy_hash {
+        transaction.execute("ALTER TABLE deployments ADD COLUMN copy_hash TEXT", [])?;
+    }
     let has_copy_hash: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_deployments') WHERE name = 'copy_hash')",
         [],

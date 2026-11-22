@@ -209,7 +209,7 @@ impl UnoSkillsManager {
                         SkillLocation::Global
                     } else if let Some(skill) = managed.get(path.as_path()) {
                         match inspect_stack_project_target(skill, &project, &agent, &path) {
-                            StackProjectTarget::Deployed => SkillLocation::ProjectDeployment,
+                            StackProjectTarget::Deployed(_) => SkillLocation::ProjectDeployment,
                             _ => SkillLocation::ProjectChanged,
                         }
                     } else {

@@ -21,6 +21,42 @@ pub enum ResolvedSource {
     },
 }
 
+pub(crate) fn same_source(left: &str, right: &str) -> bool {
+    let (left, right) = (left.trim(), right.trim());
+    if left == right {
+        return true;
+    }
+    match (resolve_source_ref(left), resolve_source_ref(right)) {
+        (Ok(ResolvedSource::Local(left)), Ok(ResolvedSource::Local(right))) => {
+            left == right
+                || left
+                    .canonicalize()
+                    .ok()
+                    .is_some_and(|left| right.canonicalize().is_ok_and(|right| left == right))
+        }
+        (
+            Ok(ResolvedSource::Git {
+                repo_url: left,
+                branch: left_branch,
+                subpath: left_path,
+                ..
+            }),
+            Ok(ResolvedSource::Git {
+                repo_url: right,
+                branch: right_branch,
+                subpath: right_path,
+                ..
+            }),
+        ) => {
+            left.trim_end_matches('/').trim_end_matches(".git")
+                == right.trim_end_matches('/').trim_end_matches(".git")
+                && left_branch == right_branch
+                && left_path == right_path
+        }
+        _ => false,
+    }
+}
+
 /// Deterministic ref parser:
 /// 1. Starts with `./`, `../`, `/`, `~/` or Windows drive -> Local path
 /// 2. Starts with `http://`, `https://`, `git@`, or ends with `.git` -> Git URL
@@ -35,6 +71,7 @@ pub fn resolve_source_ref(input: &str) -> Result<ResolvedSource> {
         || trimmed.starts_with("../")
         || trimmed.starts_with('/')
         || trimmed.starts_with("~/")
+        || Path::new(trimmed).is_absolute()
         || (trimmed.len() >= 3 && trimmed.as_bytes()[1] == b':')
     {
         let expanded = if let Some(rest) = trimmed.strip_prefix("~/") {

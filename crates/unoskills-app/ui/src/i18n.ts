@@ -1,3 +1,18 @@
+import type { Locale } from "./shared";
+
+export function isLocale(value: unknown): value is Locale {
+  return typeof value === "string" && Object.hasOwn(strings, value);
+}
+
+export function preferredLocale(languages: readonly string[]): Locale {
+  for (const tag of languages) {
+    const language = tag.toLowerCase().split("-", 1)[0];
+    if (language === "zh") return "zh-CN";
+    if (language === "ja" || language === "en") return language;
+  }
+  return "en";
+}
+
 export const strings = {
   "en": {
     "badge_detected": "Detected",
@@ -121,6 +136,7 @@ export const strings = {
     "theme_light": "Light",
     "theme_system": "Follow system",
     "toast_backup_noop": "Backup repository is already up to date.",
+    "backup_pull_conflicts": "Some items could not be restored. See the details below.",
     "toast_backup_saved": "Saved Git backup repository settings.",
     "toast_custom_agent_required": "Enter both a custom agent name and skills folder path.",
     "toast_network_saved": "Saved network proxy and GitHub token settings.",
@@ -265,6 +281,7 @@ export const strings = {
     "theme_light": "浅色",
     "theme_system": "跟随系统",
     "toast_backup_noop": "远端备份已是最新，无新增变更需要推送。",
+    "backup_pull_conflicts": "部分内容未能恢复，请查看下方详情。",
     "toast_backup_saved": "Git 备份仓库配置已保存。",
     "toast_custom_agent_required": "请填写自定义 Agent 名称和技能目录路径。",
     "toast_network_saved": "网络代理与 Token 设置已保存。",
@@ -409,6 +426,7 @@ export const strings = {
     "theme_light": "ライト",
     "theme_system": "システムに従う",
     "toast_backup_noop": "バックアップはすでに最新です（変更なし）。",
+    "backup_pull_conflicts": "一部の項目を復元できませんでした。以下の詳細を確認してください。",
     "toast_backup_saved": "Git バックアップ設定を保存しました。",
     "toast_custom_agent_required": "エージェント名とスキルディレクトリの両方を入力してください。",
     "toast_network_saved": "プロキシと GitHub トークン設定を保存しました。",
