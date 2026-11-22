@@ -10,7 +10,7 @@ use tempfile::TempDir;
 
 use super::project_deploy_preview::DirectoryIdentity;
 use super::skill_revisions::SkillFileChangeKind;
-use super::{UnoSkillsManager, safe_scoped_target, scoped_project_skills_dir};
+use super::{UnoSkillsManager, project_scope_key, safe_scoped_target, scoped_project_skills_dir};
 use crate::domain::{DeployMode, ProjectDeployment, Skill};
 use crate::parser::{checked_directory_hash, checked_entries, is_valid_skill_dir, sanitize_slug};
 use crate::sync::{
@@ -400,7 +400,7 @@ impl UnoSkillsManager {
             review,
             project_id: project_id.into(),
             agent_key: agent_key.into(),
-            scope: scope.components().collect(),
+            scope: project_scope_key(scope),
             targets,
             staging,
         })
@@ -450,7 +450,7 @@ impl UnoSkillsManager {
         skill_id: &str,
     ) -> Result<(Skill, Vec<VersionTarget>)> {
         let (project, _) = self.stack_deploy_destination(project_id, agent_key)?;
-        let scope: PathBuf = scope.components().collect();
+        let scope = project_scope_key(scope);
         let skill = self
             .find_skill(skill_id)?
             .filter(|skill| skill.id == skill_id)
