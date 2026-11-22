@@ -98,7 +98,13 @@ fn embedded_shell_reads_the_real_workspace_and_navigates_to_settings() {
     let (engine, rx) = start(&root);
     let mut items = Vec::new();
     let settings = wait_for(&engine, &rx, &mut items, "Settings", button);
-    wait_for(&engine, &rx, &mut items, "Local workspace", visible_text);
+    wait_for(
+        &engine,
+        &rx,
+        &mut items,
+        "Add your first skill",
+        visible_text,
+    );
     press(&engine, settings);
     wait_for(
         &engine,
@@ -253,7 +259,7 @@ fn unreadable_skill_cannot_open_another_skills_editor() {
 
     let (engine, rx) = start(&root);
     let mut items = Vec::new();
-    wait_for(&engine, &rx, &mut items, "Added in the last 7 days", button);
+    wait_for(&engine, &rx, &mut items, "Recently added", visible_text);
     let good_link = wait_for(&engine, &rx, &mut items, &good.name, button);
     press(&engine, good_link);
     let preview = wait_for(&engine, &rx, &mut items, "Preview", visible_text);

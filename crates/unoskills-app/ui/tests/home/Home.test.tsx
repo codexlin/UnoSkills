@@ -10,124 +10,85 @@ const release = {
   checksums_asset: { name: "SHA256SUMS.txt", size: 252 },
 };
 const summary = {
-  skill_count: 3, deployed_count: 1, agent_count: 2, adoptable_count: 0,
+  skill_count: 3, deployed_count: 1, adoptable_count: 0,
   recent: [{ id: "fixture", name: "Recent fixture", date: "2026-11-21" }],
   projects: [{ id: "project", name: "Project fixture", path: "/tmp/project" }],
-  activity: [{ label: "11/20", count: 1 }, { label: "11/21", count: 2 }],
 };
 
-function openHome(handle: (command: string, input: unknown) => unknown) {
+function openHome(
+  handle: (command: string, input: unknown) => unknown,
+  options?: { data?: typeof summary; width?: number; height?: number },
+) {
   return open("../../App.tsx", {
-    width: 1240,
-    height: 780,
+    width: options?.width ?? 1240,
+    height: options?.height ?? 780,
     platform: "linux",
     clock: {},
     host: { handlers: {
       "unoskills.command": (raw: unknown) => {
         const { command, input } = raw as { command: string; input: unknown };
         if (command === "settings.get") return { ok: true, value: { ...defaults, language: "en", theme: "dark" } };
-        if (command === "home.summary") return { ok: true, value: summary };
+        if (command === "home.summary") return { ok: true, value: options?.data ?? summary };
         return handle(command, input);
       },
     } },
   });
 }
 
-test("Home keeps active metric cards, recent rows, chart, and separate ranked boards", async () => {
-  const boards: string[] = [];
-  const app = await openHome((command, input) => {
-    if (command !== "home.market") return { ok: true, value: { available: null } };
-    const { board } = input as { board: string };
-    boards.push(board);
-    return { ok: true, value: [{
-      id: board, name: board === "trending" ? "Trending fixture" : "All time fixture",
-      installs: 30_500, source: "owner/repo", url: "https://skills.sh/owner/repo/fixture",
-    }] };
-  });
+test("Home keeps project and skill actions ahead of discovery in a narrow window", async () => {
+  const app = await openHome((command) => ({
+    ok: true,
+    value: command === "home.market" ? [{ id: "trending", name: "Trending fixture" }] : { available: null },
+  }), { width: 960, height: 620 });
+  const counts = "3 in library · 1 with deployment records";
 
-  await app.waitFor(`label:${t.nav_library} (3)`);
-  expect(app.shows("role:button[Recent fixture]")).toBe(true);
+  await app.waitFor(`text:${counts}`);
+  await app.waitFor("text:Trending fixture");
+  const texts = app.texts();
+  expect(texts.indexOf(t.home_projects)).toBeLessThan(texts.indexOf(counts));
+  expect(texts.indexOf(counts)).toBeLessThan(texts.indexOf(t.home_market_trending));
   expect(app.shows("role:button[Project fixture]")).toBe(true);
-  expect(app.shows(`text:${t.home_intake_total} 3`)).toBe(true);
-  await app.waitFor("text:Trending fixture");
-  expect(app.texts()).toContain("30.5k");
-  expect(app.shows(`role:link[${t.home_market_details} · Trending fixture · owner/repo]`)).toBe(true);
-  const trending = `role:tab[${t.board_trending}]`;
-  const allTime = `role:tab[${t.board_all_time}]`;
-  await app.hover(allTime);
-  expect(app.viewStyle(allTime)?.backgroundColor).toBe("#26353dff");
-  expect(app.viewStyle(allTime)?.effectiveOpacity).toBe(1);
-  await app.press(allTime);
-  await app.waitFor("text:All time fixture");
-  expect(app.shows("text:Trending fixture")).toBe(false);
-  // The selected tab uses the native underline while the pointer stays over it.
-  expect(app.viewStyle(allTime)?.backgroundColor ?? "#00000000").toBe("#00000000");
-  await app.press(allTime);
-  expect(app.shows("text:All time fixture")).toBe(true);
-  await app.press(trending);
-  await app.waitFor("text:Trending fixture");
-  expect(boards).toEqual(["trending", "all-time"]);
+  expect(app.shows("role:button[Recent fixture]")).toBe(true);
+  expect(app.shows(`label:${t.home_open_library}`)).toBe(true);
+  expect(app.shows(`role:tab[${t.board_all_time}]`)).toBe(false);
+  expect(app.shows("text:Added in the last 7 days")).toBe(false);
 });
 
-test("an uncached leaderboard uses skeleton rows and refresh keeps the visible ranking", async () => {
-  const ranking = (name: string) => ({ ok: true, value: [{
-    id: name, name, installs: 1200, source: "owner/repo", url: null,
-  }] });
-  let finishFirst!: (value: ReturnType<typeof ranking>) => void;
-  const first = new Promise<ReturnType<typeof ranking>>((resolve) => { finishFirst = resolve; });
-  let finishRefresh!: (value: ReturnType<typeof ranking>) => void;
-  const refresh = new Promise<ReturnType<typeof ranking>>((resolve) => { finishRefresh = resolve; });
-  let firstStarted!: () => void;
-  const firstRequest = new Promise<void>((resolve) => { firstStarted = resolve; });
-  let refreshStarted!: () => void;
-  const refreshRequest = new Promise<void>((resolve) => { refreshStarted = resolve; });
-  let allTimeRequests = 0;
-  const app = await openHome((command, input) => {
-    if (command !== "home.market") return { ok: true, value: { available: null } };
-    const { board } = input as { board: string };
-    if (board === "trending") return ranking("Trending fixture");
-    if (++allTimeRequests === 1) {
-      firstStarted();
-      return first;
+test("returning to Home keeps the loaded discovery preview", async () => {
+  const entries = ["First fixture", "Second fixture", "Third fixture"].map((name) => ({ id: name, name }));
+  let requests = 0;
+  const app = await openHome((command) => {
+    if (command === "home.market") {
+      requests += 1;
+      return { ok: true, value: entries };
     }
-    refreshStarted();
-    return refresh;
+    return { ok: true, value: command === "update.check" ? { available: null } : [] };
   });
 
-  const skeleton = "id:home-ranking-skeleton";
-  await app.waitFor("text:Trending fixture");
-  const switchBoard = app.press(`role:tab[${t.board_all_time}]`);
-  try {
-    await firstRequest;
-    await app.wait(32);
-    expect(app.shows(skeleton)).toBe(true);
-    expect(app.shows("text:Working…")).toBe(false);
-    expect(app.shows("text:Trending fixture")).toBe(false);
-    expect(app.enabled(`label:${t.home_refresh_market}`)).toBe(false);
-  } finally {
-    finishFirst(ranking("All time fixture"));
-    await switchBoard;
-  }
+  await app.waitFor("text:Third fixture");
+  expect(app.shows("id:home-ranking-skeleton")).toBe(false);
+  await app.press(`label:${t.nav_settings}`);
+  await app.press(`label:${t.nav_home}`);
+  expect(app.shows("text:Third fixture")).toBe(true);
+  expect(requests).toBe(1);
+});
 
-  await app.waitFor("text:All time fixture");
-  const refreshBoard = app.press(`label:${t.home_refresh_market}`);
-  try {
-    await refreshRequest;
-    await app.wait(32);
-    const pendingRefresh = `role:button[${t.home_market_loading}]`;
-    expect(app.shows(pendingRefresh)).toBe(true);
-    expect(app.enabled(pendingRefresh)).toBe(false);
-    expect(app.shows(skeleton)).toBe(false);
-    expect(app.shows("text:All time fixture")).toBe(true);
-    expect(app.shows("text:Working…")).toBe(false);
-  } finally {
-    finishRefresh(ranking("Refreshed fixture"));
-    await refreshBoard;
-  }
+test("the empty library offers the first install even when discovery is offline", async () => {
+  const app = await openHome((command) => {
+    if (command === "home.market") return { ok: false, code: "TEST_OFFLINE", message: "offline" };
+    if (command === "library.state") return { ok: true, value: { skills: [], agents: [], projects: [] } };
+    if (command === "discover.leaderboard") return { ok: true, value: { items: [], has_more: false } };
+    if (command === "discover.scan_adoptable") return { ok: true, value: { candidates: [] } };
+    return { ok: true, value: command === "update.check" ? { available: null } : [] };
+  }, { data: { skill_count: 0, deployed_count: 0, adoptable_count: 2, projects: [], recent: [] } });
 
-  await app.waitFor("text:Refreshed fixture");
-  expect(app.shows("text:All time fixture")).toBe(false);
-  expect(allTimeRequests).toBe(2);
+  await app.waitFor(`text:${t.home_first_skill}`);
+  await app.waitFor(`text:${t.home_market_unavailable}`);
+  expect(app.shows(`label:${t.home_browse_stacks}`)).toBe(true);
+  expect(app.shows(`label:${t.home_adopt_count.replace("{count}", "2")}`)).toBe(true);
+  expect(app.shows(`text:${t.home_recent}`)).toBe(false);
+  await app.press(`label:${t.btn_install_from_link}`);
+  await app.waitFor(`text:${getStrings("en").quick_install_title}`);
 });
 
 test("Library search releases focus on Escape and blank clicks without clearing the query", async () => {

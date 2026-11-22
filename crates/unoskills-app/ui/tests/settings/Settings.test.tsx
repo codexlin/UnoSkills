@@ -20,7 +20,7 @@ test("settings exposes deploy mode, appearance and text size as direct choices",
           case "settings.fonts":
             return { ok: true, value: [] };
           case "home.summary":
-            return { ok: true, value: { skill_count: 0, deployed_count: 0, agent_count: 0, adoptable_count: 0, activity: [], projects: [], recent: [] } };
+            return { ok: true, value: { skill_count: 0, deployed_count: 0, adoptable_count: 0, projects: [], recent: [] } };
           case "update.check":
             return { ok: true, value: { available: null } };
           default:
@@ -62,7 +62,7 @@ test("navigation uses the current palette and a long font list remains searchabl
             writes.push(input);
             return { ok: true, value: null };
           case "home.summary":
-            return { ok: true, value: { skill_count: 0, deployed_count: 0, agent_count: 0, adoptable_count: 0, activity: [], projects: [], recent: [] } };
+            return { ok: true, value: { skill_count: 0, deployed_count: 0, adoptable_count: 0, projects: [], recent: [] } };
           case "update.check":
             return { ok: true, value: { available: null } };
           default:
