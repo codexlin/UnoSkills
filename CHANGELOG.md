@@ -8,9 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.8.0] - 2026-11-22
+
 ### Added / 新增
 
 - **Skill update review and restore / 技能更新预览与恢复**. Review changed files and affected deployment paths in the Library before applying an update. Restore the previous local version and review missing or modified deployments while preserving their files. 在技能库确认更新前查看文件变更与受影响的部署路径，可恢复上一个本地版本。已缺失或手工修改的部署会列出处理提示，手工修改的文件会保留。
+
+### Changed / 改进
+
+- **Home workspace / 首页工作区**. See detected and enabled Agents, linked projects, and skills available to adopt. Open the corresponding page from each status, or continue from a recent project or skill. 首页可查看已检测和已启用的 Agent、已关联项目及待接管技能，点击即可进入对应页面，也能直接打开最近项目或技能。
+- **Trending skills / 热门技能**. Home shows up to six skills.sh trends with their sources and install counts. Short windows start with three rows and can expand the list. 首页展示最多六条 skills.sh 热门技能，附来源和安装量。矮窗口先显示三条，列表可展开。
 
 ## [v0.7.0] - 2026-11-22
 

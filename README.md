@@ -23,7 +23,7 @@
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-![UnoSkills Home showing the local workspace, recent projects, and the skills.sh leaderboard](assets/demo/home.png)
+![UnoSkills Home showing local status shortcuts, recent projects and skills, and trending skills](assets/demo/home.png)
 
 ## Install
 
@@ -37,9 +37,9 @@ Download the installer for your platform from [GitHub Releases](https://github.c
 
 Portable archives, including the macOS CLI, are available on the same release page. macOS builds are currently ad-hoc signed.
 
-### Upgrade from 0.6
+### Upgrading
 
-Install 0.7 over the existing app. The Native Shell desktop opens the same `~/.unoskills` library and settings as 0.6, as does the CLI. In **Settings → About & updates**, check for a release, download and verify the installer, then open it when ready.
+Install the latest release over your existing UnoSkills installation. The desktop app and CLI continue to use your `~/.unoskills` library and settings. In **Settings → About & updates**, check for a release, download and verify the installer, then open it when ready.
 
 ## Quick start
 
@@ -68,15 +68,15 @@ Select the skills you want and choose **Save as Stack**. If skills are missing f
 
 | Area | What it does |
 | --- | --- |
-| **Home** | Open recent projects, jump to My Stacks, and see library activity and the skills.sh leaderboard. |
-| **Library** | Preview or edit `SKILL.md`, check lint findings and token estimates, update skills, and manage per-agent deployments. |
+| **Home** | Check local Agent, project, and skill status, open recent work, and browse trending skills. |
+| **Library** | Preview or edit `SKILL.md`, check lint findings and token estimates, preview updates, restore the previous version, and manage per-Agent deployments. |
 | **Stacks** | Use featured or community stacks, create your own, and exchange portable TOML manifests. |
 | **Discover** | Search the marketplace, filter loaded results by source, install from links, or add existing local skills to the library. |
 | **Settings** | Choose a theme preset, search installed fonts, set the base text size, and configure language, agents, network access, and Git backup. |
 
 ## Desktop screenshots
 
-These screenshots show the 0.7 Linux desktop with a sample workspace.
+These Linux screenshots use a sample workspace.
 
 <details>
 <summary>Library and Stacks</summary>
