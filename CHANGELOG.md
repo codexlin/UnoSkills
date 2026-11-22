@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.8.1] - 2026-11-22
+
+### Fixed / 修复
+
+- **Theme presets / 主题预设**. All six presets now use their own light and dark foreground colors. Menus, primary actions, and switches update with the chosen appearance or a system appearance change. 六套主题直接使用各自的浅色与深色前景配色。菜单、主操作按钮和开关随手动外观或系统外观变化。
+- **Desktop controls / 桌面控件**. Cards and popups use their paired text colors. Input outlines, focus indicators, selected rows, and checkboxes follow the same theme rules across Settings, Library, Discover, Projects, and Stacks. 卡片和浮层使用各自的前景色。设置、技能库、发现、项目和技能组合中的输入边框、焦点、选中行与复选框遵循统一的取色规则。
+
+### Documentation / 文档
+
+- **Desktop design standards / 桌面设计规范**. `DESIGN.md` describes the shared Native Shell components, color roles, typography, layout, and verification standards. `DESIGN.md` 记录了共享 NSH 组件、配色角色、排版、布局和验收标准。
+
 ## [v0.8.0] - 2026-11-22
 
 ### Added / 新增
