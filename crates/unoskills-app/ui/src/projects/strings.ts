@@ -1,5 +1,5 @@
 import type { Locale } from "../shared";
-import type { DeployResult, DeployStatus, RecommendationPurpose } from "./host";
+import type { DeployOutcome, DeployResult, DeployStatus, RecommendationPurpose } from "./host";
 
 const rows = {
   projects: ["Projects", "项目", "プロジェクト"],
@@ -115,6 +115,7 @@ const rows = {
   deploymentFolder: ["Deployment Folder", "部署目录", "配備先フォルダー"],
   checking: ["Checking project skills…", "正在检查项目里的技能…", "プロジェクトのスキルを確認中…"],
   refreshDeployment: ["Refresh deployment status", "刷新部署状态", "配備状態を更新"],
+  deployChanged: ["Skipped because the source or destination changed after review.", "预览后来源或目标已变更，已跳过。", "確認後に配備元または配備先が変わったため、スキップしました。"],
   targetConflict: ["The target is occupied or has changed. Its files were kept.", "目标目录已被占用或内容已变更，原文件已保留。", "配備先が使用中か、内容が変更されています。既存のファイルを保持しました。"],
   createDescription: ["Bundle your favorite skills into a declarative TOML recipe to share via GitHub Gist or PR.", "从技能库勾选搭配，生成轻量声明式 TOML 清单，可通过 GitHub Gist 或 PR 分享。", "ライブラリからスキルを選んで TOML レシピを生成し、GitHub Gist や PR で共有できます。"],
   importDescription: ["Paste any `.unoskills-stack.toml` shared by a teammate or community author.", "粘贴团队成员或社区作者分享的 `.unoskills-stack.toml` 清单即可导入。", "共有された `.unoskills-stack.toml` を貼り付けて取り込みます。"],
@@ -123,6 +124,25 @@ const rows = {
   descriptionPlaceholder: ["When and how should agents use this stack together?", "说明这套技能适合什么场景、彼此怎么配合...", "どのような場面で各スキルを組み合わせるか..."],
   noLibrarySkills: ["Install skills or add local skills to the library before creating a stack.", "先安装技能或将本机技能纳入技能库，再创建组合。", "先にスキルを導入または取り込んでからスタックを作成してください。"],
   projectActions: ["Project actions", "项目操作", "プロジェクトの操作"],
+  version: ["Version", "版本", "バージョン"],
+  locked: ["Version locked", "版本已锁定", "バージョン固定済み"],
+  versionAvailable: ["Locked · Library version differs", "已锁定 · 技能库版本不同", "固定済み · ライブラリに別の版があります"],
+  versionChanged: ["Locked · Project files changed", "已锁定 · 项目文件已修改", "固定済み · プロジェクトのファイルが変更されています"],
+  followingLibrary: ["Following the library", "跟随技能库", "ライブラリに追従中"],
+  lockSkill: ["Lock Project Version", "锁定项目版本", "プロジェクトのバージョンを固定"],
+  lockExplanation: ["Keep the files this project uses, including supporting files, for this folder and its deployed agents.", "保留此项目文件夹及其已部署 Agent 当前使用的技能文件，包括辅助文件。", "このフォルダーと配備済みエージェントが使用しているファイルを補助ファイルごと保持します。"],
+  reviewUpgrade: ["Review Library Version", "查看技能库版本", "ライブラリ版を確認"],
+  reviewFollow: ["Review and Follow Library", "查看并跟随技能库", "確認してライブラリに追従"],
+  applyUpgrade: ["Upgrade Project and Keep Locked", "升级项目并保持锁定", "固定を維持してプロジェクトを更新"],
+  applyFollow: ["Follow Library", "跟随技能库", "ライブラリに追従"],
+  noVersionChanges: ["The project uses the same files as the library.", "项目与技能库使用相同的文件。", "プロジェクトとライブラリで同じファイルを使用しています。"],
+  versionAdded: ["Added", "新增", "追加"],
+  versionModified: ["Modified", "修改", "変更"],
+  versionRemoved: ["Removed", "删除", "削除"],
+  versionCurrent: ["Project version", "项目版本", "プロジェクト版"],
+  versionCandidate: ["Reviewed library version", "已审查的技能库版本", "確認したライブラリ版"],
+  versionApplied: ["Project version updated", "项目版本已更新", "プロジェクトのバージョンを更新しました"],
+  versionUnavailable: ["The library version is unavailable.", "技能库版本不可用。", "ライブラリ版を利用できません。"],
   switchProject: ["Switch project", "切换项目", "プロジェクトを切り替え"],
 } as const;
 
@@ -190,28 +210,32 @@ export function deploymentProgress(locale: Locale, status: DeployStatus, total: 
   }[locale];
 }
 
-export function deploymentUnavailable(locale: Locale, count: number): string {
-  return {
-    en: `${count} skills are missing or have a different source. Check the stack details.`,
-    "zh-CN": `${count} 项未入库或来源不符。可在组合详情检查。`,
-    ja: `${count} 件はライブラリにないか、ソースが異なります。スタックの詳細を確認してください。`,
-  }[locale];
-}
+const deployOutcomes = {
+  keep_local: ["Keep local version", "保留本地版本", "ローカル版を保持"],
+  occupied: ["Blocked · Existing or changed files will be kept", "已阻止 · 保留现有或已修改的文件", "配備不可 · 既存または変更済みのファイルを保持"],
+  unsafe_path: ["Blocked · Destination path is redirected or unsafe", "已阻止 · 目标路径已重定向或不安全", "配備不可 · 配備先がリダイレクトされているか、安全ではありません"],
+  other_source: ["Blocked · The library skill is from a different source", "已阻止 · 技能库中的技能来源不同", "配備不可 · ライブラリのスキルのソースが異なります"],
+  duplicate: ["Blocked · Another member uses this destination", "已阻止 · 另一成员使用同一目标", "配備不可 · 別のメンバーが同じ配備先を使用します"],
+  already_present: ["Already in project", "项目中已有", "プロジェクト内に配備済み"],
+  register: ["Link this Agent to the existing deployment", "将此 Agent 关联到现有部署", "既存の配備にこのエージェントを関連付け"],
+  ready: ["Ready to add", "可添加", "追加可能"],
+  global_only: ["Only available globally", "仅全局可用", "グローバルでのみ利用可能"],
+  unavailable: ["Unavailable · Install the skill first", "不可用 · 请先安装技能", "利用不可 · 先にスキルを導入してください"],
+} satisfies Record<DeployOutcome, readonly [string, string, string]>;
 
-export function deploymentConflicts(locale: Locale, count: number): string {
-  return {
-    en: `${count} deployment targets are occupied or have changed. Resolve them, then refresh.`,
-    "zh-CN": `${count} 项的目标目录已被占用或内容已变更。处理后可刷新状态。`,
-    ja: `${count} 件の配備先が使用中か、内容が変更されています。解決後に更新してください。`,
-  }[locale];
+export function deployOutcome(locale: Locale, outcome: DeployOutcome, includeGlobal: boolean): string {
+  const index = locale === "en" ? 0 : locale === "zh-CN" ? 1 : 2;
+  return outcome === "global_only" && includeGlobal
+    ? `${deployOutcomes.ready[index]} · ${deployOutcomes.global_only[index]}`
+    : deployOutcomes[outcome][index];
 }
 
 export function deploymentResult(locale: Locale, result: DeployResult): string {
-  const { deployed, failed, global_available, project_local } = result;
-  const available = global_available + project_local;
+  const { deployed, failed, skipped, global_available, project_local, already_deployed, registered } = result;
+  const project = project_local + already_deployed;
   return {
-    en: [`${deployed} deployed`, available ? `${available} already available` : "", `${failed.length} failed`].filter(Boolean).join(" · "),
-    "zh-CN": [`本次部署 ${deployed} 项`, available ? `已有 ${available} 项可用` : "", `失败 ${failed.length} 项`].filter(Boolean).join("，"),
-    ja: [`配備 ${deployed} 件`, available ? `利用可能 ${available} 件` : "", `失敗 ${failed.length} 件`].filter(Boolean).join("、"),
+    en: [`${deployed} deployed`, registered ? `${registered} linked to Agent` : "", project ? `${project} already in project` : "", global_available ? `${global_available} global only` : "", skipped.length ? `${skipped.length} skipped` : "", `${failed.length} failed`].filter(Boolean).join(" · "),
+    "zh-CN": [`本次部署 ${deployed} 项`, registered ? `关联到 Agent ${registered} 项` : "", project ? `项目中已有 ${project} 项` : "", global_available ? `仅全局可用 ${global_available} 项` : "", skipped.length ? `跳过 ${skipped.length} 项` : "", `失败 ${failed.length} 项`].filter(Boolean).join("，"),
+    ja: [`配備 ${deployed} 件`, registered ? `エージェントに関連付け ${registered} 件` : "", project ? `プロジェクト内 ${project} 件` : "", global_available ? `グローバルのみ ${global_available} 件` : "", skipped.length ? `スキップ ${skipped.length} 件` : "", `失敗 ${failed.length} 件`].filter(Boolean).join("、"),
   }[locale];
 }

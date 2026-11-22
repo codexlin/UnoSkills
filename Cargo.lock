@@ -6939,6 +6939,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -6947,6 +6948,7 @@ dependencies = [
  "toml 0.8.23",
  "uuid",
  "walkdir",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -3,8 +3,9 @@ import type { ScreenProps } from "../shared";
 import { ActionMenu, MenuAction } from "../components";
 import { Action, Check, Choice, Feedback, Footer, Header, Heading, Label, actions, confirm, row, viewport } from "./controls";
 import { load, operation, toggle } from "./state";
-import { attachProjectFromPicker, request, type Agent, type Project } from "./host";
+import { attachProjectFromPicker, request, type Agent, type InventoryRow, type Project, type VersionTarget } from "./host";
 import { projectRecommendationReason, projectSelectionCount, strings } from "./strings";
+import { ProjectVersionDialog } from "./versions";
 
 export function Projects(props: ScreenProps) {
   const t = () => strings(props.locale);
@@ -80,6 +81,13 @@ function ProjectDetail(props: {
     });
   });
   const op = operation(screen);
+  const version = signal<{ target: VersionTarget; path: string } | undefined>(undefined);
+  const versionSelection = computed(() => {
+    const selected = version();
+    if (!selected || !screen.active || selected.target.project_id !== projectId()
+      || selected.target.scope_path !== module()?.path || selected.target.agent_key !== agent()?.key) return undefined;
+    return inventory().data?.find((skill) => skill.path === selected.path && skill.skill_id === selected.target.skill_id);
+  });
   const overrides = signal<{ projectId: string; path: string; selected: ReadonlySet<string> } | undefined>(undefined);
   const selection = () => {
     const current = overrides();
@@ -100,11 +108,19 @@ function ProjectDetail(props: {
   }
   function chooseScope(scopePath: string) {
     overrides.set(undefined);
+    version.set(undefined);
     screen.navigate({ page: "projects", ...target(), scopePath });
   }
   const target = () => ({
     projectId: props.project.id, scopePath: module()?.path ?? "", agentKey: agent()?.key,
   });
+  function openVersion(skill: InventoryRow) {
+    const { projectId, scopePath, agentKey } = target();
+    if (!skill.skill_id || !agentKey) return;
+    version.set({ path: skill.path, target: {
+      project_id: projectId, scope_path: scopePath, agent_key: agentKey, skill_id: skill.skill_id,
+    } });
+  }
 
   function saveStack() {
     const { projectId, scopePath, agentKey } = target();
@@ -220,7 +236,7 @@ function ProjectDetail(props: {
             <Choice theme={screen.theme} label={t().selectAgent} compact
               options={props.agents.map((item) => ({ value: item.key, title: item.display_name }))}
               value={agent()?.key ?? null} disabled={op.busy()}
-              choose={(agentKey) => screen.navigate({ page: "projects", ...target(), agentKey })} />
+              choose={(agentKey) => { version.set(undefined); screen.navigate({ page: "projects", ...target(), agentKey }); }} />
           </View>
         </View>
         <If when={inventory().pending || inventory().error || !agent() || inventory().data?.length === 0}>
@@ -230,14 +246,21 @@ function ProjectDetail(props: {
             <If when={inventory().data?.length === 0}><Label theme={screen.theme} label={t().emptyInventory} muted /></If>
           </View>
         </If>
-        <List each={inventory().data ?? []} estimatedItemSize={48} style={viewport} keyExtractor={(skill) => skill.path}>
-          {(skill) => <View style={{ height: 48, paddingHorizontal: 12, justifyContent: "center", gap: 2,
+        <List each={inventory().data ?? []} estimatedItemSize={62} style={viewport} keyExtractor={(skill) => skill.path}>
+          {(skill) => <View style={{ minHeight: 62, paddingHorizontal: 12, paddingVertical: 6, justifyContent: "center", gap: 2,
             borderBottomWidth: 1, borderColor: screen.theme.border }}>
             <View style={row}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Label theme={screen.theme} color={screen.theme.panel.foreground} label={skill().name} weight="500" lines={1} />
+                <Label theme={screen.theme} label={skill().locked_hash
+                  ? skill().location === "project_changed" ? t().versionChanged
+                    : skill().library_different ? t().versionAvailable : t().locked
+                  : t()[skill().location]} muted />
               </View>
-              <Label theme={screen.theme} label={t()[skill().location]} muted size={12} lines={1} />
+              <If when={skill().location === "project_deployment" && skill().skill_id}>
+                <Action theme={screen.theme} label={t().version} accessibilityLabel={`${t().version} · ${skill().name}`}
+                  ghost compact disabled={op.busy()} run={() => openVersion(skill())} />
+              </If>
             </View>
             <Label theme={screen.theme} label={skill().path} title={skill().path} muted size={12} lines={1} />
           </View>}
@@ -251,5 +274,9 @@ function ProjectDetail(props: {
       <Action theme={screen.theme} label={t().saveRecommendations} glyph="plus" primary pending={op.busy()}
         disabled={projectsScan().pending || members().length === 0} run={saveStack} />
     </Footer>
+    <If when={versionSelection()}>
+      {(skill) => <ProjectVersionDialog screen={screen} skill={skill()} target={version()!.target}
+        close={() => version.set(undefined)} />}
+    </If>
   </>;
 }

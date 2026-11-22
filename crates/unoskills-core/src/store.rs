@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::domain::{
-    AgentCategory, DeployMode, Deployment, ProjectDeployment, ProjectWorkspace, Skill, SourceType,
-    StackManifest,
+    AgentCategory, DeployMode, Deployment, ProjectDeployment, ProjectSkillLock, ProjectWorkspace,
+    Skill, SourceType, StackManifest,
 };
 use crate::registry::CustomAgentRecord;
 
@@ -105,6 +105,7 @@ impl Store {
                 tags: Vec::new(),
                 deployments: Vec::new(),
                 project_deployments: Vec::new(),
+                project_locks: Vec::new(),
                 created_at: row.get(11)?,
                 updated_at: row.get(12)?,
             })
@@ -114,11 +115,13 @@ impl Store {
         let mut tags_map = load_all_tags(&conn)?;
         let mut dep_map = load_all_deployments(&conn)?;
         let mut proj_dep_map = load_all_project_deployments(&conn)?;
+        let mut proj_lock_map = load_project_locks(&conn)?;
 
         for skill in &mut skills {
             skill.tags = tags_map.remove(&skill.id).unwrap_or_default();
             skill.deployments = dep_map.remove(&skill.id).unwrap_or_default();
             skill.project_deployments = proj_dep_map.remove(&skill.id).unwrap_or_default();
+            skill.project_locks = proj_lock_map.remove(&skill.id).unwrap_or_default();
         }
         Ok(skills)
     }
@@ -438,13 +441,14 @@ impl Store {
     pub fn upsert_project_deployment(&self, dep: &ProjectDeployment) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO project_deployments (id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash, scope_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO project_deployments (id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash, scope_path, follow_mode)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(skill_id, project_id, agent_key, scope_path) DO UPDATE SET
                 target_path = excluded.target_path,
                 mode = excluded.mode,
                 synced_at = excluded.synced_at,
-                copy_hash = excluded.copy_hash",
+                copy_hash = excluded.copy_hash,
+                follow_mode = excluded.follow_mode",
             params![
                 dep.id,
                 dep.skill_id,
@@ -455,6 +459,7 @@ impl Store {
                 dep.synced_at,
                 dep.copy_hash,
                 dep.scope_path.to_string_lossy(),
+                dep.follow_mode.map(|mode| mode.as_str()),
             ],
         )?;
         Ok(())
@@ -475,7 +480,10 @@ impl Store {
         )?;
         transaction.execute(
             "UPDATE project_deployments SET copy_hash = ?1
-             WHERE skill_id = ?2 AND target_path = ?3 AND mode = 'copy'",
+             WHERE skill_id = ?2 AND target_path = ?3 AND mode = 'copy' AND NOT EXISTS (
+                 SELECT 1 FROM project_skill_locks l WHERE l.skill_id = project_deployments.skill_id
+                   AND l.project_id = project_deployments.project_id AND l.scope_path = project_deployments.scope_path
+             )",
             params![copy_hash, skill_id, target_path.to_string_lossy()],
         )?;
         transaction.commit()?;
@@ -488,14 +496,77 @@ impl Store {
         Ok(())
     }
 
+    pub(crate) fn update_project_versions(
+        &self,
+        deployments: &[ProjectDeployment],
+        locked_hash: Option<&str>,
+    ) -> Result<()> {
+        let first = deployments.first().context("Missing project deployments")?;
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        for dep in deployments {
+            let updated = transaction.execute(
+                "UPDATE project_deployments SET mode = ?1, copy_hash = ?2, synced_at = ?3,
+                 follow_mode = ?4 WHERE id = ?5 AND target_path = ?6",
+                params![
+                    dep.mode.as_str(),
+                    dep.copy_hash,
+                    dep.synced_at,
+                    dep.follow_mode.map(|mode| mode.as_str()),
+                    dep.id,
+                    dep.target_path.to_string_lossy()
+                ],
+            )?;
+            anyhow::ensure!(
+                updated == 1,
+                "STALE_PROJECT_VERSION: A deployment record changed"
+            );
+        }
+        if let Some(hash) = locked_hash {
+            transaction.execute(
+                "INSERT INTO project_skill_locks (project_id, scope_path, skill_id, version_hash)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(project_id, scope_path, skill_id) DO UPDATE SET version_hash = excluded.version_hash",
+                params![first.project_id, first.scope_path.to_string_lossy(), first.skill_id, hash],
+            )?;
+        } else {
+            transaction.execute(
+                "DELETE FROM project_skill_locks WHERE project_id = ?1 AND scope_path = ?2 AND skill_id = ?3",
+                params![first.project_id, first.scope_path.to_string_lossy(), first.skill_id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn locked_project_target_paths(&self) -> Result<Vec<PathBuf>> {
+        let conn = self.conn.lock().unwrap();
+        let mut statement = conn.prepare(
+            "SELECT DISTINCT p.target_path FROM project_deployments p JOIN project_skill_locks l
+             USING (skill_id, project_id, scope_path)",
+        )?;
+        let paths = statement.query_map([], |row| row.get::<_, String>(0).map(PathBuf::from))?;
+        Ok(paths.collect::<std::result::Result<_, _>>()?)
+    }
+
+    pub(crate) fn project_snapshot_is_referenced(&self, hash: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM project_skill_locks WHERE version_hash = ?1)",
+            [hash],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn list_project_deployments_for_project(
         &self,
         project_id: &str,
     ) -> Result<Vec<ProjectDeployment>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash, scope_path
-             FROM project_deployments WHERE project_id = ?1 ORDER BY agent_key ASC",
+            "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash, scope_path, version_hash, follow_mode
+             FROM project_deployments LEFT JOIN project_skill_locks USING (skill_id, project_id, scope_path)
+             WHERE project_id = ?1 ORDER BY agent_key ASC",
         )?;
         let rows = stmt.query_map(params![project_id], project_deployment_from_row)?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
@@ -543,8 +614,9 @@ fn load_all_project_deployments(
     conn: &Connection,
 ) -> Result<HashMap<String, Vec<ProjectDeployment>>> {
     let mut stmt = conn.prepare(
-        "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash, scope_path
-         FROM project_deployments ORDER BY project_id ASC, agent_key ASC",
+        "SELECT id, skill_id, project_id, agent_key, target_path, mode, synced_at, copy_hash, scope_path, version_hash, follow_mode
+         FROM project_deployments LEFT JOIN project_skill_locks USING (skill_id, project_id, scope_path)
+         ORDER BY project_id ASC, agent_key ASC",
     )?;
     let mut map: HashMap<String, Vec<ProjectDeployment>> = HashMap::new();
     let rows = stmt.query_map([], project_deployment_from_row)?;
@@ -553,6 +625,28 @@ fn load_all_project_deployments(
         map.entry(dep.skill_id.clone()).or_default().push(dep);
     }
     Ok(map)
+}
+
+fn load_project_locks(conn: &Connection) -> Result<HashMap<String, Vec<ProjectSkillLock>>> {
+    let mut statement = conn.prepare(
+        "SELECT skill_id, project_id, scope_path, version_hash FROM project_skill_locks",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            ProjectSkillLock {
+                project_id: row.get(1)?,
+                scope_path: PathBuf::from(row.get::<_, String>(2)?),
+                hash: row.get(3)?,
+            },
+        ))
+    })?;
+    let mut locks = HashMap::<String, Vec<ProjectSkillLock>>::new();
+    for row in rows {
+        let (skill_id, lock) = row?;
+        locks.entry(skill_id).or_default().push(lock);
+    }
+    Ok(locks)
 }
 
 fn project_deployment_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectDeployment> {
@@ -566,6 +660,11 @@ fn project_deployment_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Proj
         synced_at: row.get(6)?,
         copy_hash: row.get(7)?,
         scope_path: PathBuf::from(row.get::<_, String>(8)?),
+        locked_hash: row.get(9)?,
+        follow_mode: row
+            .get::<_, Option<String>>(10)?
+            .as_deref()
+            .map(DeployMode::from_str_lossy),
     })
 }
 
@@ -688,6 +787,48 @@ fn migrate(conn: &mut Connection) -> Result<()> {
                 FROM project_deployments;
             DROP TABLE project_deployments;
             ALTER TABLE scoped_project_deployments RENAME TO project_deployments;",
+        )?;
+    }
+    let has_follow_mode: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_deployments') WHERE name = 'follow_mode')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_follow_mode {
+        transaction.execute(
+            "ALTER TABLE project_deployments ADD COLUMN follow_mode TEXT",
+            [],
+        )?;
+    }
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS project_skill_locks (
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            scope_path TEXT NOT NULL,
+            skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+            version_hash TEXT NOT NULL,
+            PRIMARY KEY(project_id, scope_path, skill_id)
+        );",
+    )?;
+    let has_locked_hash: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_deployments') WHERE name = 'locked_hash')",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_locked_hash {
+        let inconsistent: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM project_deployments
+             GROUP BY project_id, scope_path, skill_id
+             HAVING COUNT(locked_hash) > 0 AND
+                (COUNT(locked_hash) != COUNT(*) OR COUNT(DISTINCT locked_hash) > 1))",
+            [],
+            |row| row.get(0),
+        )?;
+        anyhow::ensure!(!inconsistent, "Inconsistent legacy project version locks");
+        transaction.execute_batch(
+            "INSERT INTO project_skill_locks (project_id, scope_path, skill_id, version_hash)
+             SELECT DISTINCT project_id, scope_path, skill_id, locked_hash
+             FROM project_deployments WHERE locked_hash IS NOT NULL;
+             ALTER TABLE project_deployments DROP COLUMN locked_hash;",
         )?;
     }
     transaction.commit()?;

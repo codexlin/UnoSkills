@@ -3,14 +3,96 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use unoskills_core::project_analysis::{RecommendationPurpose, SkillLocation};
 use unoskills_core::stacks::parse_stack_from_toml;
-use unoskills_core::{Skill, StackManifest, StackSkillRef, StackSource, UnoSkillsManager};
+use unoskills_core::{
+    PreparedProjectVersion, ProjectDeployPreview, ProjectVersionIntent, Skill, StackManifest,
+    StackSkillRef, StackSource, UnoSkillsManager,
+};
 
 // Host requests run on multiple workers. Keep stale-preview checks and their
 // writes ordered with other mutations initiated from these screens.
 static MUTATIONS: Mutex<()> = Mutex::new(());
+
+#[derive(Default)]
+pub(super) struct VersionPreviews {
+    pending: Mutex<Vec<PreparedProjectVersion>>,
+}
+
+#[derive(Deserialize)]
+struct VersionTarget {
+    project_id: String,
+    scope_path: PathBuf,
+    agent_key: String,
+    skill_id: String,
+}
+
+#[derive(Deserialize)]
+struct VersionRequest {
+    #[serde(flatten)]
+    target: VersionTarget,
+    intent: ProjectVersionIntent,
+}
+
+impl VersionPreviews {
+    pub(super) fn dispatch(
+        &self,
+        manager: &UnoSkillsManager,
+        command: &str,
+        input: &Value,
+    ) -> Option<Result<Value>> {
+        Some(match command {
+            "project.lock_skill" => (|| {
+                let target: VersionTarget = serde_json::from_value(input.clone())?;
+                manager.lock_project_skill(
+                    &target.project_id,
+                    &target.scope_path,
+                    &target.agent_key,
+                    &target.skill_id,
+                )?;
+                Ok(Value::Null)
+            })(),
+            "project.prepare_version" => (|| {
+                let request: VersionRequest = serde_json::from_value(input.clone())?;
+                let target = request.target;
+                let prepared = manager.prepare_project_version(
+                    &target.project_id,
+                    &target.scope_path,
+                    &target.agent_key,
+                    &target.skill_id,
+                    request.intent,
+                )?;
+                let result = serde_json::to_value(prepared.review())?;
+                let mut pending = self.pending.lock().unwrap();
+                if pending.len() == 8 {
+                    pending.remove(0);
+                }
+                pending.push(prepared);
+                Ok(result)
+            })(),
+            "project.apply_version" | "project.cancel_version" => (|| {
+                let id = required(input, "preview_id")?;
+                let prepared = {
+                    let mut pending = self.pending.lock().unwrap();
+                    pending
+                        .iter()
+                        .position(|item| item.review().id == id)
+                        .map(|index| pending.remove(index))
+                };
+                if command == "project.apply_version" {
+                    manager
+                        .apply_project_version(prepared.context(
+                            "STALE_PROJECT_VERSION: Review the project version again",
+                        )?)?;
+                }
+                Ok(Value::Null)
+            })(),
+            _ => return None,
+        })
+    }
+}
 
 pub(super) fn dispatch(manager: &UnoSkillsManager, command: &str, input: Value) -> Result<Value> {
     let _mutation = matches!(
@@ -183,6 +265,9 @@ fn inventory(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
             .map(|skill| json!({
                 "name": skill.name,
                 "path": skill.path,
+                    "skill_id": skill.skill_id,
+                    "locked_hash": skill.locked_hash,
+                    "library_different": skill.library_different,
                 "location": match skill.location {
                     SkillLocation::ProjectDeployment => "project_deployment",
                     SkillLocation::ProjectChanged => "project_changed",
@@ -366,42 +451,110 @@ fn deploy(manager: &UnoSkillsManager, command: &str, input: &Value) -> Result<Va
     let project = required(input, "project_id")?;
     let agent = required(input, "agent_key")?;
     let scope = scope(input)?;
-    let status = manager.stack_project_deploy_status_at(&stack, project, agent, scope)?;
     if command == "stack.preview_deploy" {
-        return Ok(json!({
-            "deployed": status.deployed,
-            "global_available": status.global_available,
-            "project_local": status.project_local,
-            "pending": status.pending,
-            "unavailable": status.unavailable,
-            "conflicts": status.conflicts,
-        }));
+        return Ok(json!(
+            manager.preview_project_stack(&stack, project, agent, scope)?
+        ));
     }
     let include_global = input["include_global"].as_bool().unwrap_or_default();
-    ensure!(
-        status.pending_count(include_global) > 0,
-        "No skills can be deployed to this scope"
-    );
-    let result = manager.deploy_stack_to_project_at_with_globals(
+    let reviewed: ProjectDeployPreview = serde_json::from_value(input["reviewed"].clone())
+        .context("Missing reviewed deployment preview")?;
+    Ok(json!(manager.apply_project_stack_preview(
         &stack,
         project,
         agent,
         scope,
+        reviewed,
         include_global,
-    )?;
-    Ok(json!({
-        "deployed": result.deployed,
-        "already_deployed": result.already_deployed,
-        "global_available": result.global_available,
-        "project_local": result.project_local,
-        "unavailable": result.unavailable,
-        "failed": result.failed,
-    }))
+    )?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelling_and_evicting_project_reviews_drops_their_staging() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = UnoSkillsManager::open_at(dir.path().join("library")).unwrap();
+        let source = dir.path().join("reviewer");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("SKILL.md"), "# Reviewer\nFirst version").unwrap();
+        let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+        let workspace = dir.path().join("project");
+        fs::create_dir(&workspace).unwrap();
+        let project = manager.add_project(&workspace, None).unwrap();
+        manager
+            .set_agent_override("codex", dir.path().join("codex").to_str())
+            .unwrap();
+        manager
+            .deploy_skill_to_project(
+                &skill.id,
+                &project.id,
+                "codex",
+                Some(unoskills_core::DeployMode::Copy),
+                false,
+            )
+            .unwrap();
+        manager
+            .lock_project_skill(&project.id, Path::new(""), "codex", &skill.id)
+            .unwrap();
+        manager
+            .save_skill_markdown(&skill.id, "# Reviewer\nNew version")
+            .unwrap();
+
+        let staging_count = || {
+            fs::read_dir(manager.root_dir())
+                .unwrap()
+                .filter(|entry| {
+                    entry
+                        .as_ref()
+                        .unwrap()
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".project-version-review-")
+                })
+                .count()
+        };
+        let durable = manager.root_dir().join(".project-versions");
+        let previews = VersionPreviews::default();
+        let request = json!({ "project_id": project.id, "scope_path": "", "agent_key": "codex", "skill_id": skill.id, "intent": "upgrade" });
+        let first = previews
+            .dispatch(&manager, "project.prepare_version", &request)
+            .unwrap()
+            .unwrap();
+        for _ in 0..8 {
+            previews
+                .dispatch(&manager, "project.prepare_version", &request)
+                .unwrap()
+                .unwrap();
+        }
+        assert_eq!(staging_count(), 8);
+        assert_eq!(fs::read_dir(&durable).unwrap().count(), 1);
+        let expired = json!({ "preview_id": first["id"] });
+        assert!(
+            previews
+                .dispatch(&manager, "project.apply_version", &expired)
+                .unwrap()
+                .is_err()
+        );
+        let review = previews
+            .dispatch(&manager, "project.prepare_version", &request)
+            .unwrap()
+            .unwrap();
+        previews
+            .dispatch(
+                &manager,
+                "project.cancel_version",
+                &json!({ "preview_id": review["id"] }),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(staging_count(), 7);
+        drop(previews);
+        assert_eq!(staging_count(), 0);
+        assert_eq!(fs::read_dir(durable).unwrap().count(), 1);
+    }
 
     #[test]
     fn stack_import_confirm_requires_the_same_manifest_seen_at_preview() {

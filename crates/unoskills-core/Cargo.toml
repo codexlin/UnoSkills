@@ -21,5 +21,9 @@ toml.workspace = true
 uuid.workspace = true
 walkdir.workspace = true
 
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+rustix = { version = "1", features = ["fs"] }
+
 [target.'cfg(windows)'.dependencies]
 junction = "1"
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
