@@ -9,6 +9,9 @@ type Project = { id: string; name: string; path: string };
 type Summary = {
   skill_count: number;
   deployed_count: number;
+  project_count: number;
+  agent_count: number;
+  enabled_agent_count: number;
   adoptable_count: number;
   recent: RecentSkill[];
   projects: Project[];
@@ -18,7 +21,9 @@ type TrendingSkill = { id: string; name: string; source: string; installs: numbe
 const row = { flexDirection: "row", alignItems: "center" } as const;
 const wrapRow = { ...row, flexWrap: "wrap", columnGap: 10, rowGap: 6 } as const;
 const pane = { minWidth: 0, gap: 6, padding: 14 } as const;
-const marketTile = { minWidth: 0, minHeight: 80, gap: 2, padding: 12 } as const;
+const marketRow = { ...row, minHeight: 36, paddingHorizontal: 12, gap: 12 } as const;
+const compactRankLimit = 3;
+const fullRankLimit = 6;
 
 export function Home(props: ScreenProps & { onAdoptableCount: (count: number) => void }) {
   const t = () => strings[props.locale];
@@ -27,11 +32,14 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
   const summaryError = signal("");
   const trending = signal<TrendingSkill[] | null>(null);
   const marketUnavailable = signal(false);
+  const expandedRanking = signal(false);
   const attaching = signal(false);
   const emptyLibrary = () => summary()?.skill_count === 0;
   const splitWorkspace = () =>
     windowSize().width >= 1200 && !emptyLibrary() && (summary()?.projects.length ?? 0) > 0;
-  const marketColumns = () => windowSize().width >= 900;
+  const compactRanking = () => windowSize().height < 720;
+  const rankLimit = () => compactRanking() && !expandedRanking() ? compactRankLimit : fullRankLimit;
+  const formatCount = (count: number) => count.toLocaleString(props.locale);
   const installSkill = () => props.navigate({ page: "discover", tab: "install" });
   const openLeaderboard = () => props.navigate({ page: "discover", tab: "trending" });
 
@@ -84,14 +92,6 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
     openLeaderboard();
   }
 
-  function adoptLocal(count: number) {
-    return count > 0
-      ? <Action theme={theme()} variant="ghost" size="compact" glyph="archive-restore"
-          label={t().home_adopt_count.replace("{count}", count.toLocaleString(props.locale))}
-          onPress={() => props.navigate({ page: "discover", tab: "adopt" })} />
-      : null;
-  }
-
   return <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
     <PageHeader theme={theme()} title={t().nav_home}>
       {(summary() && !emptyLibrary()) || summaryError()
@@ -112,6 +112,21 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
             </View>
           : null}
         <If when={summary()}>{(data) => <>
+          <View style={{ ...panelSurface(theme()), padding: 4, gap: 4,
+            flexDirection: windowSize().width < 680 ? "column" : "row" }}>
+            <StatusShortcut theme={theme()} glyph="bot" label={t().home_agents}
+              value={t().home_agent_counts.replace("{detected}", formatCount(data().agent_count))
+                .replace("{enabled}", formatCount(data().enabled_agent_count))}
+              onPress={() => props.navigate({ page: "settings", tab: "agents" })} />
+            <StatusShortcut theme={theme()} glyph="folder-open" label={t().home_linked_projects}
+              value={formatCount(data().project_count)}
+              onPress={() => props.navigate({ page: "projects", tab: "choose" })} />
+            {data().adoptable_count > 0
+              ? <StatusShortcut theme={theme()} glyph="archive-restore" label={t().home_adoptable_skills}
+                  value={formatCount(data().adoptable_count)}
+                  onPress={() => props.navigate({ page: "discover", tab: "adopt" })} />
+              : null}
+          </View>
           {emptyLibrary() ? <View style={{ ...panelSurface(theme()), gap: 8, padding: 16 }}>
             <Label theme={theme()} heading size={textSize(theme(), 20)}>{t().home_first_skill}</Label>
             <Label theme={theme()} muted>{t().home_first_skill_desc}</Label>
@@ -120,7 +135,6 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
               <Action theme={theme()} variant="outline" glyph="layers" label={t().home_browse_stacks}
                 onPress={() => props.navigate({ page: "stacks", source: "Featured" })} />
             </View>
-            {adoptLocal(data().adoptable_count)}
           </View> : null}
 
           <View style={panelSurface(theme())}>
@@ -148,8 +162,8 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
                     onPress={() => props.navigate({ page: "library" })} />
                 </HomeHeading>
                 <Label theme={theme()} muted size={textSize(theme(), 13)}>{t().home_library_count
-                  .replace("{total}", data().skill_count.toLocaleString(props.locale))
-                  .replace("{deployed}", data().deployed_count.toLocaleString(props.locale))}</Label>
+                  .replace("{total}", formatCount(data().skill_count))
+                  .replace("{deployed}", formatCount(data().deployed_count))}</Label>
                 <Label theme={theme()} weight="600" size={textSize(theme(), 12)}>{t().home_recent}</Label>
                 <View>
                   <Each of={data().recent} key={(skill) => skill.id}>{(skill) =>
@@ -162,7 +176,6 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
             {!emptyLibrary() ? <View style={{ ...wrapRow, padding: 8, borderTopWidth: 1, borderColor: theme().border }}>
               <Action theme={theme()} variant="ghost" size="compact" glyph="layers" label={t().tab_my_stacks}
                 onPress={() => props.navigate({ page: "stacks", source: "Local" })} />
-              {adoptLocal(data().adoptable_count)}
             </View> : null}
           </View>
         </>}</If>
@@ -174,44 +187,71 @@ export function Home(props: ScreenProps & { onAdoptableCount: (count: number) =>
           </HomeHeading>
           {marketUnavailable() ? <Label theme={theme()} muted>{t().home_market_unavailable}</Label> : null}
           {trending()?.length === 0 ? <Label theme={theme()} muted>{t().home_market_empty}</Label> : null}
-          <View style={{ flexDirection: marketColumns() ? "row" : "column", gap: 10 }}>
-            {!trending() && !marketUnavailable()
-              ? <View testID="home-ranking-skeleton" role="summary" accessibilityLabel={t().home_market_loading}
-                  accessibilityState={{ busy: true }}
-                  style={{ flexGrow: 1, flexDirection: marketColumns() ? "row" : "column", gap: 10 }}>
-                  <Each of={[0, 1, 2]}>{() =>
-                    <View style={{ ...panelSurface(theme()), ...marketTile, flex: marketColumns() ? 1 : undefined, gap: 8 }}>
-                      <SkeletonBlock theme={theme()} width="65%" height={13} />
-                      <SkeletonBlock theme={theme()} width="46%" height={10} />
-                      <SkeletonBlock theme={theme()} width="30%" height={10} />
-                    </View>
-                  }</Each>
-                </View>
-              : null}
-            <Each of={trending() ?? []} key={(skill) => skill.id}>{(skill) =>
-              <ActionControl theme={theme()} role={skill().url ? "link" : "button"}
-                accessibilityLabel={`${skill().name} · ${skill().url ? t().home_market_details : t().home_view_market}`}
-                tooltip={<Hint theme={theme()} text={skill().name} />}
-                style={{ ...panelSurface(theme()), ...marketTile, flex: marketColumns() ? 1 : undefined }}
-                onPress={() => void openTrending(skill())}>
-                <View style={{ ...row, gap: 6 }}>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Label theme={theme()} weight="600" truncate>{skill().name}</Label>
+          {!trending() && !marketUnavailable()
+            ? <View testID="home-ranking-skeleton" role="summary" accessibilityLabel={t().home_market_loading}
+                accessibilityState={{ busy: true }} style={panelSurface(theme())}>
+                <Each of={Array.from({ length: rankLimit() }, (_, index) => index)}>{() =>
+                  <View style={marketRow}>
+                    <SkeletonBlock theme={theme()} width="30%" height={12} />
+                    <View style={{ flex: 1 }} />
+                    <SkeletonBlock theme={theme()} width={64} height={10} />
                   </View>
-                  <Icon name={skill().url ? "external-link" : "chevron-right"} color={theme().muted} size={12} />
+                }</Each>
+              </View>
+            : null}
+          <If when={(trending()?.length ?? 0) > 0}>
+            <View style={panelSurface(theme())}>
+              <Each of={trending()?.slice(0, rankLimit()) ?? []} key={(skill) => skill.id}>{(skill, index) =>
+                <View style={{ borderTopWidth: index() > 0 ? 1 : 0, borderColor: theme().border }}>
+                  <ActionControl theme={theme()} role={skill().url ? "link" : "button"}
+                    accessibilityLabel={`${skill().name} · ${skill().url ? t().home_market_details : t().home_view_market}`}
+                    tooltip={<Hint theme={theme()} text={skill().source ? `${skill().name} · ${skill().source}` : skill().name} />}
+                    style={{ ...marketRow, borderRadius: theme().control.radius }}
+                    onPress={() => void openTrending(skill())}>
+                    <View style={{ ...row, flex: 1, minWidth: 0, gap: 10 }}>
+                      <View style={{ maxWidth: skill().source ? "62%" : "100%", flexShrink: 1, minWidth: 0 }}>
+                        <Label theme={theme()} weight="500" truncate>{skill().name}</Label>
+                      </View>
+                      {skill().source
+                        ? <View style={{ flex: 1, minWidth: 0 }}>
+                            <Label theme={theme()} muted truncate size={textSize(theme(), 12)}>{skill().source}</Label>
+                          </View>
+                        : null}
+                    </View>
+                    <Label theme={theme()} muted size={textSize(theme(), 12)}>{t().home_market_installs
+                      .replace("{count}", formatCount(skill().installs))}</Label>
+                    <Icon name={skill().url ? "external-link" : "chevron-right"} color={theme().muted} size={12} />
+                  </ActionControl>
                 </View>
-                {skill().source
-                  ? <Label theme={theme()} muted truncate size={textSize(theme(), 12)}>{skill().source}</Label>
-                  : null}
-                <Label theme={theme()} muted size={textSize(theme(), 12)}>{t().home_market_installs
-                  .replace("{count}", skill().installs.toLocaleString(props.locale))}</Label>
-              </ActionControl>
-            }</Each>
-          </View>
+              }</Each>
+              {compactRanking() && (trending()?.length ?? 0) > compactRankLimit
+                ? <View style={{ ...row, padding: 4, justifyContent: "center", borderTopWidth: 1, borderColor: theme().border }}>
+                    <Action theme={theme()} variant="ghost" size="compact"
+                      label={expandedRanking() ? t().home_market_show_less : t().home_market_show_more}
+                      onPress={() => expandedRanking.update((current) => !current)} />
+                  </View>
+                : null}
+            </View>
+          </If>
         </View>
       </View>
     </Scroll>
   </View>;
+}
+
+function StatusShortcut(props: {
+  theme: Theme; glyph: "bot" | "folder-open" | "archive-restore"; label: string; value: string; onPress: () => void;
+}) {
+  return <ActionControl theme={props.theme} accessibilityLabel={`${props.label} · ${props.value}`} onPress={props.onPress}
+    style={{ ...row, flexGrow: 1, minWidth: 0, minHeight: 56, gap: 10, paddingHorizontal: 12, paddingVertical: 6,
+      borderRadius: props.theme.control.radius }}>
+    <Icon name={props.glyph} color={props.theme.muted} />
+    <View style={{ flex: 1, minWidth: 0 }}>
+      <Label theme={props.theme} weight="500">{props.label}</Label>
+      <Label theme={props.theme} muted size={textSize(props.theme, 12)}>{props.value}</Label>
+    </View>
+    <Icon name="chevron-right" color={props.theme.muted} size={12} />
+  </ActionControl>;
 }
 
 function HomeHeading(props: { theme: Theme; title: string; children?: JSX.Element }) {
