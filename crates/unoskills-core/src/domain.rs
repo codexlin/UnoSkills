@@ -329,6 +329,7 @@ pub enum ProjectSkillPlacement {
 pub struct ProjectSkillStatus {
     pub placement: ProjectSkillPlacement,
     pub global_available: bool,
+    pub retained_pin: bool,
 }
 
 impl ProjectSkillStatus {

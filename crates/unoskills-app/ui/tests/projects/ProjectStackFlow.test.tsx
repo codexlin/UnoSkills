@@ -30,10 +30,11 @@ const scanned: Module[] = [
 
 type Call = { command: string; input: unknown };
 
-async function openFixture(localStacks = [longStack, secondLocal], versionFixture = false, registration = false) {
+async function openFixture(localStacks = [longStack, secondLocal], versionFixture = false, registration = false, managementFixture = false) {
   let local = localStacks;
   let deployed = false;
-  let lock = "";
+  let lock = managementFixture ? "original" : "";
+  let projectDeployment = versionFixture;
   const calls: Call[] = [];
   const ok = (value: unknown) => ({ ok: true, value });
   const app = await open("./StackShortcutHarness.tsx", {
@@ -54,16 +55,29 @@ async function openFixture(localStacks = [longStack, secondLocal], versionFixtur
           case "stack.community": return ok([community]);
           case "stack.members": return ok((local.find(({ id }) => id === (input as { stack_id: string }).stack_id) ?? featured).skills
             .map((item) => ({ member: item, installed: { id: item.name }, source_conflict: false })));
-          case "project.list": return ok({ projects: [project], agents });
+          case "project.list": return ok({ projects: [project], agents, agent_usage: managementFixture
+            ? [{ project_id: project.id, scope_path: scope, agent_key: "codex" }] : [] });
           case "project.scan": return ok(scanned);
           case "project.scopes": return ok(scanned.map(({ path }) => path));
           case "project.inventory": return ok((input as ProjectScope).scope_path === scope
-            ? versionFixture ? [{
+            && (!managementFixture || (input as ProjectScope).agent_key === "codex")
+            ? projectDeployment ? [{
               name: "reviewer", path: "/fixture/repo/apps/web/.agents/skills/reviewer",
-              skill_id: "reviewer-id", locked_hash: lock || null, library_different: lock === "original",
+              skill_id: "reviewer-id", deployment_id: "deployment-id",
+              locked_hash: lock || null, library_different: lock === "original",
               location: "project_deployment",
-            }] : [{ name: "Globally available fixture", path: "/fixture/agents/fixture", location: "global" }]
+            }] : [
+              ...(lock ? [{ name: "reviewer", path: "/fixture/repo/apps/web", location: "retained_pin",
+                skill_id: "reviewer-id", locked_hash: lock }] : []),
+              { name: "Globally available fixture", path: "/fixture/agents/fixture", location: "global" },
+            ]
             : []);
+          case "library.undeploy_project_skill":
+            projectDeployment = false;
+            return ok({ undeployed: true });
+          case "project.clear_retained_pin":
+            lock = "";
+            return ok(null);
           case "project.lock_skill":
             lock = "original";
             return ok(null);
@@ -161,6 +175,46 @@ test("Project version actions lock the selected scope and require review before 
   await app.waitFor("text:Project version updated");
   await app.waitFor("text:Version locked");
   expect(calls.find(({ command }) => command === "project.apply_version")?.input).toEqual({ preview_id: "reviewed-plan" });
+});
+
+test("Project Overview uses the scoped Agent, confirms removal, and lets a retained pin be cleared", async () => {
+  const { app, calls } = await openFixture(undefined, true, false, true);
+  await app.press("label:Parity fixture");
+  await app.waitFor("text:Parity fixture · Project Root · Other agent");
+  await app.press("label:Scan Scope");
+  await app.press("text:apps/web");
+  await app.waitFor("label:Remove Project Deployment · reviewer");
+  await app.press("label:Select an agent");
+  await app.press("text:Other agent");
+  await app.waitFor("text:Parity fixture · apps/web · Other agent");
+  await app.press("label:Select an agent");
+  await app.press("text:Fixture Codex");
+  await app.press("label:Remove Project Deployment · reviewer");
+  await app.waitFor("text:Fixture Codex · Parity fixture · apps/web");
+  await app.press("label:Cancel");
+  expect(calls.some(({ command }) => command === "library.undeploy_project_skill")).toBe(false);
+  await app.press("label:Remove Project Deployment · reviewer");
+  await app.press("label:Confirm Remove Project Deployment");
+  await app.waitFor("text:Pin retained");
+  await app.waitFor("text:Globally available fixture");
+  expect(calls.find(({ command }) => command === "library.undeploy_project_skill")?.input).toEqual({
+    project_id: project.id, scope_path: scope, agent_key: "codex", skill_id: "reviewer-id",
+    deployment: { id: "deployment-id", target_path: "/fixture/repo/apps/web/.agents/skills/reviewer" },
+  });
+
+  await app.press("label:View Pin · reviewer");
+  await app.waitFor("text:Parity fixture · apps/web");
+  await app.press("label:Clear Project Pin");
+  await app.press("label:Cancel");
+  expect(calls.some(({ command }) => command === "project.clear_retained_pin")).toBe(false);
+  await app.press("label:View Pin · reviewer");
+  await app.press("label:Clear Project Pin");
+  await app.press("label:Confirm Clear Project Pin");
+  await app.waitFor("text:Project pin cleared");
+  expect(app.shows("text:Pin retained")).toBe(false);
+  expect(calls.find(({ command }) => command === "project.clear_retained_pin")?.input).toEqual({
+    project_id: project.id, scope_path: scope, skill_id: "reviewer-id", expected_hash: "original",
+  });
 });
 
 test("Project Overview sends the exact nested scope to deployment and keeps global deployment opt-in", async () => {

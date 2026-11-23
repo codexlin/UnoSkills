@@ -1,9 +1,11 @@
 import { computed, List, Scroll, signal, View } from "nsh";
 import type { ScreenProps } from "../shared";
 import { ActionMenu, MenuAction } from "../components";
+import { createSkillManagement, SkillManagementDialogs } from "../library/management";
+import { managementStrings, projectScopeLabel } from "../library/managementStrings";
 import { Action, Check, Choice, Feedback, Footer, Header, Heading, Label, actions, confirm, row, viewport } from "./controls";
 import { load, operation, toggle } from "./state";
-import { attachProjectFromPicker, request, type Agent, type InventoryRow, type Project, type VersionTarget } from "./host";
+import { attachProjectFromPicker, request, type Agent, type AgentUsage, type InventoryRow, type Project, type VersionTarget } from "./host";
 import { projectRecommendationReason, projectSelectionCount, strings } from "./strings";
 import { ProjectVersionDialog } from "./versions";
 
@@ -51,6 +53,7 @@ export function Projects(props: ScreenProps) {
       </>
     }>
       {(project) => <ProjectDetail screen={props} project={project()} agents={targets().data?.agents ?? []}
+        agentUsage={targets().data?.agent_usage ?? []}
         attach={attach} attaching={op.busy()} canSwitch={projects().length > 1}
         listError={targets().error ?? op.error()} />}
     </If>
@@ -58,11 +61,12 @@ export function Projects(props: ScreenProps) {
 }
 
 function ProjectDetail(props: {
-  screen: ScreenProps; project: Project; agents: Agent[];
+  screen: ScreenProps; project: Project; agents: Agent[]; agentUsage: AgentUsage[];
   attach: () => Promise<void>; attaching: boolean; canSwitch: boolean; listError?: string;
 }) {
   const screen = props.screen;
   const t = () => strings(screen.locale);
+  const m = () => managementStrings(screen.locale);
   const rescan = signal(0);
   const projectId = computed(() => props.project.id);
   const projectsScan = load(() => {
@@ -71,7 +75,15 @@ function ProjectDetail(props: {
   });
   const modules = () => projectsScan().data ?? [];
   const module = computed(() => modules().find((item) => item.path === screen.route.scopePath) ?? modules()[0]);
-  const agent = computed(() => props.agents.find((item) => item.key === screen.route.agentKey) ?? props.agents[0]);
+  const agent = computed(() => {
+    const key = screen.route.agentKey;
+    if (key) return props.agents.find((item) => item.key === key);
+    const used = (item: Agent, projectId: string | null, path: string) => props.agentUsage.some((usage) =>
+      usage.project_id === projectId && usage.scope_path === path && usage.agent_key === item.key);
+    return props.agents.find((item) => used(item, props.project.id, module()?.path ?? ""))
+      ?? props.agents.find((item) => used(item, null, ""))
+      ?? props.agents[0];
+  });
   const inventory = load(() => {
     void screen.revision;
     const target = agent();
@@ -81,6 +93,7 @@ function ProjectDetail(props: {
     });
   });
   const op = operation(screen);
+  const management = createSkillManagement(screen);
   const version = signal<{ target: VersionTarget; path: string } | undefined>(undefined);
   const versionSelection = computed(() => {
     const selected = version();
@@ -109,7 +122,7 @@ function ProjectDetail(props: {
   function chooseScope(scopePath: string) {
     overrides.set(undefined);
     version.set(undefined);
-    screen.navigate({ page: "projects", ...target(), scopePath });
+    screen.navigate({ page: "projects", projectId: projectId(), scopePath, agentKey: screen.route.agentKey });
   }
   const target = () => ({
     projectId: props.project.id, scopePath: module()?.path ?? "", agentKey: agent()?.key,
@@ -241,28 +254,56 @@ function ProjectDetail(props: {
         </View>
         <If when={inventory().pending || inventory().error || !agent() || inventory().data?.length === 0}>
           <View style={{ padding: 12, gap: 8 }}>
-            <If when={!agent()}><Label theme={screen.theme} label={t().noAgents} muted /></If>
+            <If when={!agent()}><Label theme={screen.theme} label={props.agents.length ? t().agentUnavailable : t().noAgents} muted /></If>
             <Feedback theme={screen.theme} label={t().loading} pending={inventory().pending} error={inventory().error} />
-            <If when={inventory().data?.length === 0}><Label theme={screen.theme} label={t().emptyInventory} muted /></If>
+            <If when={inventory().data?.length === 0 && agent() && module()}>
+              <Label theme={screen.theme} label={projectScopeLabel(screen.locale, props.project.name, module()?.path ?? "") + " · " + agent()?.display_name} />
+              <Label theme={screen.theme} label={t().emptyInventory} muted />
+            </If>
           </View>
         </If>
-        <List each={inventory().data ?? []} estimatedItemSize={62} style={viewport} keyExtractor={(skill) => skill.path}>
+        <List each={inventory().data ?? []} estimatedItemSize={82} style={viewport}
+          keyExtractor={(skill) => skill.location === "retained_pin" ? skill.location + ":" + skill.skill_id : skill.path}>
           {(skill) => <View style={{ minHeight: 62, paddingHorizontal: 12, paddingVertical: 6, justifyContent: "center", gap: 2,
             borderBottomWidth: 1, borderColor: screen.theme.border }}>
             <View style={row}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Label theme={screen.theme} color={screen.theme.panel.foreground} label={skill().name} weight="500" lines={1} />
-                <Label theme={screen.theme} label={skill().locked_hash
+                <Label theme={screen.theme} label={skill().location === "retained_pin" ? m().retainedPin : skill().locked_hash
                   ? skill().location === "project_changed" ? t().versionChanged
                     : skill().library_different ? t().versionAvailable : t().locked
                   : t()[skill().location]} muted />
               </View>
-              <If when={skill().location === "project_deployment" && skill().skill_id}>
-                <Action theme={screen.theme} label={t().version} accessibilityLabel={`${t().version} · ${skill().name}`}
-                  ghost compact disabled={op.busy()} run={() => openVersion(skill())} />
-              </If>
             </View>
             <Label theme={screen.theme} label={skill().path} title={skill().path} muted size={12} lines={1} />
+            <View style={actions}>
+              <If when={(skill().location === "project_deployment" || skill().location === "retained_pin") && skill().skill_id}>
+                <Action theme={screen.theme} label={skill().location === "retained_pin" ? m().viewPin : t().version}
+                  accessibilityLabel={(skill().location === "retained_pin" ? m().viewPin : t().version) + " · " + skill().name}
+                  ghost compact disabled={op.busy()} run={() => openVersion(skill())} />
+              </If>
+              <If when={skill().location === "project_deployment" && skill().deployment_id && skill().skill_id}>
+                <Action theme={screen.theme} label={m().removeDeployment}
+                  accessibilityLabel={m().removeDeployment + " · " + skill().name}
+                  ghost compact disabled={op.busy()} run={() => {
+                    const selected = agent();
+                    const row = skill();
+                    if (selected && row.skill_id && row.deployment_id) management.removeProjectSkill(
+                      row.skill_id, row.name, props.project, module()?.path ?? "", selected,
+                      { id: row.deployment_id, target_path: row.path });
+                  }} />
+              </If>
+              <If when={skill().location === "project_changed" && skill().skill_id}>
+                <Action theme={screen.theme} label={m().reviewConflict}
+                  accessibilityLabel={m().reviewConflict + " · " + skill().name}
+                  ghost compact disabled={op.busy()} run={() => {
+                    const selected = agent();
+                    const row = skill();
+                    if (selected && row.skill_id) void management.reviewConflict(
+                      row.skill_id, row.name, props.project, module()?.path ?? "", selected);
+                  }} />
+              </If>
+            </View>
           </View>}
         </List>
       </View>
@@ -276,7 +317,9 @@ function ProjectDetail(props: {
     </Footer>
     <If when={versionSelection()}>
       {(skill) => <ProjectVersionDialog screen={screen} skill={skill()} target={version()!.target}
+        scopeLabel={projectScopeLabel(screen.locale, props.project.name, version()!.target.scope_path)}
         close={() => version.set(undefined)} />}
     </If>
+    <SkillManagementDialogs screen={screen} management={management} />
   </>;
 }

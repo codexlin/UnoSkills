@@ -63,7 +63,9 @@ export interface ScreenProps {
   notify(message: string, tone?: Tone): void;
 }
 
-type Reply<T> = { ok: true; value: T } | { ok: false; code: string; message: string };
+type Reply<T> = { ok: true; value: T } | {
+  ok: false; code: string; message: string; affected_path?: string | null; recovery_paths?: string[] | null;
+};
 type DialogRequest = { title?: string; name?: string; extensions?: string[]; path?: string };
 
 interface FileDialogs {
@@ -71,10 +73,12 @@ interface FileDialogs {
   open(title: string | null, extensions: string[]): Promise<string | null>;
   save(title: string | null, name: string | null, extensions: string[]): Promise<string | null>;
   reveal(path: string): Promise<void>;
+  openFolder(path: string): Promise<void>;
 }
 
 export class HostError extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(readonly code: string, message: string,
+    readonly affectedPath?: string | null, readonly recoveryPaths?: string[] | null) {
     super(message);
   }
 }
@@ -91,6 +95,9 @@ async function dialog(command: string, input: DialogRequest) {
     case "dialog.reveal":
       if (input.path) return Files.reveal(input.path);
       throw new HostError("INVALID_PATH", "A path is required.");
+    case "dialog.open_folder":
+      if (input.path) return Files.openFolder(input.path);
+      throw new HostError("INVALID_PATH", "A path is required.");
     default:
       throw new HostError("UNKNOWN_COMMAND", command);
   }
@@ -102,7 +109,7 @@ export async function call<Request, Response>(command: string, input: Request): 
   }
   const response = await host.call("unoskills.command", { command, input }, { timeout: 0 }) as Reply<Response>;
   if (response.ok) return response.value;
-  throw new HostError(response.code, response.message);
+  throw new HostError(response.code, response.message, response.affected_path, response.recovery_paths);
 }
 
 export function errorMessage(error: unknown): string {

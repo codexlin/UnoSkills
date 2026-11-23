@@ -97,8 +97,14 @@ fn channel_with_fonts(
             let response = match result {
                 Ok(value) => json!({"ok": true, "value": value}),
                 Err(error) => {
-                    let message = format!("{error:#}");
-                    json!({"ok": false, "message": message, "code": error_code(&message)})
+                    let mut diagnostics = error.chain().map(ToString::to_string).collect::<Vec<_>>();
+                    diagnostics.dedup();
+                    let message = diagnostics.join(": ");
+                    json!({
+                        "ok": false, "message": message, "code": error_code(&message),
+                        "affected_path": error.downcast_ref::<unoskills_core::RemovalProblem>().map(|problem| &problem.path),
+                        "recovery_paths": error.downcast_ref::<unoskills_core::sync::RemovalRollback>().map(|rollback| &rollback.paths),
+                    })
                 }
             };
             call.resolve(response);

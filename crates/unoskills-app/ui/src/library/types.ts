@@ -70,7 +70,10 @@ export interface ProjectWorkspace {
 export interface ProjectSkillStatus {
   placement: ProjectSkillPlacement;
   global_available: boolean;
+  retained_pin?: boolean;
 }
+
+export type ReviewedDeployment = { id: string; target_path: string };
 
 export type ProjectSkillStatusMap = Record<string, Record<string, ProjectSkillStatus>>;
 

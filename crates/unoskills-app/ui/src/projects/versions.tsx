@@ -1,18 +1,22 @@
 import { cleanup, Scroll, signal, View } from "nsh";
-import { Label, Modal } from "../components";
-import type { ScreenProps } from "../shared";
+import { Action as Button, AlertBanner, Label, Modal } from "../components";
+import { HostError, type ScreenProps } from "../shared";
+import { managementStrings } from "../library/managementStrings";
 import { Action, Feedback, Label as ProjectLabel, actions } from "./controls";
 import { request, type InventoryRow, type VersionIntent, type VersionReview, type VersionTarget } from "./host";
 import { operation } from "./state";
 import { strings } from "./strings";
 
 export function ProjectVersionDialog(props: {
-  screen: ScreenProps; skill: InventoryRow; target: VersionTarget; close: () => void;
+  screen: ScreenProps; skill: InventoryRow; target: VersionTarget; scopeLabel: string; close: () => void;
 }) {
   const screen = props.screen;
   const t = () => strings(screen.locale);
   const op = operation(screen);
   const review = signal<VersionReview | undefined>(undefined);
+  const clearing = signal(false);
+  const stalePin = signal(false);
+  const retained = () => props.skill.location === "retained_pin";
   let active = true;
   cleanup(() => {
     active = false;
@@ -49,21 +53,43 @@ export function ProjectVersionDialog(props: {
     }, () => applied(t().versionApplied));
   }
 
-  return <Modal theme={screen.theme} label={t().version} width={640} open
+  function clearPin() {
+    const { project_id, scope_path, skill_id } = props.target;
+    const expected_hash = props.skill.locked_hash;
+    if (!expected_hash || !clearing() || stalePin()) return;
+    return op.run(async () => {
+      try {
+        await request("project.clear_retained_pin", { project_id, scope_path, skill_id, expected_hash });
+        return true;
+      } catch (error) {
+        if (!(error instanceof HostError) || error.code !== "STALE_PROJECT_VERSION") throw error;
+        if (active) stalePin.set(true);
+        return false;
+      }
+    }, (cleared) => { if (cleared) applied(t().pinCleared); });
+  }
+
+  return <Modal theme={screen.theme} label={retained()
+    ? clearing() ? t().clearPin : managementStrings(screen.locale).viewPin : t().version} width={640} open
     closeOnEscape={!op.busy()} closeOnBackdropPress={!op.busy()}
     onClose={() => { if (!op.busy()) props.close(); }}>
     <View style={{ gap: 4 }}>
       <Label theme={screen.theme} heading>{props.skill.name}</Label>
+      <Label theme={screen.theme} muted>{props.scopeLabel}</Label>
       <ProjectLabel theme={screen.theme} muted lines={1} label={props.skill.path} title={props.skill.path} />
     </View>
     <If when={review()} else={
       <View style={{ gap: 8 }}>
-        <Label theme={screen.theme}>{props.skill.locked_hash ? t().locked : t().followingLibrary}</Label>
+        <Label theme={screen.theme}>{retained() ? t().retained_pin : props.skill.locked_hash ? t().locked : t().followingLibrary}</Label>
         <If when={props.skill.locked_hash} else={<Label theme={screen.theme} muted>{t().lockExplanation}</Label>}>
           {(hash) => <ProjectLabel theme={screen.theme} muted label={hash().slice(0, 12)} title={hash()} />}
         </If>
-        <If when={props.skill.locked_hash && props.skill.library_different == null}>
+        <If when={!retained() && props.skill.locked_hash && props.skill.library_different == null}>
           <Label theme={screen.theme} muted>{t().versionUnavailable}</Label>
+        </If>
+        <If when={clearing()}><Label theme={screen.theme}>{t().clearPinDescription}</Label></If>
+        <If when={stalePin()}>
+          <AlertBanner theme={screen.theme} tone="warning" message={managementStrings(screen.locale).stale} />
         </If>
       </View>
     }>
@@ -95,7 +121,7 @@ export function ProjectVersionDialog(props: {
     <Feedback theme={screen.theme} label={t().working} pending={op.busy()} error={op.error()} />
     <View style={{ ...actions, justifyContent: "flex-end" }}>
       <Action theme={screen.theme} label={t().cancel} disabled={op.busy()} run={props.close} />
-      <If when={review()} else={
+      <If when={retained()} else={<If when={review()} else={
         <If when={props.skill.locked_hash} else={
           <Action theme={screen.theme} label={t().lockSkill} primary disabled={op.busy()}
             run={() => op.run(() => request("project.lock_skill", props.target), () => applied(t().locked))} />
@@ -112,6 +138,19 @@ export function ProjectVersionDialog(props: {
           return <Action theme={screen.theme} label={plan.intent === "upgrade" ? t().applyUpgrade : t().applyFollow}
             primary disabled={op.busy()} run={() => apply(plan)} />;
         }}
+      </If>}>
+        <If when={stalePin()} else={
+          <If when={clearing()} else={
+            <Action theme={screen.theme} label={t().clearPin} disabled={op.busy()} run={() => clearing.set(true)} />
+          }>
+            <Button theme={screen.theme} label={t().clearPin} accessibilityLabel={t().confirmClearPin}
+              variant="danger" pending={op.busy()}
+              onPress={() => void clearPin()} />
+          </If>
+        }>
+          <Action theme={screen.theme} label={managementStrings(screen.locale).closeRefresh}
+            run={() => { props.close(); screen.refresh(); }} />
+        </If>
       </If>
     </View>
   </Modal>;

@@ -5,15 +5,21 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, ensure};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 use super::skill_revisions::SkillFileChangeKind;
-use super::{UnoSkillsManager, project_scope_key, safe_scoped_target, scoped_project_skills_dir};
+use super::{
+    StackProjectTarget, UnoSkillsManager, inspect_stack_project_target, project_scope_directory,
+    project_scope_key, project_skills_dir, safe_scoped_target, scoped_project_skills_dir,
+};
 use crate::domain::{DeployMode, ProjectDeployment, Skill};
 pub(crate) use crate::parser::project_version_hash;
-use crate::parser::{TreeEntry, managed_copy_fingerprint, sanitize_slug, skill_tree};
+use crate::parser::{
+    COPY_FINGERPRINT_PREFIX, TreeEntry, directory_tree, managed_copy_fingerprint, sanitize_slug,
+};
 use crate::sync::{
-    DirectoryIdentity, RemovalBatch, ReplacePolicy, TargetState, classify_target,
+    DirectoryIdentity, RemovalBatch, ReplacePolicy, TargetState, classify_target, copy_baseline,
     copy_dir_recursive, deploy_skill_dir, ensure_dst_not_overlapping_src, paths_overlap,
     physical_target_path, rename_without_replacing, verify_managed_target,
 };
@@ -41,6 +47,27 @@ pub struct ProjectVersionReview {
     pub current_hash: String,
     pub candidate_hash: String,
     pub files: Vec<ProjectVersionChange>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectConflictReview {
+    pub path: PathBuf,
+    pub kind: &'static str,
+    pub open_folder: bool,
+    pub pinned: bool,
+    pub files: Option<Vec<ProjectVersionChange>>,
+    pub detail: Option<String>,
+    pub preview_id: Option<String>,
+}
+
+pub struct PreparedProjectConflict {
+    pub id: String,
+    project_id: String,
+    skill_id: String,
+    scope: PathBuf,
+    agent_key: String,
+    target: VersionTarget,
+    source_fingerprint: String,
 }
 
 pub struct PreparedProjectVersion {
@@ -102,6 +129,250 @@ struct StagedTarget<'a> {
 }
 
 impl UnoSkillsManager {
+    pub fn clear_retained_project_pin(
+        &self,
+        project_id: &str,
+        scope: &Path,
+        skill_id: &str,
+        expected_hash: &str,
+    ) -> Result<()> {
+        let _guard = self.lock_skills()?;
+        ensure!(
+            scope
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_))),
+            "Invalid subproject directory"
+        );
+        let scope = project_scope_key(scope);
+        self.store
+            .clear_retained_project_pin(project_id, &scope, skill_id, expected_hash)?;
+        self.cleanup_project_snapshots(std::iter::once(expected_hash));
+        Ok(())
+    }
+
+    pub fn review_project_conflict(
+        &self,
+        project_id: &str,
+        scope: &Path,
+        agent_key: &str,
+        skill_id: &str,
+    ) -> Result<(ProjectConflictReview, Option<PreparedProjectConflict>)> {
+        let _guard = self.lock_skills()?;
+        self.inspect_project_conflict(project_id, scope, agent_key, skill_id)
+    }
+
+    fn inspect_project_conflict(
+        &self,
+        project_id: &str,
+        scope: &Path,
+        agent_key: &str,
+        skill_id: &str,
+    ) -> Result<(ProjectConflictReview, Option<PreparedProjectConflict>)> {
+        let (project, agent) = self.stack_deploy_destination(project_id, agent_key)?;
+        let skill = self
+            .find_skill(skill_id)?
+            .filter(|skill| skill.id == skill_id)
+            .context("Skill not found")?;
+        ensure!(
+            sanitize_slug(&skill.slug).as_deref() == Some(&skill.slug),
+            "Invalid skill slug"
+        );
+        project_scope_directory(&project, scope)?;
+        let scope = project_scope_key(scope);
+        let record = skill.project_deployments.iter().find(|dep| {
+            dep.project_id == project.id && dep.agent_key == agent.key && dep.scope_path == scope
+        });
+        let mut review = ProjectConflictReview {
+            path: record.map_or_else(
+                || {
+                    project
+                        .path
+                        .join(&scope)
+                        .join(project_skills_dir(&agent))
+                        .join(&skill.slug)
+                },
+                |dep| dep.target_path.clone(),
+            ),
+            kind: "unsafe",
+            open_folder: false,
+            pinned: skill.project_lock(&project.id, &scope).is_some(),
+            files: None,
+            detail: None,
+            preview_id: None,
+        };
+        let target = match scoped_project_skills_dir(&project, &scope, &agent) {
+            Ok(directory) => directory.join(&skill.slug),
+            Err(error) => {
+                review.detail = Some(format!("{error:#}"));
+                return Ok((review, None));
+            }
+        };
+        if review.path != target
+            || ensure_dst_not_overlapping_src(&skill.central_path, &target).is_err()
+        {
+            return Ok((review, None));
+        }
+        let state = classify_target(&skill.central_path, &target);
+        if record.is_some_and(|dep| {
+            matches!(
+                (dep.mode, state),
+                (
+                    DeployMode::Copy,
+                    TargetState::LinkToSource | TargetState::ForeignLink | TargetState::RealFile
+                ) | (
+                    DeployMode::Symlink,
+                    TargetState::RealDir | TargetState::RealFile | TargetState::ForeignLink
+                )
+            )
+        }) {
+            return Ok((review, None));
+        }
+        if !matches!(
+            inspect_stack_project_target(&skill, &project, &agent, &scope, &target),
+            StackProjectTarget::Conflict | StackProjectTarget::Local
+        ) {
+            review.kind = "stale";
+            return Ok((review, None));
+        }
+        if !matches!(state, TargetState::RealDir | TargetState::RealFile) {
+            return Ok((review, None));
+        }
+        review.open_folder = state == TargetState::RealDir;
+        let Some(record) = record else {
+            if self.store.count_deployments_at_path(&target, "")? == 0 {
+                review.kind = "unmanaged";
+            }
+            return Ok((review, None));
+        };
+        if state != TargetState::RealDir || record.mode != DeployMode::Copy {
+            return Ok((review, None));
+        }
+        let identity = DirectoryIdentity::read(&target)?.context("Project copy disappeared")?;
+        let pin = skill.project_lock(&project.id, &scope);
+        let inspected = (|| -> Result<_> {
+            self.check_library_path(&skill)?;
+            let baseline = if let Some(hash) = pin {
+                self.checked_project_snapshot(hash)?
+            } else {
+                skill.central_path.clone()
+            };
+            let source_fingerprint = managed_copy_fingerprint(&baseline)?;
+            let original = if pin.is_some() {
+                record
+                    .copy_hash
+                    .as_deref()
+                    .filter(|hash| hash.starts_with(COPY_FINGERPRINT_PREFIX))
+                    .unwrap_or(&source_fingerprint)
+                    .to_owned()
+            } else {
+                record
+                    .copy_hash
+                    .as_deref()
+                    .or(skill.content_hash.as_deref())
+                    .and_then(|hash| {
+                        copy_baseline(&baseline, hash).or_else(|| {
+                            self.has_revisions_dir()
+                                .then(|| {
+                                    copy_baseline(&self.previous_revision_path(&skill.id), hash)
+                                })
+                                .flatten()
+                        })
+                    })
+                    .context("No trustworthy managed copy baseline")?
+            };
+            let fingerprint = managed_copy_fingerprint(&target)?;
+            let files = compare_versions(&target, &baseline)?;
+            ensure!(
+                identity.matches_at(&target)
+                    && managed_copy_fingerprint(&target)? == fingerprint
+                    && managed_copy_fingerprint(&baseline)? == source_fingerprint,
+                "STALE_PROJECT_VERSION: The files changed during review"
+            );
+            Ok((original, fingerprint, source_fingerprint, files))
+        })();
+        let (original, fingerprint, source_fingerprint, files) = match inspected {
+            Ok(value) => value,
+            Err(error) => {
+                review.kind = "unreadable";
+                review.detail = Some(format!("{error:#}"));
+                return Ok((review, None));
+            }
+        };
+        if original == fingerprint {
+            return Ok((review, None));
+        }
+        review.kind = "modified";
+        review.files = Some(files);
+        let parent = target.parent().context("Missing deployment parent")?;
+        let peers = self.list_skills()?.into_iter().any(|skill| {
+            skill
+                .deployments
+                .iter()
+                .map(|dep| (&dep.id, &dep.target_path))
+                .chain(
+                    skill
+                        .project_deployments
+                        .iter()
+                        .map(|dep| (&dep.id, &dep.target_path)),
+                )
+                .any(|(id, path)| {
+                    id != &record.id
+                        && (paths_overlap(path, &target)
+                            || physical_target_path(path)
+                                .is_some_and(|path| paths_overlap(&path, &target)))
+                })
+        });
+        if pin.is_some() || peers || self.ensure_unlocked_global_target(&target).is_err() {
+            return Ok((review, None));
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        let prepared = PreparedProjectConflict {
+            id: id.clone(),
+            project_id: project.id,
+            skill_id: skill.id,
+            scope,
+            agent_key: agent.key,
+            target: VersionTarget {
+                parent: DirectoryIdentity::read(parent)?.context("Missing deployment parent")?,
+                path: target,
+                placement: VersionPlacement::Copy(identity, fingerprint),
+                version: original,
+                ids: vec![record.id.clone()],
+                locked: None,
+                follow_mode: DeployMode::Copy,
+            },
+            source_fingerprint,
+        };
+        review.preview_id = Some(id);
+        Ok((review, Some(prepared)))
+    }
+
+    pub fn apply_project_conflict(&self, prepared: PreparedProjectConflict) -> Result<()> {
+        let _guard = self.lock_skills()?;
+        let (_, fresh) = self.inspect_project_conflict(
+            &prepared.project_id,
+            &prepared.scope,
+            &prepared.agent_key,
+            &prepared.skill_id,
+        )?;
+        ensure!(
+            fresh.is_some_and(|current| current.target == prepared.target
+                && current.source_fingerprint == prepared.source_fingerprint),
+            "STALE_PROJECT_VERSION: The reviewed deployment or library changed"
+        );
+        let skill = self
+            .find_skill(&prepared.skill_id)?
+            .context("Skill not found")?;
+        let version = project_version_hash(&skill.central_path)?;
+        let staging = self.stage_project_version(&skill.central_path, &version)?;
+        let candidate = staging.path().join("snapshot");
+        ensure!(
+            managed_copy_fingerprint(&candidate)? == prepared.source_fingerprint,
+            "STALE_PROJECT_VERSION: The reviewed library changed"
+        );
+        self.commit_project_version(&skill, &[prepared.target], &candidate, &version, false)
+    }
+
     pub(super) fn project_deploy_snapshot(
         &self,
         skill: &Skill,
@@ -700,8 +971,8 @@ fn check_candidate(skill: &Skill, path: &Path, mode: DeployMode, version: &str) 
 }
 
 fn compare_versions(before: &Path, after: &Path) -> Result<Vec<ProjectVersionChange>> {
-    let old = skill_tree(before)?;
-    let new = skill_tree(after)?;
+    let old = directory_tree(before)?;
+    let new = directory_tree(after)?;
     let paths: BTreeSet<_> = old.keys().chain(new.keys()).collect();
     Ok(paths
         .into_iter()
@@ -736,14 +1007,20 @@ fn review_text(root: &Path, path: &Path, entry: Option<&TreeEntry>) -> Option<St
     match entry {
         None => Some(String::new()),
         Some(TreeEntry::Directory) => None,
-        Some(TreeEntry::File { .. }) => {
+        Some(TreeEntry::File { hash, .. }) => {
+            let path = root.join(path);
+            if !path.symlink_metadata().ok()?.is_file() || path.canonicalize().ok()? != path {
+                return None;
+            }
             let mut bytes = Vec::new();
-            File::open(root.join(path))
+            File::open(path)
                 .ok()?
                 .take((LIMIT + 1) as u64)
                 .read_to_end(&mut bytes)
                 .ok()?;
-            (bytes.len() <= LIMIT && !bytes.contains(&0))
+            (bytes.len() <= LIMIT
+                && !bytes.contains(&0)
+                && <[u8; 32]>::from(Sha256::digest(&bytes)) == *hash)
                 .then(|| String::from_utf8(bytes).ok())
                 .flatten()
         }

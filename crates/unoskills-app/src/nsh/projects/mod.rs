@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 use unoskills_core::project_analysis::{RecommendationPurpose, SkillLocation};
 use unoskills_core::stacks::parse_stack_from_toml;
 use unoskills_core::{
-    PreparedProjectVersion, ProjectDeployPreview, ProjectVersionIntent, Skill, StackManifest,
-    StackSkillRef, StackSource, UnoSkillsManager,
+    PreparedProjectConflict, PreparedProjectVersion, ProjectDeployPreview, ProjectVersionIntent,
+    Skill, StackManifest, StackSkillRef, StackSource, UnoSkillsManager,
 };
 
 // Host requests run on multiple workers. Keep stale-preview checks and their
@@ -19,6 +19,7 @@ static MUTATIONS: Mutex<()> = Mutex::new(());
 #[derive(Default)]
 pub(super) struct VersionPreviews {
     pending: Mutex<Vec<PreparedProjectVersion>>,
+    conflicts: Mutex<Vec<PreparedProjectConflict>>,
 }
 
 #[derive(Deserialize)]
@@ -44,6 +45,49 @@ impl VersionPreviews {
         input: &Value,
     ) -> Option<Result<Value>> {
         Some(match command {
+            "project.clear_retained_pin" => (|| {
+                manager.clear_retained_project_pin(
+                    required(input, "project_id")?,
+                    scope(input)?,
+                    required(input, "skill_id")?,
+                    required(input, "expected_hash")?,
+                )?;
+                Ok(Value::Null)
+            })(),
+            "project.review_conflict" => (|| {
+                let target: VersionTarget = serde_json::from_value(input.clone())?;
+                let (review, prepared) = manager.review_project_conflict(
+                    &target.project_id,
+                    &target.scope_path,
+                    &target.agent_key,
+                    &target.skill_id,
+                )?;
+                if let Some(prepared) = prepared {
+                    let mut pending = self.conflicts.lock().unwrap();
+                    if pending.len() == 8 {
+                        pending.remove(0);
+                    }
+                    pending.push(prepared);
+                }
+                Ok(serde_json::to_value(review)?)
+            })(),
+            "project.apply_conflict" | "project.cancel_conflict" => (|| {
+                let id = required(input, "preview_id")?;
+                let prepared = {
+                    let mut pending = self.conflicts.lock().unwrap();
+                    pending
+                        .iter()
+                        .position(|item| item.id == id)
+                        .map(|index| pending.remove(index))
+                };
+                if command == "project.apply_conflict" {
+                    manager
+                        .apply_project_conflict(prepared.context(
+                            "STALE_PROJECT_VERSION: Review the project conflict again",
+                        )?)?;
+                }
+                Ok(Value::Null)
+            })(),
             "project.lock_skill" => (|| {
                 let target: VersionTarget = serde_json::from_value(input.clone())?;
                 manager.lock_project_skill(
@@ -115,11 +159,31 @@ pub(super) fn dispatch(manager: &UnoSkillsManager, command: &str, input: Value) 
     })
     .transpose()?;
     match command {
-        "project.list" => Ok(json!({
-            "projects": manager.list_projects()?,
-            "agents": manager.list_agents()?.into_iter()
-                .filter(|agent| agent.installed && agent.enabled).collect::<Vec<_>>(),
-        })),
+        "project.list" => {
+            let mut agent_usage = std::collections::BTreeSet::new();
+            for skill in manager.list_skills()? {
+                agent_usage.extend(
+                    skill
+                        .deployments
+                        .into_iter()
+                        .map(|dep| (None, PathBuf::new(), dep.agent_key)),
+                );
+                agent_usage.extend(
+                    skill
+                        .project_deployments
+                        .into_iter()
+                        .map(|dep| (Some(dep.project_id), dep.scope_path, dep.agent_key)),
+                );
+            }
+            Ok(json!({
+                "projects": manager.list_projects()?,
+                "agents": manager.list_agents()?.into_iter()
+                    .filter(|agent| agent.installed && agent.enabled).collect::<Vec<_>>(),
+                "agent_usage": agent_usage.into_iter().map(|(project_id, scope_path, agent_key)|
+                    json!({ "project_id": project_id, "scope_path": scope_path, "agent_key": agent_key })
+                ).collect::<Vec<_>>(),
+            }))
+        }
         "project.attach" => {
             let project = manager.add_project(Path::new(required(&input, "path")?), None)?;
             Ok(json!(project))
@@ -266,12 +330,14 @@ fn inventory(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
                 "name": skill.name,
                 "path": skill.path,
                     "skill_id": skill.skill_id,
+                    "deployment_id": skill.deployment_id,
                     "locked_hash": skill.locked_hash,
                     "library_different": skill.library_different,
                 "location": match skill.location {
                     SkillLocation::ProjectDeployment => "project_deployment",
                     SkillLocation::ProjectChanged => "project_changed",
                     SkillLocation::ProjectLocal => "project_local",
+                    SkillLocation::RetainedPin => "retained_pin",
                     SkillLocation::Global => "global",
                 },
             }))
@@ -578,5 +644,70 @@ mod tests {
         let confirm = json!({ "toml": incoming, "previous": preview["previous"] });
         let committed = dispatch(&manager, "stack.import", confirm).unwrap();
         assert_eq!(committed["name"], "Incoming");
+    }
+
+    #[test]
+    fn project_conflict_review_is_single_use_and_blocked_removal_reports_the_actual_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = UnoSkillsManager::open_at(dir.path().join("library")).unwrap();
+        let source = dir.path().join("reviewer");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("SKILL.md"), "# Reviewer\n").unwrap();
+        let skill = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+        manager
+            .set_agent_override("codex", dir.path().join("codex").to_str())
+            .unwrap();
+        let root = dir.path().join("project");
+        fs::create_dir_all(root.join("apps/web")).unwrap();
+        let project = manager.add_project(&root, Some("Aurora Studio")).unwrap();
+        let dep = manager
+            .deploy_skill_to_project_at(
+                &skill.id,
+                &project.id,
+                Path::new("apps/web"),
+                "codex",
+                Some(unoskills_core::DeployMode::Copy),
+                false,
+            )
+            .unwrap();
+        let entry = dep.target_path.join("SKILL.md");
+        fs::write(&entry, "# Local edit\n").unwrap();
+
+        let omitted = json!({ "skill_id": skill.id, "deployments": [] });
+        let stale =
+            crate::nsh::library::dispatch(&manager, "library.remove_skill", omitted).unwrap_err();
+        assert!(stale.to_string().starts_with("STALE_REMOVAL:"));
+        let reviewed = json!({ "skill_id": skill.id, "deployments": [{ "id": dep.id, "target_path": dep.target_path }] });
+        let blocked =
+            crate::nsh::library::dispatch(&manager, "library.remove_skill", reviewed).unwrap_err();
+        assert_eq!(
+            blocked
+                .downcast_ref::<unoskills_core::RemovalProblem>()
+                .unwrap()
+                .path,
+            dep.target_path
+        );
+        assert!(skill.central_path.join("SKILL.md").is_file());
+
+        let previews = VersionPreviews::default();
+        let call = |command, input: &Value| previews.dispatch(&manager, command, input).unwrap();
+        let target = json!({ "skill_id": skill.id, "agent_key": "codex", "project_id": project.id, "scope_path": "apps/web" });
+        let checked = call("project.review_conflict", &target).unwrap();
+        assert_eq!(checked["kind"], "modified");
+        assert_eq!(checked["path"], json!(dep.target_path));
+        assert_eq!(
+            checked["files"][0]["diff"],
+            "- # Local edit\n+ # Reviewer\n"
+        );
+        let token = json!({ "preview_id": checked["preview_id"] });
+        call("project.cancel_conflict", &token).unwrap();
+        assert!(call("project.apply_conflict", &token).is_err());
+        assert_eq!(fs::read_to_string(&entry).unwrap(), "# Local edit\n");
+
+        let checked = call("project.review_conflict", &target).unwrap();
+        let token = json!({ "preview_id": checked["preview_id"] });
+        call("project.apply_conflict", &token).unwrap();
+        assert!(call("project.apply_conflict", &token).is_err());
+        assert_eq!(fs::read_to_string(entry).unwrap(), "# Reviewer\n");
     }
 }

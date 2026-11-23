@@ -341,7 +341,7 @@ pub(crate) fn skill_tree(path: &Path) -> Result<BTreeMap<PathBuf, TreeEntry>> {
     directory_tree(path)
 }
 
-fn directory_tree(path: &Path) -> Result<BTreeMap<PathBuf, TreeEntry>> {
+pub(crate) fn directory_tree(path: &Path) -> Result<BTreeMap<PathBuf, TreeEntry>> {
     let mut tree = BTreeMap::new();
     for entry in checked_entries(path) {
         let entry = entry?;
