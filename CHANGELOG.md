@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.8.4] - 2026-11-23
+
+### Changed / 改进
+
+- **Project skill management / 项目技能管理**. Review the files and paths involved in deployment conflicts, and find conflicted skills even when filtering by Agent. Remove a deployment from the project skill list and manage retained version pins separately. 可查看部署冲突涉及的文件和路径，按 Agent 筛选时仍能看到冲突技能。可直接从项目技能列表解除部署，并单独管理保留的版本锁定。
+- **Permanent deletion / 永久删除**. The Library previews affected files and deployment paths before you permanently delete a skill. 在技能库永久删除技能前，可先查看受影响的文件和部署路径。
+
+### Fixed / 修复
+
+- **Safe skill removal / 技能移除保护**. Skill lookup gives exact IDs and slugs priority over display names. If removal fails, UnoSkills can restore staged files and records. Locally edited copies are protected, and unused project version snapshots are cleaned up after their final reference is removed. 查找技能时优先匹配精确 ID 和短名称，再匹配显示名称。移除失败时可还原暂存文件和记录。本地修改过的副本会受到保护，项目版本快照在最后一个引用移除后会清理。
+
 ## [v0.8.3] - 2026-11-23
 
 ### Added / 新增
