@@ -147,6 +147,14 @@ fn stack_confirmation_applies_only_reviewed_rows_and_preserves_changed_targets()
     );
     assert!(result.failed.is_empty());
     assert!(directory.join("safe/SKILL.md").is_file());
+    let safe = manager.find_skill("safe").unwrap().unwrap();
+    assert!(
+        safe.project_deployments[0]
+            .copy_hash
+            .as_deref()
+            .unwrap()
+            .starts_with("v2:")
+    );
     assert!(!directory.join("local").exists());
     assert!(!directory.join("global").exists());
     assert_eq!(

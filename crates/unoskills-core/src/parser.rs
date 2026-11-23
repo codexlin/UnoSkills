@@ -1,6 +1,7 @@
 use anyhow::{Result, ensure};
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::domain::SkillLintReport;
@@ -323,6 +324,93 @@ pub(crate) fn checked_directory_hash(directory: &Path) -> Result<String> {
         })
         .collect::<Result<Vec<_>>>()?;
     hash_files(directory, files)
+}
+
+#[derive(Eq, PartialEq)]
+pub(crate) enum TreeEntry {
+    Directory,
+    File { hash: [u8; 32], executable: u8 },
+}
+
+pub(crate) fn skill_tree(path: &Path) -> Result<BTreeMap<PathBuf, TreeEntry>> {
+    ensure!(
+        std::fs::symlink_metadata(path)?.is_dir() && is_valid_skill_dir(path),
+        "Expected a complete skill directory at {}",
+        path.display()
+    );
+    directory_tree(path)
+}
+
+fn directory_tree(path: &Path) -> Result<BTreeMap<PathBuf, TreeEntry>> {
+    let mut tree = BTreeMap::new();
+    for entry in checked_entries(path) {
+        let entry = entry?;
+        let relative = entry.path().strip_prefix(path)?;
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        let item = if entry.file_type().is_dir() {
+            TreeEntry::Directory
+        } else {
+            let file = std::fs::File::open(entry.path())?;
+            let mut hash = Sha256::new();
+            std::io::copy(&mut &file, &mut hash)?;
+            #[cfg(unix)]
+            let executable = {
+                use std::os::unix::fs::PermissionsExt;
+                (file.metadata()?.permissions().mode() & 0o111) as u8
+            };
+            #[cfg(not(unix))]
+            let executable = 0;
+            TreeEntry::File {
+                hash: hash.finalize().into(),
+                executable,
+            }
+        };
+        tree.insert(relative.to_owned(), item);
+    }
+    Ok(tree)
+}
+
+pub(crate) fn project_version_hash(path: &Path) -> Result<String> {
+    Ok(hash_tree(skill_tree(path)?, false))
+}
+
+pub(crate) const COPY_FINGERPRINT_PREFIX: &str = "v2:";
+
+pub(crate) fn managed_copy_fingerprint(path: &Path) -> Result<String> {
+    ensure!(
+        std::fs::symlink_metadata(path)?.is_dir(),
+        "Expected a directory at {}",
+        path.display()
+    );
+    Ok(format!(
+        "{COPY_FINGERPRINT_PREFIX}{}",
+        hash_tree(directory_tree(path)?, true)
+    ))
+}
+
+fn hash_tree(tree: BTreeMap<PathBuf, TreeEntry>, full_exec_mask: bool) -> String {
+    let mut digest = Sha256::new();
+    for (relative, item) in tree {
+        let name = relative.as_os_str().as_encoded_bytes();
+        digest.update((name.len() as u64).to_le_bytes());
+        digest.update(name);
+        match item {
+            TreeEntry::Directory => digest.update([0]),
+            TreeEntry::File { hash, executable } => {
+                // Project lock identities retain their original boolean encoding.
+                let mode = if full_exec_mask {
+                    executable
+                } else {
+                    u8::from(executable != 0)
+                };
+                digest.update([1, mode]);
+                digest.update(hash);
+            }
+        }
+    }
+    hex::encode(digest.finalize())
 }
 
 #[cfg(test)]

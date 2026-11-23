@@ -9,18 +9,18 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use super::project_versions::{paths_overlap, physical_target_path};
 use super::{UnoSkillsManager, safe_scoped_target};
 use crate::domain::{
     DeployMode, DeploymentImpact, DeploymentImpactKind, Skill, SkillUpdateResult, SourceType,
 };
 use crate::parser::{
-    checked_directory_hash as revision_hash, checked_entries, is_valid_skill_dir, parse_skill_dir,
-    sanitize_slug,
+    checked_directory_hash as revision_hash, checked_entries, is_valid_skill_dir,
+    managed_copy_fingerprint, parse_skill_dir, sanitize_slug,
 };
 use crate::source::{ResolvedSource, fetch_git_skill, resolve_source_ref};
 use crate::sync::{
-    TargetState, classify_target, copy_dir_recursive, ensure_dst_not_overlapping_src,
+    TargetState, classify_target, copy_baseline, copy_dir_recursive,
+    ensure_dst_not_overlapping_src, paths_overlap, physical_target_path, rename_without_replacing,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -53,6 +53,8 @@ pub struct PreparedSkillRevision {
     central_path: PathBuf,
     base_hash: String,
     candidate_hash: String,
+    base_fingerprint: String,
+    candidate_fingerprint: String,
     source_ref: Option<String>,
     previous_source_branch: Option<String>,
     previous_source_subpath: Option<String>,
@@ -82,7 +84,7 @@ struct CopyBaseline {
 struct TargetRecord<'a> {
     agent: &'a str,
     mode: DeployMode,
-    hash: &'a str,
+    hash: Option<&'a str>,
     scope_valid: bool,
 }
 
@@ -252,6 +254,8 @@ impl UnoSkillsManager {
         if base_hash == candidate_hash {
             return Ok(None);
         }
+        let base_fingerprint = managed_copy_fingerprint(&skill.central_path)?;
+        let candidate_fingerprint = managed_copy_fingerprint(&candidate)?;
         let files = compare_files(&skill.central_path, &candidate)?;
         ensure!(
             revision_hash(&skill.central_path)? == base_hash
@@ -260,8 +264,7 @@ impl UnoSkillsManager {
         );
         let targets = planned_targets(
             &skill,
-            &base_hash,
-            &candidate_hash,
+            &candidate_fingerprint,
             &self.store.locked_project_target_paths()?,
         );
         Ok(Some(PreparedSkillRevision {
@@ -277,6 +280,8 @@ impl UnoSkillsManager {
             central_path: skill.central_path,
             base_hash,
             candidate_hash,
+            base_fingerprint,
+            candidate_fingerprint,
             source_ref: skill.source_ref,
             previous_source_branch: skill.source_branch,
             previous_source_subpath: skill.source_subpath,
@@ -313,17 +318,16 @@ impl UnoSkillsManager {
                 && skill.source_ref == prepared.source_ref
                 && skill.source_branch == prepared.previous_source_branch
                 && skill.source_subpath == prepared.previous_source_subpath
-                && revision_hash(&skill.central_path)? == prepared.base_hash
-                && revision_hash(&candidate)? == prepared.candidate_hash
+                && managed_copy_fingerprint(&skill.central_path)? == prepared.base_fingerprint
+                && managed_copy_fingerprint(&candidate)? == prepared.candidate_fingerprint
                 && planned_targets(
                     &skill,
-                    &prepared.base_hash,
-                    &prepared.candidate_hash,
+                    &prepared.candidate_fingerprint,
                     &self.store.locked_project_target_paths()?
                 ) == prepared.targets
                 && (!prepared.preview.rollback
-                    || revision_hash(&self.previous_revision_path(&skill.id))?
-                        == prepared.candidate_hash),
+                    || managed_copy_fingerprint(&self.previous_revision_path(&skill.id))?
+                        == prepared.candidate_fingerprint),
             "STALE_SKILL_REVISION: The skill or its deployments changed. Check again before applying."
         );
 
@@ -344,7 +348,7 @@ impl UnoSkillsManager {
         let had_previous = move_if_present(&previous, &older)?;
         if let Err(error) = replace_directory(&skill.central_path, &candidate, &previous, || {
             ensure!(
-                revision_hash(&previous)? == prepared.base_hash,
+                managed_copy_fingerprint(&previous)? == prepared.base_fingerprint,
                 "STALE_SKILL_REVISION: The installed files changed while applying the revision."
             );
             self.store.upsert_skill(&skill)
@@ -363,60 +367,53 @@ impl UnoSkillsManager {
         let mut deployment_issues = Vec::new();
         for target in prepared.targets {
             let mut impact = target.impact;
-            match impact.kind {
+            let fingerprint = &prepared.candidate_fingerprint;
+            let recorded = match impact.kind {
                 DeploymentImpactKind::RefreshCopy => {
                     let baseline = target
                         .copy_baseline
                         .expect("refreshable copy has a baseline");
-                    if self
-                        .refresh_revision_copy(&skill, &impact.path, &baseline)
-                        .is_ok()
-                    {
-                        for dep in skill.deployments.iter_mut().filter(|dep| {
-                            dep.mode == DeployMode::Copy && dep.target_path == impact.path
-                        }) {
-                            dep.copy_hash.clone_from(&skill.content_hash);
-                        }
-                        for dep in skill.project_deployments.iter_mut().filter(|dep| {
-                            dep.mode == DeployMode::Copy && dep.target_path == impact.path
-                        }) {
-                            dep.copy_hash.clone_from(&skill.content_hash);
-                        }
+                    let result =
+                        self.refresh_revision_copy(&skill, &impact.path, &baseline, fingerprint);
+                    if result.is_ok() {
                         refreshed_copies += 1;
-                    } else {
-                        impact.kind = DeploymentImpactKind::RefreshFailed;
-                        deployment_issues.push(impact);
                     }
+                    result
                 }
+                DeploymentImpactKind::Current => (|| {
+                    ensure!(
+                        managed_copy_fingerprint(&impact.path)? == *fingerprint,
+                        "TARGET_CONFLICT: The deployment changed"
+                    );
+                    self.store
+                        .record_refreshed_copy(&skill.id, &impact.path, Some(fingerprint))
+                })(),
                 DeploymentImpactKind::Missing
                 | DeploymentImpactKind::Conflict
-                | DeploymentImpactKind::RefreshFailed => deployment_issues.push(impact),
-                DeploymentImpactKind::Current => {
-                    if self
-                        .store
-                        .record_refreshed_copy(
-                            &skill.id,
-                            &impact.path,
-                            skill.content_hash.as_deref(),
-                        )
-                        .is_ok()
-                    {
-                        for dep in skill.deployments.iter_mut().filter(|dep| {
-                            dep.mode == DeployMode::Copy && dep.target_path == impact.path
-                        }) {
-                            dep.copy_hash.clone_from(&skill.content_hash);
-                        }
-                        for dep in skill.project_deployments.iter_mut().filter(|dep| {
-                            dep.mode == DeployMode::Copy && dep.target_path == impact.path
-                        }) {
-                            dep.copy_hash.clone_from(&skill.content_hash);
-                        }
-                    } else {
-                        impact.kind = DeploymentImpactKind::RefreshFailed;
-                        deployment_issues.push(impact);
-                    }
+                | DeploymentImpactKind::RefreshFailed => {
+                    deployment_issues.push(impact);
+                    continue;
                 }
-                DeploymentImpactKind::Linked => {}
+                DeploymentImpactKind::Linked => continue,
+            };
+            if recorded.is_ok() {
+                for dep in skill
+                    .deployments
+                    .iter_mut()
+                    .filter(|dep| dep.mode == DeployMode::Copy && dep.target_path == impact.path)
+                {
+                    dep.copy_hash = Some(fingerprint.clone());
+                }
+                for dep in skill
+                    .project_deployments
+                    .iter_mut()
+                    .filter(|dep| dep.mode == DeployMode::Copy && dep.target_path == impact.path)
+                {
+                    dep.copy_hash = Some(fingerprint.clone());
+                }
+            } else {
+                impact.kind = DeploymentImpactKind::RefreshFailed;
+                deployment_issues.push(impact);
             }
         }
         Ok(SkillUpdateResult {
@@ -432,6 +429,7 @@ impl UnoSkillsManager {
         skill: &Skill,
         path: &Path,
         baseline: &CopyBaseline,
+        fingerprint: &str,
     ) -> Result<()> {
         ensure_dst_not_overlapping_src(&skill.central_path, path)?;
         let parent = path.parent().context("Missing deployment directory")?;
@@ -448,19 +446,20 @@ impl UnoSkillsManager {
         ensure!(
             parent.canonicalize()? == baseline.parent
                 && classify_target(&skill.central_path, &target) == TargetState::RealDir
-                && revision_hash(&target)? == baseline.hash
-                && Some(revision_hash(&candidate)?.as_str()) == skill.content_hash.as_deref(),
+                && managed_copy_fingerprint(&target)? == baseline.hash
+                && managed_copy_fingerprint(&candidate)? == fingerprint,
             "TARGET_CONFLICT: The deployment changed: {}",
             path.display()
         );
         let result = replace_directory(&target, &candidate, &previous, || {
             ensure!(
-                revision_hash(&previous)? == baseline.hash,
+                managed_copy_fingerprint(&previous)? == baseline.hash
+                    && managed_copy_fingerprint(&target)? == fingerprint,
                 "TARGET_CONFLICT: The deployment changed: {}",
                 path.display()
             );
             self.store
-                .record_refreshed_copy(&skill.id, path, skill.content_hash.as_deref())
+                .record_refreshed_copy(&skill.id, path, Some(fingerprint))
         });
         if result.is_err() && previous.exists() {
             staging.disable_cleanup(true);
@@ -471,10 +470,10 @@ impl UnoSkillsManager {
 
 pub(super) fn backup_deployment_issues(
     skill: &Skill,
-    hash: &str,
     locked_paths: &[PathBuf],
-) -> Vec<DeploymentImpact> {
-    planned_targets(skill, hash, hash, locked_paths)
+) -> Result<Vec<DeploymentImpact>> {
+    let fingerprint = managed_copy_fingerprint(&skill.central_path)?;
+    Ok(planned_targets(skill, &fingerprint, locked_paths)
         .into_iter()
         .map(|target| target.impact)
         .filter(|impact| {
@@ -483,7 +482,7 @@ pub(super) fn backup_deployment_issues(
                 DeploymentImpactKind::Missing | DeploymentImpactKind::Conflict
             )
         })
-        .collect()
+        .collect())
 }
 
 fn move_if_present(path: &Path, destination: &Path) -> Result<bool> {
@@ -508,16 +507,16 @@ fn replace_directory(
     previous: &Path,
     persist: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
-    fs::rename(current, previous)
+    rename_without_replacing(current, previous)
         .with_context(|| format!("Could not preserve {}", current.display()))?;
-    if let Err(error) = fs::rename(next, current) {
-        fs::rename(previous, current)
+    if let Err(error) = rename_without_replacing(next, current) {
+        rename_without_replacing(previous, current)
             .with_context(|| format!("Original files preserved at {}", previous.display()))?;
-        return Err(error.into());
+        return Err(error);
     }
     if let Err(error) = persist() {
-        fs::rename(current, next)
-            .and_then(|()| fs::rename(previous, current))
+        rename_without_replacing(current, next)
+            .and_then(|()| rename_without_replacing(previous, current))
             .with_context(|| format!("Original files preserved at {}", previous.display()))?;
         return Err(error);
     }
@@ -564,8 +563,7 @@ fn compare_files(current: &Path, candidate: &Path) -> Result<Vec<SkillFileChange
 
 fn planned_targets(
     skill: &Skill,
-    base_hash: &str,
-    candidate_hash: &str,
+    candidate_fingerprint: &str,
     locked_paths: &[PathBuf],
 ) -> Vec<PlannedTarget> {
     let locked = |path: &Path| {
@@ -591,7 +589,7 @@ fn planned_targets(
             .push(TargetRecord {
                 agent: &dep.agent_key,
                 mode: dep.mode,
-                hash: dep.copy_hash.as_deref().unwrap_or(base_hash),
+                hash: dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
                 scope_valid: true,
             });
     }
@@ -605,7 +603,7 @@ fn planned_targets(
             .push(TargetRecord {
                 agent: &dep.agent_key,
                 mode: dep.mode,
-                hash: dep.copy_hash.as_deref().unwrap_or(base_hash),
+                hash: dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
                 scope_valid: safe_scoped_target(dep).unwrap_or(false),
             });
     }
@@ -627,15 +625,22 @@ fn planned_targets(
                     TargetState::RealDir
                         if entries.iter().all(|record| record.mode == DeployMode::Copy) =>
                     {
-                        let candidate = revision_hash(path)
+                        let candidate = managed_copy_fingerprint(path)
                             .ok()
                             .zip(path.parent().and_then(|parent| parent.canonicalize().ok()));
                         match candidate {
-                            Some((hash, _)) if hash == candidate_hash => {
+                            Some((hash, _)) if hash == candidate_fingerprint => {
                                 (DeploymentImpactKind::Current, None)
                             }
                             Some((hash, parent))
-                                if entries.iter().all(|record| record.hash == hash) =>
+                                if entries.iter().all(|record| {
+                                    record
+                                        .hash
+                                        .and_then(|recorded| {
+                                            copy_baseline(&skill.central_path, recorded)
+                                        })
+                                        .is_some_and(|baseline| baseline == hash)
+                                }) =>
                             {
                                 (
                                     DeploymentImpactKind::RefreshCopy,

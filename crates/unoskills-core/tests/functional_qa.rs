@@ -571,6 +571,13 @@ fn update_skill_detects_noop_and_refreshes_copy_deployments_on_change() {
     let deployed_md =
         std::fs::read_to_string(copy_agent_dir.join(&skill.slug).join("SKILL.md")).unwrap();
     assert!(deployed_md.contains("v2 description"));
+    assert!(
+        upgraded.skill.deployments[0]
+            .copy_hash
+            .as_deref()
+            .unwrap()
+            .starts_with("v2:")
+    );
 }
 
 #[test]
@@ -2541,6 +2548,14 @@ fn git_backup_push_and_pull_rebuilds_sqlite_and_refreshes_copies_without_syncing
     assert_eq!(pull2.refreshed_copies, 1);
     let copied_md = std::fs::read_to_string(custom_dir_b.join("alpha-skill/SKILL.md")).unwrap();
     assert!(copied_md.contains("Alpha v2 updated"));
+    let refreshed = mgr_b.find_skill(&alpha_b.id).unwrap().unwrap();
+    assert!(
+        refreshed.deployments[0]
+            .copy_hash
+            .as_deref()
+            .unwrap()
+            .starts_with("v2:")
+    );
 
     // A local edit through the app updates SQLite's hash, so that hash alone
     // does not show whether it is safe to replace the library files.
