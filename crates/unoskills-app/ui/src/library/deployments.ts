@@ -3,10 +3,10 @@ import { AlertDialog } from "nsh/base";
 import type { ScreenProps } from "../shared";
 import { joinPath } from "./format";
 import {
-  deployProjectSkill, deploySkill, errorMessage, isTargetConflictError, undeployProjectSkill, undeploySkill,
+  deployProjectSkill, deploySkill, errorMessage, isTargetConflictError, undeploySkill,
 } from "./host";
 import {
-  confirmConflictDesc, getStrings, toastDeployed, toastProjectDeployed, toastProjectUndeployed, toastUndeployed,
+  confirmConflictDesc, getStrings, toastDeployed, toastProjectDeployed, toastUndeployed,
 } from "./strings";
 import type { AgentInfo, ProjectWorkspace, Skill } from "./types";
 
@@ -66,22 +66,22 @@ export function createDeployments(screen: Pick<ScreenProps, "locale" | "notify" 
     }, deployed);
   }
 
-  function project(skill: Skill, workspace: ProjectWorkspace, scopePath: string, agent: AgentInfo, deployed: boolean) {
+  async function project(skill: Skill, workspace: ProjectWorkspace, scopePath: string, agent: AgentInfo,
+    reviewConflict: () => Promise<void>) {
+    if (pending()) return;
+    pending.set(true);
     const label = scopePath ? `${workspace.name} · ${scopePath}` : workspace.name;
-    const folder = scopePath ? joinPath(workspace.path, scopePath) : workspace.path;
-    const relativeDir = agent.project_relative_skills_dir.trim() || ".agents/skills";
-    return toggle({
-      label: agent.display_name,
-      path: joinPath(folder, relativeDir, skill.slug),
-      async install(force) {
-        const result = await deployProjectSkill(skill.id, workspace.id, agent.key, { scopePath, force });
-        return toastProjectDeployed(screen.locale, label, result.agent_key, result.mode);
-      },
-      async remove() {
-        await undeployProjectSkill(skill.id, workspace.id, agent.key, scopePath);
-        return toastProjectUndeployed(screen.locale, label, agent.key);
-      },
-    }, deployed);
+    try {
+      const result = await deployProjectSkill(skill.id, workspace.id, agent.key, { scopePath });
+      screen.notify(toastProjectDeployed(screen.locale, label, result.agent_key, result.mode), "success");
+      screen.refresh();
+      await reload();
+    } catch (error) {
+      if (isTargetConflictError(error)) await reviewConflict();
+      else screen.notify(errorMessage(error), "error");
+    } finally {
+      pending.set(false);
+    }
   }
 
   return { pending, global, project };

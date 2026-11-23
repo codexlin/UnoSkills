@@ -47,6 +47,10 @@ impl Files {
     pub async fn reveal(path: String) -> Result<(), String> {
         reveal_path(PathBuf::from(path)).await
     }
+
+    pub async fn open_folder(path: String) -> Result<(), String> {
+        open_path(PathBuf::from(path)).await
+    }
 }
 
 pub(super) fn registry() -> Registry {

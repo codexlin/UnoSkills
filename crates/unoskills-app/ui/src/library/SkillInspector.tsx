@@ -3,6 +3,7 @@ import { Editor, TextView } from "nsh/base";
 import { ActionMenu, AlertBanner, Label, LoadingLine, MenuAction, MenuDivider, PageTabs, ToggleSwitch, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, hintTooltip } from "./controls";
+import { managementStrings } from "./managementStrings";
 import { isSkillDeployedTo, joinPath } from "./format";
 import { errorMessage, revealPath } from "./host";
 import { skillRevisionStrings } from "./skillRevisions";
@@ -11,6 +12,7 @@ import type {
   AgentInfo,
   ProjectSkillStatus,
   ProjectWorkspace,
+  ReviewedDeployment,
   Skill,
   SkillLintReport,
 } from "./types";
@@ -47,16 +49,15 @@ export function SkillInspector(props: {
   onRollbackSkill: (skill: Skill) => void;
   onDeleteSkill: (skill: Skill) => void;
   onGlobalDeployToggle: (skill: Skill, agent: AgentInfo, currentlyDeployed: boolean) => void;
-  onProjectDeployToggle: (
-    skill: Skill,
-    project: ProjectWorkspace,
-    agent: AgentInfo,
-    currentlyDeployed: boolean,
-  ) => void;
+  onProjectDeploy: (skill: Skill, project: ProjectWorkspace, agent: AgentInfo) => void;
+  onProjectConflict: (skill: Skill, project: ProjectWorkspace, agent: AgentInfo) => void;
+  onProjectRemove: (skill: Skill, project: ProjectWorkspace, agent: AgentInfo, deployment: ReviewedDeployment) => void;
+  onViewProjectPin: (project: ProjectWorkspace) => void;
   onDetachProject: (project: ProjectWorkspace) => void;
   onNotify: (message: string, tone?: "info" | "success" | "error") => void;
 }) {
   const s = () => getStrings(props.locale);
+  const m = () => managementStrings(props.locale);
 
   const projectDisplayPath = () => {
     const project = props.activeProject;
@@ -154,7 +155,7 @@ export function SkillInspector(props: {
                         .catch((error) => props.onNotify(errorMessage(error), "error"));
                     }} />
                     <MenuDivider theme={props.theme} />
-                    <MenuAction theme={props.theme} label={s().btn_delete} danger onSelect={() => props.onDeleteSkill(skill())} />
+                    <MenuAction theme={props.theme} label={m().deleteSkill} danger onSelect={() => props.onDeleteSkill(skill())} />
                   </ActionMenu>
                 </View>
               }
@@ -264,6 +265,16 @@ export function SkillInspector(props: {
                         )}
                       </If>
 
+                      <If when={props.activeProject}>
+                        {(project) => <If when={props.activeAgents.some((agent) => props.projectStatusFor(skill().id, agent.key)?.retained_pin)}>
+                          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                            <Label theme={props.theme} muted>{m().retainedPin}</Label>
+                            <ActionButton theme={props.theme} label={m().managePin} kind="ghost" compact
+                              onPress={() => props.onViewProjectPin(project())} />
+                          </View>
+                        </If>}
+                      </If>
+
                       <If when={props.activeAgents.length === 0}>
                         <Label theme={props.theme} muted size={14}>
                           {s().no_installed_agents}
@@ -344,7 +355,9 @@ export function SkillInspector(props: {
                                           flexDirection: "row",
                                           alignItems: "center",
                                           gap: 8,
-                                          flexShrink: 0,
+                                          flexWrap: "wrap",
+                                          justifyContent: "flex-end",
+                                          flexShrink: 1,
                                         }}
                                       >
                                         <Label
@@ -373,28 +386,15 @@ export function SkillInspector(props: {
                                                     : s().library_not_deployed}
                                         </Label>
 
-                                        <If when={status().placement === "managed"}>
-                                          <ToggleSwitch
-                                            theme={props.theme}
-                                            compact
-                                            checked
-                                            disabled={props.deploying}
-                                            accessibilityLabel={`${s().library_project_deployed} · ${agent().display_name}`}
-                                            tooltip={hintTooltip(
-                                              () => props.theme,
-                                              () => s().library_remove_project_deployment,
-                                            )}
-                                            onChange={(checked) => {
-                                              if (!checked) {
-                                                props.onProjectDeployToggle(
-                                                  skill(),
-                                                  project(),
-                                                  agent(),
-                                                  true,
-                                                );
-                                              }
-                                            }}
-                                          />
+                                        <If when={status().placement === "managed" ? skill().project_deployments.find((dep) =>
+                                          dep.project_id === project().id && (dep.scope_path ?? "") === props.scopePath
+                                          && dep.agent_key === agent().key) : undefined}>
+                                          {(dep) => <ActionButton theme={props.theme} kind="ghost" compact
+                                            label={m().removeDeployment} disabled={props.deploying}
+                                            accessibilityLabel={m().removeDeployment + " · " + agent().display_name}
+                                            onPress={() => props.onProjectRemove(skill(), project(), agent(), {
+                                              id: dep().id, target_path: dep().target_path,
+                                            })} />}
                                         </If>
 
                                         <If
@@ -418,14 +418,9 @@ export function SkillInspector(props: {
                                                 ? s().library_resolve_project_conflict
                                                 : s().stack_deploy_project
                                             } · ${agent().display_name}`}
-                                            onPress={() =>
-                                              props.onProjectDeployToggle(
-                                                skill(),
-                                                project(),
-                                                agent(),
-                                                false,
-                                              )
-                                            }
+                                            onPress={() => status().placement === "conflict"
+                                              ? props.onProjectConflict(skill(), project(), agent())
+                                              : props.onProjectDeploy(skill(), project(), agent())}
                                           />
                                         </If>
                                       </View>

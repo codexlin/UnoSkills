@@ -14,7 +14,11 @@ pub use project_deploy_preview::{ProjectDeployOutcome, ProjectDeployPreview, Pro
 
 #[path = "project_versions.rs"]
 pub(crate) mod project_versions;
-pub use project_versions::{PreparedProjectVersion, ProjectVersionIntent, ProjectVersionReview};
+pub use project_versions::{
+    PreparedProjectConflict, PreparedProjectVersion, ProjectConflictReview, ProjectVersionIntent,
+    ProjectVersionReview,
+};
+pub use skill_removal::{RemovalProblem, ReviewedDeployment};
 
 use anyhow::{Context, Result, bail, ensure};
 use chrono::Utc;
@@ -108,7 +112,7 @@ pub(crate) fn project_scope_directory(project: &ProjectWorkspace, scope: &Path) 
 }
 
 // Keep scope keys stable across the filesystem, SQLite and the desktop API.
-fn project_scope_key(scope: &Path) -> PathBuf {
+pub(crate) fn project_scope_key(scope: &Path) -> PathBuf {
     let mut key = std::ffi::OsString::new();
     for component in scope.components() {
         if !key.is_empty() {
@@ -175,6 +179,14 @@ pub(crate) fn inspect_stack_project_target(
     scope: &Path,
     target: &Path,
 ) -> StackProjectTarget {
+    if skill.project_deployments.iter().any(|dep| {
+        dep.project_id == project.id
+            && dep.scope_path == scope
+            && dep.agent_key == agent.key
+            && dep.target_path != target
+    }) {
+        return StackProjectTarget::Conflict;
+    }
     let matching_records = || {
         skill
             .project_deployments
@@ -404,36 +416,52 @@ impl UnoSkillsManager {
             .find_project(project_id)?
             .context("Project workspace not found")?;
         let skills = self.list_skills()?;
+        project_scope_directory(&project, scope)?;
+        let scope = project_scope_key(scope);
+        let scope = scope.as_path();
         let mut statuses = HashMap::new();
         for agent in self
             .list_agents()?
             .into_iter()
             .filter(|agent| agent.installed && agent.enabled)
         {
-            let directory = scoped_project_skills_dir(&project, scope, &agent)?;
+            let directory = scoped_project_skills_dir(&project, scope, &agent).ok();
             let by_skill = skills
                 .iter()
                 .map(|skill| {
-                    let placement = match inspect_stack_project_target(
-                        skill,
-                        &project,
-                        &agent,
-                        scope,
-                        &directory.join(&skill.slug),
-                    ) {
-                        StackProjectTarget::Deployed(_) => ProjectSkillPlacement::Managed,
-                        StackProjectTarget::Missing(_) => ProjectSkillPlacement::Missing,
-                        StackProjectTarget::Register(_) | StackProjectTarget::Local => {
-                            ProjectSkillPlacement::Local
+                    let mut scoped_deployments = skill
+                        .project_deployments
+                        .iter()
+                        .filter(|dep| dep.project_id == project.id && dep.scope_path == scope);
+                    let has_deployment = scoped_deployments.clone().next().is_some();
+                    let placement = match directory.as_ref() {
+                        None if scoped_deployments.any(|dep| dep.agent_key == agent.key) => {
+                            ProjectSkillPlacement::Conflict
                         }
-                        StackProjectTarget::Conflict => ProjectSkillPlacement::Conflict,
-                        StackProjectTarget::Unavailable => ProjectSkillPlacement::Unavailable,
+                        None => ProjectSkillPlacement::Unavailable,
+                        Some(directory) => match inspect_stack_project_target(
+                            skill,
+                            &project,
+                            &agent,
+                            scope,
+                            &directory.join(&skill.slug),
+                        ) {
+                            StackProjectTarget::Deployed(_) => ProjectSkillPlacement::Managed,
+                            StackProjectTarget::Missing(_) => ProjectSkillPlacement::Missing,
+                            StackProjectTarget::Register(_) | StackProjectTarget::Local => {
+                                ProjectSkillPlacement::Local
+                            }
+                            StackProjectTarget::Conflict => ProjectSkillPlacement::Conflict,
+                            StackProjectTarget::Unavailable => ProjectSkillPlacement::Unavailable,
+                        },
                     };
                     (
                         skill.id.clone(),
                         ProjectSkillStatus {
                             placement,
                             global_available: is_globally_available(skill, &agent),
+                            retained_pin: skill.project_lock(&project.id, scope).is_some()
+                                && !has_deployment,
                         },
                     )
                 })

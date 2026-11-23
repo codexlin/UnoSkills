@@ -158,7 +158,7 @@ fn library_install_markdown_preview_edit_lint_update_and_remove() {
     let removed = nsh::dispatch(
         &mgr,
         "library.remove_skill",
-        json!({ "skill_id": skill_id }),
+        json!({ "skill_id": skill_id, "deployments": [] }),
     )
     .expect("remove skill");
     assert_eq!(removed["removed"], true);
@@ -562,7 +562,8 @@ fn library_scoped_monorepo_root_and_subproject_targets_are_independent() {
             "skill_id": skill_id,
             "project_id": project_id,
             "scope_path": "apps/web",
-            "agent_key": "mono-agent"
+            "agent_key": "mono-agent",
+            "deployment": { "id": web_dep["id"], "target_path": web_dep["target_path"] }
         }),
     )
     .expect("undeploy skill from apps/web");

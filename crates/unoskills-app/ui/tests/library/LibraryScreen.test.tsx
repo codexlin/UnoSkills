@@ -404,6 +404,12 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     const skills = makeSkills();
     const recorded: CommandPayload[] = [];
     let webDeployed = false;
+    const deployment = {
+      id: "dep-1", skill_id: "skill-a", project_id: "proj-1",
+      agent_key: "claude-code", scope_path: "apps/web", mode: "copy",
+      target_path: "/tmp/demo-repo/apps/web/.claude/skills/alpha",
+      synced_at: 1743465600,
+    } satisfies ProjectDeployment;
     let conflictInjected = false;
     const olderRefresh = deferred<unknown>();
     const refreshStarted = deferred<void>();
@@ -446,7 +452,7 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
                 return olderRefresh.promise;
               }
               return makeLibraryState(
-                skills,
+                [{ ...skills[0], project_deployments: webDeployed ? [deployment] : [] }, skills[1]],
                 scope,
                 input?.project_id ? makeStatuses(scope) : null,
               );
@@ -473,18 +479,18 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
                   message: "TARGET_CONFLICT: existing unmanaged directory",
                 };
               }
+              return { ok: true, value: deployment };
+            }
+            if (command === "project.review_conflict") {
+              return { ok: true, value: {
+                path: deployment.target_path, kind: "modified", open_folder: true, detail: null,
+                preview_id: "reviewed-copy", files: [{ path: "SKILL.md", kind: "modified", diff: "- local\n+ original" }],
+              } };
+            }
+            if (command === "project.cancel_conflict") return { ok: true, value: null };
+            if (command === "project.apply_conflict") {
               webDeployed = true;
-              const value: ProjectDeployment = {
-                id: "dep-1",
-                skill_id: "skill-a",
-                project_id: "proj-1",
-                agent_key: "claude-code",
-                scope_path: scope,
-                target_path: "/tmp/demo-repo/apps/web/.claude/skills/alpha",
-                mode: "symlink",
-                synced_at: 1743465600,
-              };
-              return { ok: true, value };
+              return { ok: true, value: null };
             }
             if (command === "library.undeploy_project_skill") {
               webDeployed = false;
@@ -512,29 +518,31 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     const stateCall = recorded.find((entry) => entry.command === "library.state");
     expect(stateCall?.input).toMatchObject({ project_id: "proj-1", scope_path: "apps/web" });
 
-    // Deploy triggers TARGET_CONFLICT showing apps/web path, then force-replaces with scope_path.
-    app.onDialog(() => "Replace");
     await app.press("label:Deploy to Project · Claude Code");
-    await app.waitFor("label:Deployed to project · Claude Code");
+    await app.waitFor("text:UnoSkills manages this copy. Its files have changed.");
+    expect(app.texts()).toContain(deployment.target_path);
+    expect(app.texts()).toContain("- local\n+ original");
+    await app.press("label:Review Overwrite");
+    expect(recorded.some((entry) => entry.command === "project.apply_conflict")).toBe(false);
+    await app.press("label:Overwrite Project Copy");
+    await app.waitFor("label:Remove Project Deployment · Claude Code");
 
-    expect(app.dialogs()[0]?.message ?? "").toContain(
-      "/tmp/demo-repo/apps/web/.claude/skills/alpha",
-    );
     const deployCalls = recorded.filter((entry) => entry.command === "library.deploy_project_skill");
-    expect(deployCalls).toHaveLength(2);
+    expect(deployCalls).toHaveLength(1);
     expect(deployCalls[0]?.input).toMatchObject({
       project_id: "proj-1",
       scope_path: "apps/web",
       force: false,
     });
-    expect(deployCalls[1]?.input).toMatchObject({
-      project_id: "proj-1",
-      scope_path: "apps/web",
-      force: true,
-    });
+    expect(recorded.find((entry) => entry.command === "project.apply_conflict")?.input)
+      .toEqual({ preview_id: "reviewed-copy" });
 
-    // Undeploy also passes scope_path: "apps/web".
-    await app.press("label:Deployed to project · Claude Code");
+    await app.press("label:Remove Project Deployment · Claude Code");
+    await app.waitFor("text:Claude Code · Demo Repo · apps/web");
+    await app.press("label:Cancel");
+    expect(recorded.some((entry) => entry.command === "library.undeploy_project_skill")).toBe(false);
+    await app.press("label:Remove Project Deployment · Claude Code");
+    await app.press("label:Confirm Remove Project Deployment");
     await app.waitFor("label:Deploy to Project · Claude Code");
     const undeployCall = recorded.find(
       (entry) => entry.command === "library.undeploy_project_skill",
@@ -542,6 +550,7 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     expect(undeployCall?.input).toMatchObject({
       project_id: "proj-1",
       scope_path: "apps/web",
+      deployment: { id: deployment.id, target_path: deployment.target_path },
     });
 
     // Project Overview preserves nested scopePath back to Projects.
@@ -577,6 +586,90 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     await app.waitFor("text:Alpha after refresh");
     expect(app.texts()).toContain("/tmp/demo-repo");
     expect(app.texts()).not.toContain("/tmp/demo-repo/apps/web");
+  });
+
+  test("the project Agent filter keeps conflicts and hides the inspector for an excluded selection", async () => {
+    const skills = makeSkills();
+    const app = await open("./LibraryTestHarness.tsx", {
+      platform: "linux", width: 960, height: 600,
+      host: {
+        params: { initialRoute: { page: "library", projectId: "proj-1", scopePath: "apps/web", skillId: "skill-a" } },
+        handlers: {
+          "unoskills.command": ({ command }: CommandPayload) => {
+            if (command === "library.state") return makeLibraryState(skills, "apps/web", {
+              "claude-code": {
+                "skill-a": { placement: "missing", global_available: false },
+                "skill-b": { placement: "conflict", global_available: false },
+              },
+            });
+            return makeMarkdownReply("skill-a", "# Alpha", "# Alpha");
+          },
+        },
+      },
+    });
+    await app.waitFor("text:Alpha Skill");
+    await app.press("label:Filter by Agent");
+    await app.press("text:Claude Code");
+    await app.waitFor("label:Beta Skill");
+    expect(app.shows("label:Alpha Skill")).toBe(false);
+    expect(app.texts()).not.toContain("Alpha Skill");
+    expect(app.shows("text:Conflict")).toBe(true);
+    await app.press("label:Beta Skill");
+    await app.waitFor("label:Resolve conflict · Claude Code");
+  });
+
+  test("blocked library deletion reviews each placement and keeps recovery details in the dialog", async () => {
+    const [alpha] = makeSkills();
+    const target = "/tmp/demo-repo/apps/web/.claude/skills/alpha";
+    const global = "/fixture/.claude/skills/alpha";
+    alpha.deployments = [{ id: "global", skill_id: alpha.id, agent_key: "claude-code", target_path: global, mode: "copy", synced_at: 0 }];
+    alpha.project_deployments = [{
+      id: "project", skill_id: alpha.id, project_id: "proj-1", scope_path: "apps/web", agent_key: "claude-code",
+      target_path: target, mode: "copy", synced_at: 0,
+    }];
+    const failed = deferred<unknown>();
+    const sent: unknown[] = [];
+    const rescue = "/tmp/demo-repo/apps/web/.claude/skills/.unoskills-undeploy-xyz/original";
+    const app = await open("./LibraryTestHarness.tsx", {
+      platform: "linux", width: 960, height: 600,
+      host: {
+        handlers: {
+          "unoskills.command": ({ command, input }: CommandPayload) => {
+            if (command === "library.state") return makeLibraryState([alpha]);
+            if (command === "library.remove_skill") {
+              sent.push(input);
+              return failed.promise;
+            }
+            return makeMarkdownReply(alpha.id, "# Alpha", "# Alpha");
+          },
+        },
+      },
+    });
+    await app.press("label:Skill actions");
+    await app.press("text:Delete from Library");
+    await app.waitFor("text:Claude Code · Demo Repo · apps/web");
+    expect(app.texts()).toContain("Claude Code · Global");
+    expect(app.texts()).toContain(global);
+    expect(app.texts()).toContain(target);
+    const confirmation = app.press("label:Confirm Delete from Library");
+    try {
+      await app.waitUntil(() => sent.length === 1);
+      expect(app.enabled("label:Confirm Delete from Library")).toBe(false);
+      expect(sent).toEqual([{ skill_id: alpha.id, deployments: [
+        { id: "global", target_path: global }, { id: "project", target_path: target },
+      ] }]);
+    } finally {
+      failed.resolve({ ok: false, code: "TARGET_CONFLICT", message: "raw failure", affected_path: target, recovery_paths: [rescue] });
+      await confirmation;
+    }
+    await app.waitFor("text:Automatic restoration was incomplete. Recover the original files from these locations before retrying.");
+    expect(app.texts()).toContain(rescue);
+    expect(app.texts()).not.toContain("raw failure");
+    await app.press("label:Diagnostic Details");
+    expect(app.texts()).toContain("raw failure");
+    await app.press("label:Cancel");
+    await app.waitFor("text:Alpha Skill");
+    expect(sent).toHaveLength(1);
   });
 
   test("Discover adopt and quick install routes invoke matching host commands", async () => {

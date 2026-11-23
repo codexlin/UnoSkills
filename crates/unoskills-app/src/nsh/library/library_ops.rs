@@ -3,7 +3,9 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
-use unoskills_core::{ProjectSkillPlacement, ProjectSkillStatus, UnoSkillsManager, parser};
+use unoskills_core::{
+    ProjectSkillPlacement, ProjectSkillStatus, ReviewedDeployment, UnoSkillsManager, parser,
+};
 
 use super::{optional_bool, optional_deploy_mode, optional_str, required_str};
 
@@ -94,6 +96,7 @@ fn serialize_project_statuses(
                 json!({
                     "placement": placement_str(status.placement),
                     "global_available": status.global_available,
+                    "retained_pin": status.retained_pin,
                 }),
             );
         }
@@ -173,7 +176,8 @@ fn remove_skill(manager: &UnoSkillsManager, input: &Value) -> Result<Value> {
     if skill_id.is_empty() {
         bail!("Field 'skill_id' must not be empty");
     }
-    manager.remove_skill(skill_id)?;
+    let reviewed: Vec<ReviewedDeployment> = serde_json::from_value(input["deployments"].clone())?;
+    manager.remove_skill_with_review(skill_id, Some(&reviewed))?;
     Ok(json!({
         "removed": true,
         "skill_id": skill_id,
@@ -235,11 +239,13 @@ fn undeploy_project_skill(manager: &UnoSkillsManager, input: &Value) -> Result<V
         bail!("Fields 'skill_id', 'project_id', and 'agent_key' must not be empty");
     }
     let scope_path = scope_path_param(input)?;
-    manager.undeploy_skill_from_project_at(
+    let reviewed: ReviewedDeployment = serde_json::from_value(input["deployment"].clone())?;
+    manager.undeploy_project_with_review(
         skill_id,
         project_id,
         Path::new(scope_path),
         agent_key,
+        Some(&reviewed),
     )?;
     Ok(json!({
         "undeployed": true,

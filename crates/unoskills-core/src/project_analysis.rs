@@ -80,6 +80,7 @@ pub enum SkillLocation {
     ProjectDeployment,
     ProjectChanged,
     ProjectLocal,
+    RetainedPin,
     Global,
 }
 
@@ -88,6 +89,7 @@ pub struct ProjectSkill {
     pub path: PathBuf,
     pub location: SkillLocation,
     pub skill_id: Option<String>,
+    pub deployment_id: Option<String>,
     pub locked_hash: Option<String>,
     pub library_different: Option<bool>,
 }
@@ -179,7 +181,10 @@ impl UnoSkillsManager {
             .into_iter()
             .find(|agent| agent.key == agent_key && agent.installed && agent.enabled)
             .context("Agent is unavailable")?;
-        let local = scoped_project_skills_dir(&project, scope, &agent)?;
+        super::manager::project_scope_directory(&project, scope)?;
+        let scope = super::manager::project_scope_key(scope);
+        let scope = scope.as_path();
+        let local = scoped_project_skills_dir(&project, scope, &agent).ok();
         let skills = self.list_skills()?;
         let managed = skills
             .iter()
@@ -191,14 +196,13 @@ impl UnoSkillsManager {
                         dep.project_id == project.id
                             && dep.agent_key == agent.key
                             && dep.scope_path == scope
-                            && dep.target_path.parent() == Some(local.as_path())
                     })
                     .map(move |dep| (dep.target_path.as_path(), (skill, dep)))
             })
             .collect::<BTreeMap<_, _>>();
         let mut inventory = Vec::new();
         let mut seen = HashSet::new();
-        for (root, project_scope) in std::iter::once((&local, true)).chain(
+        for (root, project_scope) in local.iter().map(|path| (path, true)).chain(
             std::iter::once(&agent.skills_dir)
                 .chain(&agent.additional_scan_dirs)
                 .map(|root| (root, false)),
@@ -213,7 +217,13 @@ impl UnoSkillsManager {
             for entry in entries {
                 let entry = entry?;
                 let path = entry.path();
-                if is_valid_skill_dir(&path) && seen.insert(path.clone()) {
+                let safe_entry = !project_scope
+                    || entry.file_type()?.is_dir()
+                    || managed.get(path.as_path()).is_some_and(|(skill, _)| {
+                        crate::sync::classify_target(&skill.central_path, &path)
+                            == crate::sync::TargetState::LinkToSource
+                    });
+                if safe_entry && is_valid_skill_dir(&path) && seen.insert(path.clone()) {
                     let deployment = project_scope.then(|| managed.get(path.as_path())).flatten();
                     let location = if !project_scope {
                         SkillLocation::Global
@@ -228,6 +238,7 @@ impl UnoSkillsManager {
                     inventory.push(ProjectSkill {
                         name: entry.file_name().to_string_lossy().into_owned(),
                         skill_id: deployment.map(|(skill, _)| skill.id.clone()),
+                        deployment_id: deployment.map(|(_, dep)| dep.id.clone()),
                         locked_hash: deployment.and_then(|(_, dep)| dep.locked_hash.clone()),
                         library_different: deployment.and_then(|(skill, dep)| {
                             let hash = dep.locked_hash.as_ref()?;
@@ -242,16 +253,38 @@ impl UnoSkillsManager {
             }
         }
         for (path, (skill, dep)) in managed {
-            if dep.locked_hash.is_some() && !seen.contains(path) {
+            if !seen.contains(path) {
                 inventory.push(ProjectSkill {
                     name: skill.name.clone(),
                     path: path.into(),
                     location: SkillLocation::ProjectChanged,
                     skill_id: Some(skill.id.clone()),
+                    deployment_id: Some(dep.id.clone()),
                     locked_hash: dep.locked_hash.clone(),
                     library_different: None,
                 });
             }
+        }
+        for skill in &skills {
+            let Some(hash) = skill.project_lock(&project.id, scope) else {
+                continue;
+            };
+            if skill
+                .project_deployments
+                .iter()
+                .any(|dep| dep.project_id == project.id && dep.scope_path == scope)
+            {
+                continue;
+            }
+            inventory.push(ProjectSkill {
+                name: skill.name.clone(),
+                path: project.path.join(scope),
+                location: SkillLocation::RetainedPin,
+                skill_id: Some(skill.id.clone()),
+                deployment_id: None,
+                locked_hash: Some(hash.into()),
+                library_different: None,
+            });
         }
         inventory
             .sort_by(|a, b| (a.location, &a.name, &a.path).cmp(&(b.location, &b.name, &b.path)));

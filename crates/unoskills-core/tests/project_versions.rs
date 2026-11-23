@@ -47,6 +47,188 @@ impl Fixture {
 }
 
 #[test]
+fn modified_copy_review_is_read_only_and_overwrites_only_the_reviewed_state() {
+    let fixture = Fixture::new();
+    let manager = &fixture.manager;
+    let (_, skill) = fixture.skill("reviewer");
+    let project = fixture.project("project");
+    let scope = Path::new("apps/web");
+    let deploy =
+        || manager.deploy_skill_to_project_at(&skill.id, &project.id, scope, "codex", None, false);
+    let deployment = deploy().unwrap();
+    let edited = deployment.target_path.join("docs/reference.txt");
+    fs::write(&edited, "Project-specific instructions\n").unwrap();
+    fs::write(deployment.target_path.join("binary"), [0, 1]).unwrap();
+    let review = || {
+        manager
+            .review_project_conflict(&project.id, scope, "codex", &skill.id)
+            .unwrap()
+    };
+    let (checked, prepared) = review();
+    assert_eq!(checked.kind, "modified");
+    assert_eq!(checked.path, deployment.target_path);
+    assert!(checked.open_folder);
+    let files = serde_json::to_value(checked.files.unwrap()).unwrap();
+    assert_eq!(files[0]["path"], "binary");
+    assert!(files[0]["diff"].is_null());
+    assert_eq!(
+        files[1]["diff"],
+        "- Project-specific instructions\n+ Original reference\n"
+    );
+    assert!(
+        deploy()
+            .unwrap_err()
+            .to_string()
+            .contains("TARGET_CONFLICT")
+    );
+    assert_eq!(
+        fs::read_to_string(&edited).unwrap(),
+        "Project-specific instructions\n"
+    );
+
+    fs::write(&edited, "New edit after review\n").unwrap();
+    let error = manager
+        .apply_project_conflict(prepared.unwrap())
+        .unwrap_err();
+    assert!(error.to_string().contains("STALE_PROJECT_VERSION"));
+    assert_eq!(
+        fs::read_to_string(&edited).unwrap(),
+        "New edit after review\n"
+    );
+    let (_, prepared) = review();
+    manager.apply_project_conflict(prepared.unwrap()).unwrap();
+    assert_eq!(fs::read_to_string(&edited).unwrap(), "Original reference\n");
+    assert!(!deployment.target_path.join("binary").exists());
+    assert_eq!(deploy().unwrap().id, deployment.id);
+}
+
+#[test]
+fn conflict_review_protects_unmanaged_and_locked_copies() {
+    let fixture = Fixture::new();
+    let manager = &fixture.manager;
+    let (_, skill) = fixture.skill("reviewer");
+    let project = fixture.project("project");
+    let scope = Path::new("");
+    let target = project.path.join(".codex/skills/reviewer");
+    fs::create_dir_all(&target).unwrap();
+    let entry = target.join("SKILL.md");
+    fs::write(&entry, "unmanaged").unwrap();
+    let review = || {
+        manager
+            .review_project_conflict(&project.id, scope, "codex", &skill.id)
+            .unwrap()
+    };
+    let (unmanaged, prepared) = review();
+    assert_eq!(unmanaged.kind, "unmanaged");
+    assert!(unmanaged.open_folder && unmanaged.files.is_none() && prepared.is_none());
+    fs::remove_dir_all(&target).unwrap();
+
+    manager
+        .deploy_skill_to_project(&skill.id, &project.id, "codex", None, false)
+        .unwrap();
+    manager
+        .lock_project_skill(&project.id, scope, "codex", &skill.id)
+        .unwrap();
+    fs::write(&entry, "Changed project copy\n").unwrap();
+    let (locked, prepared) = review();
+    assert_eq!(locked.kind, "modified");
+    assert!(locked.files.is_some() && prepared.is_none());
+    assert_eq!(fs::read_to_string(entry).unwrap(), "Changed project copy\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn conflict_review_refuses_redirected_and_unsupported_items() {
+    let fixture = Fixture::new();
+    let manager = &fixture.manager;
+    let (_, skill) = fixture.skill("reviewer");
+    let project = fixture.project("project");
+    let scope = Path::new("");
+    let dep = manager
+        .deploy_skill_to_project(&skill.id, &project.id, "codex", None, false)
+        .unwrap();
+    let review = || {
+        manager
+            .review_project_conflict(&project.id, scope, "codex", &skill.id)
+            .unwrap()
+    };
+    let extra = dep.target_path.join("outside");
+    std::os::unix::fs::symlink(&skill.central_path, &extra).unwrap();
+    let (unreadable, prepared) = review();
+    assert_eq!(unreadable.kind, "unreadable");
+    assert!(unreadable.files.is_none() && prepared.is_none());
+    fs::remove_dir_all(&dep.target_path).unwrap();
+    std::os::unix::fs::symlink(&skill.central_path, &dep.target_path).unwrap();
+    let (unsafe_target, prepared) = review();
+    assert_eq!(unsafe_target.kind, "unsafe");
+    assert!(!unsafe_target.open_folder && prepared.is_none());
+}
+
+#[test]
+fn clearing_retained_pins_checks_exact_scope_hash_and_live_deployments() {
+    use unoskills_core::project_analysis::SkillLocation;
+
+    let fixture = Fixture::new();
+    let manager = &fixture.manager;
+    let (_, skill) = fixture.skill("reviewer");
+    let project = fixture.project("project");
+    manager
+        .deploy_skill(&skill.id, "codex", None, false)
+        .unwrap();
+    let root = Path::new("");
+    let module = Path::new("apps/web");
+    for scope in [root, module] {
+        manager
+            .deploy_skill_to_project_at(&skill.id, &project.id, scope, "codex", None, false)
+            .unwrap();
+        manager
+            .lock_project_skill(&project.id, scope, "codex", &skill.id)
+            .unwrap();
+        manager
+            .undeploy_skill_from_project_at(&skill.id, &project.id, scope, "codex")
+            .unwrap();
+    }
+    let inventory = || {
+        manager
+            .inspect_project_skills_at(&project.id, "codex", module)
+            .unwrap()
+    };
+    let retained = inventory();
+    let pin = retained
+        .iter()
+        .find(|entry| entry.location == SkillLocation::RetainedPin)
+        .unwrap();
+    assert!(
+        retained
+            .iter()
+            .any(|entry| entry.location == SkillLocation::Global)
+    );
+    let hash = pin.locked_hash.as_deref().unwrap();
+    let snapshot = manager.root_dir().join(".project-versions").join(hash);
+    let clear =
+        |scope, hash| manager.clear_retained_project_pin(&project.id, scope, &skill.id, hash);
+    assert!(clear(module, "stale").is_err());
+    let reinstalled = manager
+        .deploy_skill_to_project_at(&skill.id, &project.id, module, "codex", None, false)
+        .unwrap();
+    assert!(clear(module, hash).is_err());
+    assert!(reinstalled.target_path.join("SKILL.md").is_file());
+    manager
+        .undeploy_skill_from_project_at(&skill.id, &project.id, module, "codex")
+        .unwrap();
+    clear(module, hash).unwrap();
+    assert!(snapshot.is_dir());
+    assert!(
+        inventory()
+            .iter()
+            .all(|entry| entry.location == SkillLocation::Global)
+    );
+    assert!(clear(module, hash).is_err());
+    clear(root, hash).unwrap();
+    assert!(!snapshot.exists());
+}
+
+#[test]
 fn stack_confirmation_applies_only_reviewed_rows_and_preserves_changed_targets() {
     let fixture = Fixture::new();
     let manager = &fixture.manager;

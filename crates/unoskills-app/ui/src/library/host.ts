@@ -10,6 +10,7 @@ import type {
   ProjectDeployment,
   ProjectStatusesResponse,
   ProjectWorkspace,
+  ReviewedDeployment,
   SaveMarkdownResponse,
   ScanAdoptableResponse,
   SearchResponse,
@@ -100,9 +101,10 @@ export function cancelSkillRevision(previewId: string): Promise<void> {
   return call<{ preview_id: string }, void>("library.cancel_skill_revision", { preview_id: previewId });
 }
 
-export function removeSkill(skillId: string): Promise<{ removed: boolean; skill_id: string }> {
-  return call<{ skill_id: string }, { removed: boolean; skill_id: string }>("library.remove_skill", {
+export function removeSkill(skillId: string, deployments: ReviewedDeployment[]): Promise<{ removed: boolean; skill_id: string }> {
+  return call<{ skill_id: string; deployments: ReviewedDeployment[] }, { removed: boolean; skill_id: string }>("library.remove_skill", {
     skill_id: skillId,
+    deployments,
   });
 }
 
@@ -165,7 +167,8 @@ export function undeployProjectSkill(
   skillId: string,
   projectId: string,
   agentKey: string,
-  scopePath = "",
+  scopePath: string,
+  deployment: ReviewedDeployment,
 ): Promise<{
   undeployed: boolean;
   skill_id: string;
@@ -174,7 +177,7 @@ export function undeployProjectSkill(
   agent_key: string;
 }> {
   return call<
-    { skill_id: string; project_id: string; scope_path: string; agent_key: string },
+    { skill_id: string; project_id: string; scope_path: string; agent_key: string; deployment: ReviewedDeployment },
     {
       undeployed: boolean;
       skill_id: string;
@@ -187,6 +190,7 @@ export function undeployProjectSkill(
     project_id: projectId,
     scope_path: scopePath,
     agent_key: agentKey,
+    deployment,
   });
 }
 

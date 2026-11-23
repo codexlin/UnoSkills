@@ -35,8 +35,6 @@ export interface LibraryStrings {
   btn_update_skill: string;
   tooltip_reveal_folder: string;
   library_copy_path: string;
-  btn_delete: string;
-  confirm_delete_skill_title: string;
   library_discard_title: string;
   library_discard_action: string;
   library_deployment_targets: string;
@@ -47,7 +45,6 @@ export interface LibraryStrings {
   library_project_conflict: string;
   library_project_unavailable: string;
   library_global_available: string;
-  library_remove_project_deployment: string;
   library_resolve_project_conflict: string;
   stack_deploy_project: string;
   btn_detach_project: string;
@@ -144,8 +141,6 @@ const EN: LibraryStrings = {
   btn_update_skill: "Update",
   tooltip_reveal_folder: "Reveal in File Manager",
   library_copy_path: "Copy path",
-  btn_delete: "Delete",
-  confirm_delete_skill_title: "Remove this skill?",
   library_discard_title: "Discard unsaved changes?",
   library_discard_action: "Discard changes",
   library_deployment_targets: "Deployment targets",
@@ -156,7 +151,6 @@ const EN: LibraryStrings = {
   library_project_conflict: "Project folder conflict",
   library_project_unavailable: "Skill files unavailable",
   library_global_available: "Available globally",
-  library_remove_project_deployment: "Remove project deployment",
   library_resolve_project_conflict: "Resolve conflict",
   stack_deploy_project: "Deploy to Project",
   btn_detach_project: "Detach",
@@ -166,7 +160,7 @@ const EN: LibraryStrings = {
   no_installed_agents: "No installed agents detected yet.",
   confirm_conflict_title: "Target directory already exists",
   btn_replace: "Replace",
-  toast_removed_skill: "Removed skill from library and all deployed agents.",
+  toast_removed_skill: "Skill deleted from Library.",
 
   discover_title: "Discover",
   discover_market_tab: "Marketplace",
@@ -253,8 +247,6 @@ const ZH_CN: LibraryStrings = {
   btn_update_skill: "检查更新",
   tooltip_reveal_folder: "在文件管理器中打开目录",
   library_copy_path: "复制路径",
-  btn_delete: "删除",
-  confirm_delete_skill_title: "确认删除该技能？",
   library_discard_title: "放弃未保存的修改？",
   library_discard_action: "放弃修改",
   library_deployment_targets: "部署目标",
@@ -265,7 +257,6 @@ const ZH_CN: LibraryStrings = {
   library_project_conflict: "项目目录有冲突",
   library_project_unavailable: "技能文件不可用",
   library_global_available: "全局可用",
-  library_remove_project_deployment: "移除项目部署",
   library_resolve_project_conflict: "处理冲突",
   stack_deploy_project: "部署到项目",
   btn_detach_project: "移除项目",
@@ -275,7 +266,7 @@ const ZH_CN: LibraryStrings = {
   no_installed_agents: "暂未检测到已安装的 AI Agent。",
   confirm_conflict_title: "目标目录已存在未托管文件",
   btn_replace: "覆盖替换",
-  toast_removed_skill: "已从技能库及所有 Agent 中移除该技能。",
+  toast_removed_skill: "已从技能库删除该技能。",
 
   discover_title: "发现",
   discover_market_tab: "市场",
@@ -362,8 +353,6 @@ const JA: LibraryStrings = {
   btn_update_skill: "更新確認",
   tooltip_reveal_folder: "ファイルマネージャで開く",
   library_copy_path: "パスをコピー",
-  btn_delete: "削除",
-  confirm_delete_skill_title: "このスキルを削除しますか？",
   library_discard_title: "未保存の変更を破棄しますか？",
   library_discard_action: "変更を破棄",
   library_deployment_targets: "配備先",
@@ -374,7 +363,6 @@ const JA: LibraryStrings = {
   library_project_conflict: "プロジェクトのフォルダーが競合",
   library_project_unavailable: "スキルファイルを利用できません",
   library_global_available: "グローバルで利用可能",
-  library_remove_project_deployment: "プロジェクトの配備を解除",
   library_resolve_project_conflict: "競合を解決",
   stack_deploy_project: "プロジェクトに配備",
   btn_detach_project: "解除",
@@ -384,7 +372,7 @@ const JA: LibraryStrings = {
   no_installed_agents: "インストール済みの AI エージェントが見つかりません。",
   confirm_conflict_title: "配備先に未管理のフォルダが存在します",
   btn_replace: "上書き置換",
-  toast_removed_skill: "ライブラリと全エージェントからスキルを削除しました。",
+  toast_removed_skill: "スキルをライブラリから削除しました。",
 
   discover_title: "探す",
   discover_market_tab: "マーケット",
@@ -645,17 +633,6 @@ export function adoptConfirmTitle(locale: Locale, count: number): string {
       return `スキル ${count} 件をライブラリに追加しますか？`;
     default:
       return count === 1 ? "Add 1 skill to the library?" : `Add ${count} skills to the library?`;
-  }
-}
-
-export function confirmDeleteSkillDesc(locale: Locale, skillName: string, deployCount: number): string {
-  switch (locale) {
-    case "zh-CN":
-      return `将从中央技能库永久删除「${skillName}」，并清理其在 ${deployCount} 个 Agent 中的部署。此操作不可撤销。`;
-    case "ja":
-      return `「${skillName}」を中央ライブラリから完全に削除し、${deployCount} 件のエージェント配備も解除します。この操作は元に戻せません。`;
-    default:
-      return `Permanently remove '${skillName}' from the central library and clean up ${deployCount} agent deployment(s). This cannot be undone.`;
   }
 }
 

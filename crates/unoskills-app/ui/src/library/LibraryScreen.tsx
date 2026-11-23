@@ -22,6 +22,7 @@ import { LibraryListPane } from "./LibraryListPane";
 import { SkillInspector } from "./SkillInspector";
 import { ActionButton, PageHeader, SearchField } from "./controls";
 import { createProjectScope } from "./scope";
+import { createSkillManagement, SkillManagementDialogs } from "./management";
 import { createDeployments } from "./deployments";
 import { createMarkdownEditor } from "./markdownEditor";
 import { SkillRevisionDialog, createSkillRevisions } from "./skillRevisions";
@@ -31,10 +32,8 @@ import {
   errorMessage,
   loadLibraryState,
   pickFolder,
-  removeSkill,
 } from "./host";
 import {
-  confirmDeleteSkillDesc,
   confirmDetachProjectDesc,
   getStrings,
   toastProjectAttached,
@@ -78,11 +77,6 @@ export function Library(props: ScreenProps) {
     agents().filter((agent) => agent.installed && agent.enabled),
   );
 
-  const selectedSkill = computed(() => {
-    const id = selectedSkillId();
-    return id ? (skills().find((skill) => skill.id === id) ?? null) : null;
-  });
-
   const scopeBlocksList = () =>
     Boolean(scope.projectId() && agentFilter() && skills().length && (scope.loading() || scope.error()));
   const scopeFeedbackVisible = () =>
@@ -101,9 +95,17 @@ export function Library(props: ScreenProps) {
       if (!matchesSearch) {
         return false;
       }
-      return filterAgent ? scope.isAvailable(skill, filterAgent) === true : true;
+      if (!filterAgent) return true;
+      const status = scope.statusFor(skill.id, filterAgent);
+      return scope.isAvailable(skill, filterAgent) === true
+        || status?.placement === "conflict" || Boolean(status?.retained_pin);
     });
   });
+
+  const selectedSkill = computed(() =>
+    filteredSkills().find((skill) => skill.id === selectedSkillId()) ?? null,
+  );
+  const management = createSkillManagement(props);
 
   const agentSelectItems = computed(() => [
     { value: ALL_AGENTS_VALUE, title: s().library_all_agents },
@@ -234,29 +236,6 @@ export function Library(props: ScreenProps) {
 
   const revisions = createSkillRevisions(props, selectedSkillId, isActive, () => props.refresh());
 
-  const handleDeleteSkill = async (skill: Skill) => {
-    const deployCount = skill.deployments.length + skill.project_deployments.length;
-    const { action } = await AlertDialog.show({
-      title: s().confirm_delete_skill_title,
-      description: confirmDeleteSkillDesc(props.locale, skill.name, deployCount),
-      actions: [
-        { id: "cancel", label: s().btn_cancel, role: "cancel" },
-        { id: "delete", label: s().btn_delete, role: "destructive" },
-      ],
-    });
-    if (action !== "delete") {
-      return;
-    }
-    try {
-      await removeSkill(skill.id);
-      props.notify(s().toast_removed_skill, "success");
-      props.refresh();
-      await fetchState();
-    } catch (error) {
-      props.notify(errorMessage(error), "error");
-    }
-  };
-
   const handleAttachProject = async () => {
     try {
       const chosen = await pickFolder(s().prompt_pick_project_folder);
@@ -349,7 +328,7 @@ export function Library(props: ScreenProps) {
   });
 
   effect(() => {
-    if (!isActive() || !editor.editing()) {
+    if (!isActive() || !selectedSkill() || !editor.editing()) {
       return;
     }
     cleanup(keymap.bind(
@@ -411,6 +390,8 @@ export function Library(props: ScreenProps) {
           agents={agents()} applying={revisions.applying()} onClose={revisions.close}
           onConfirm={(plan) => void revisions.confirm(plan)} />}
       </If>
+
+      <SkillManagementDialogs screen={props} management={management} />
 
       {/* Library Toolbar */}
       <View
@@ -518,6 +499,8 @@ export function Library(props: ScreenProps) {
               scopeBlocksList={scopeBlocksList()}
               projectStatusError={scope.error()}
               isAvailableForAgent={scope.isAvailable}
+              agentFilter={agentFilter()}
+              projectStatusFor={scope.statusFor}
               onSelectSkill={(id) => {
                 void selectSkill(id);
               }}
@@ -565,14 +548,23 @@ export function Library(props: ScreenProps) {
               onUpdateSkill={(skill) => void revisions.prepare(skill, false)}
               onRollbackSkill={(skill) => void revisions.prepare(skill, true)}
               onDeleteSkill={(skill) => {
-                void handleDeleteSkill(skill);
+                management.deleteSkill(skill, agents(), scope.projects());
               }}
               onGlobalDeployToggle={(skill, agent, deployed) => {
                 void deployments.global(skill, agent, deployed);
               }}
-              onProjectDeployToggle={(skill, project, agent, deployed) => {
-                void deployments.project(skill, project, scope.path(), agent, deployed);
+              onProjectDeploy={(skill, project, agent) => {
+                const path = scope.path();
+                void deployments.project(skill, project, path, agent,
+                  () => management.reviewConflict(skill.id, skill.name, project, path, agent));
               }}
+              onProjectConflict={(skill, project, agent) =>
+                void management.reviewConflict(skill.id, skill.name, project, scope.path(), agent)}
+              onProjectRemove={(skill, project, agent, deployment) =>
+                management.removeProjectSkill(skill.id, skill.name, project, scope.path(), agent, deployment)}
+              onViewProjectPin={(project) => props.navigate({
+                page: "projects", projectId: project.id, scopePath: scope.path(), agentKey: agentFilter() ?? undefined,
+              })}
               onDetachProject={(project) => {
                 void handleDetachProject(project);
               }}

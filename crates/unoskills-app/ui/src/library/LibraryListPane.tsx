@@ -1,11 +1,12 @@
 import { List, Text, View } from "nsh";
 import { Button } from "nsh/base";
-import { AlertBanner, LoadingLine, controlMotionClass, focusOutline, interactionStyles, textSize, textStyle } from "../components";
+import { AlertBanner, Label, LoadingLine, controlMotionClass, focusOutline, interactionStyles, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, TokenBadge } from "./controls";
 import { compactSource } from "./format";
+import { managementStrings } from "./managementStrings";
 import { type Locale, getStrings } from "./strings";
-import type { AgentInfo, Skill } from "./types";
+import type { AgentInfo, ProjectSkillStatus, Skill } from "./types";
 
 export function LibraryListPane(props: {
   locale: Locale;
@@ -19,12 +20,32 @@ export function LibraryListPane(props: {
   scopeBlocksList: boolean;
   projectStatusError: string | null;
   isAvailableForAgent: (skill: Skill, agentKey: string) => boolean | null;
+  agentFilter: string | null;
+  projectStatusFor: (skillId: string, agentKey: string) => ProjectSkillStatus | undefined;
   onSelectSkill: (skillId: string) => void;
   onOpenInstall: () => void;
   onOpenDiscover: () => void;
 }) {
   const s = () => getStrings(props.locale);
+  const m = () => managementStrings(props.locale);
   const rowHeight = () => Math.max(48, textSize(props.theme, 48));
+
+  function projectLabel(skill: Skill) {
+    if (!props.projectScope) return undefined;
+    const key = props.agentFilter;
+    const status = key ? props.projectStatusFor(skill.id, key) : undefined;
+    if (status?.placement === "conflict") return m().conflict;
+    if (status?.placement === "managed") return m().managed;
+    if (status?.placement === "local") return m().local;
+    if (props.activeAgents.some((agent) => props.projectStatusFor(skill.id, agent.key)?.retained_pin)) return m().pinLabel;
+    return undefined;
+  }
+
+  function availability(skill: Skill) {
+    if (props.projectScope && !props.hasProjectStatuses) return "—";
+    const available = props.activeAgents.filter((agent) => props.isAvailableForAgent(skill, agent.key) === true).length;
+    return available + " / " + props.activeAgents.length;
+  }
 
   return (
     <If
@@ -67,7 +88,7 @@ export function LibraryListPane(props: {
                   flexShrink: 0,
                 }}
               >
-                {props.projectScope ? s().library_project_available : s().library_deployment}
+                {props.projectScope && !props.agentFilter ? s().library_project_available : s().library_deployment}
               </Text>
               <Text
                 style={{
@@ -156,25 +177,12 @@ export function LibraryListPane(props: {
                         </Text>
                       </View>
 
-                      <Text
-                        style={{
-                          numberOfLines: 1,
-                          textOverflow: "ellipsis",
-                          width: 76,
-                          textAlign: "right",
-                          ...textStyle(props.theme),
-                          color: selected() ? props.theme.onAccent : props.theme.foreground,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {props.projectScope && !props.hasProjectStatuses
-                          ? "—"
-                          : `${
-                              props.activeAgents.filter(
-                                (agent) => props.isAvailableForAgent(skill(), agent.key) === true,
-                              ).length
-                            } / ${props.activeAgents.length}`}
-                      </Text>
+                      <View style={{ width: 76, flexShrink: 0, alignItems: "flex-end" }}>
+                        <Label theme={props.theme} size={12} truncate
+                          color={selected() ? props.theme.onAccent : props.theme.foreground}>
+                          {projectLabel(skill()) ?? availability(skill())}
+                        </Label>
+                      </View>
 
                       <View
                         style={{

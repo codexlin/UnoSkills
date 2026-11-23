@@ -588,6 +588,30 @@ impl Store {
         )?)
     }
 
+    pub(crate) fn clear_retained_project_pin(
+        &self,
+        project_id: &str,
+        scope: &Path,
+        skill_id: &str,
+        hash: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let removed = conn.execute(
+            "DELETE FROM project_skill_locks
+             WHERE project_id = ?1 AND scope_path = ?2 AND skill_id = ?3 AND version_hash = ?4
+               AND NOT EXISTS (
+                   SELECT 1 FROM project_deployments
+                   WHERE project_id = ?1 AND scope_path = ?2 AND skill_id = ?3
+               )",
+            params![project_id, scope.to_string_lossy(), skill_id, hash],
+        )?;
+        anyhow::ensure!(
+            removed == 1,
+            "STALE_PROJECT_VERSION: The pin or its deployments changed"
+        );
+        Ok(())
+    }
+
     pub fn list_project_deployments_for_project(
         &self,
         project_id: &str,

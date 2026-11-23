@@ -2,7 +2,8 @@ import { call } from "../shared";
 
 export type Project = { id: string; name: string; path: string };
 export type Agent = { key: string; display_name: string; project_relative_skills_dir: string };
-export type ProjectTargets = { projects: Project[]; agents: Agent[] };
+export type AgentUsage = { project_id: string | null; scope_path: string; agent_key: string };
+export type ProjectTargets = { projects: Project[]; agents: Agent[]; agent_usage?: AgentUsage[] };
 export type ProjectScope = { project_id: string; scope_path: string; agent_key: string };
 export type StackSource = "Featured" | "Community" | "Local";
 export type StackRef = { stack_id: string; source: StackSource };
@@ -32,10 +33,10 @@ export type Module = {
   evidence: { technology: string; path: string; added: boolean }[];
   recommendations: Recommendation[];
 };
-export type Location = "project_deployment" | "project_changed" | "project_local" | "global";
+export type Location = "project_deployment" | "project_changed" | "project_local" | "retained_pin" | "global";
 export type InventoryRow = {
   name: string; path: string; location: Location;
-  skill_id?: string | null; locked_hash?: string | null; library_different?: boolean | null;
+  skill_id?: string | null; deployment_id?: string | null; locked_hash?: string | null; library_different?: boolean | null;
 };
 export type VersionTarget = ProjectScope & { skill_id: string };
 export type VersionIntent = "upgrade" | "follow";
@@ -43,6 +44,10 @@ export type VersionReview = {
   id: string; skill_id: string; skill_name: string; intent: VersionIntent;
   current_hash: string; candidate_hash: string;
   files: { path: string; kind: "added" | "modified" | "removed"; diff: string | null }[];
+};
+export type ConflictReview = {
+  path: string; kind: "modified" | "unmanaged" | "unsafe" | "unreadable" | "stale";
+  open_folder: boolean; pinned?: boolean; files: VersionReview["files"] | null; detail: string | null; preview_id: string | null;
 };
 export type Failure = [name: string, message: string];
 export type InstallResult = { installed: string[]; skipped_existing: string[]; failed: Failure[] };
@@ -77,6 +82,10 @@ type Commands = {
   "project.scopes": [{ project_id: string }, string[]];
   "project.inventory": [ProjectScope, InventoryRow[]];
   "project.lock_skill": [VersionTarget, null];
+  "project.clear_retained_pin": [Omit<VersionTarget, "agent_key"> & { expected_hash: string }, null];
+  "project.review_conflict": [VersionTarget, ConflictReview];
+  "project.apply_conflict": [{ preview_id: string }, null];
+  "project.cancel_conflict": [{ preview_id: string }, null];
   "project.prepare_version": [VersionTarget & { intent: VersionIntent }, VersionReview];
   "project.apply_version": [{ preview_id: string }, null];
   "project.cancel_version": [{ preview_id: string }, null];

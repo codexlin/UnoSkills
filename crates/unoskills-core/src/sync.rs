@@ -249,6 +249,22 @@ pub(crate) struct RemovalBatch {
     entries: Vec<StagedRemoval>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RemovalRollback {
+    pub paths: Vec<PathBuf>,
+    details: Vec<String>,
+}
+
+impl std::fmt::Display for RemovalRollback {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Removal rollback could not restore files preserved at {}",
+            self.details.join(", ")
+        )
+    }
+}
+
 enum RemovalTarget {
     Directory(DirectoryIdentity),
     Copy(DirectoryIdentity, String),
@@ -393,23 +409,28 @@ impl RemovalBatch {
         let result = self
             .entries
             .iter_mut()
-            .try_for_each(StagedRemoval::stage)
+            .try_for_each(|entry| {
+                entry
+                    .stage()
+                    .map_err(|error| crate::RemovalProblem::at(&entry.original, error))
+            })
             .and_then(|()| persist());
         if let Err(error) = result {
-            let mut preserved = Vec::new();
+            let mut rollback = RemovalRollback {
+                paths: Vec::new(),
+                details: Vec::new(),
+            };
             for entry in self.entries.iter_mut().rev().filter(|entry| entry.moved) {
                 if let Err(restore) = entry.restore() {
-                    preserved.push(format!(
-                        "{} ({restore:#})",
-                        entry.staging.path().join("original").display()
-                    ));
+                    let path = entry.staging.path().join("original");
+                    rollback
+                        .details
+                        .push(format!("{} ({restore:#})", path.display()));
+                    rollback.paths.push(path);
                 }
             }
-            if !preserved.is_empty() {
-                return Err(error).context(format!(
-                    "Removal rollback could not restore files preserved at {}",
-                    preserved.join(", ")
-                ));
+            if !rollback.paths.is_empty() {
+                return Err(error).context(rollback);
             }
             return Err(error);
         }
