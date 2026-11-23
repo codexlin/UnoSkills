@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.8.3] - 2026-11-23
+
+### Added / 新增
+
+- **Stack deployment preview / 组合部署预览**. Review each skill, its target path, and what will happen before deploying a stack. UnoSkills preserves conflicting local skills, including when the target changes after preview. 部署组合前可逐项查看技能、目标路径和处理结果。遇到冲突或预览后目标发生变化时，UnoSkills 会保留本地技能。
+- **Project skill version pins / 项目技能版本锁定**. Pin the version a project or subproject uses so shared library updates leave it intact. Review the file changes before upgrading the selected scope or returning it to the shared library version. 可锁定项目或子项目正在使用的技能版本，更新共享库后仍保留原版。升级所选范围或恢复跟随共享库前，可先查看文件差异。
+
+### Fixed / 修复
+
+- **Desktop update dialog / 桌面更新弹窗**. The dialog stays centered when it opens from Settings or the title bar and when you reopen it to check download progress. 从设置或标题栏打开更新弹窗，以及重新打开查看下载进度时，弹窗都会居中显示。
+
+### Documentation / 文档
+
+- **README / 项目说明**. The English and Chinese guides describe the Native Shell desktop, when deployment falls back from symlinks to copies, and how each mode handles updates. 中英文 README 说明桌面端使用 Native Shell、软链接何时退回复制，以及两种部署方式的更新行为。
+
 ## [v0.8.2] - 2026-11-23
 
 ### Fixed / 修复
