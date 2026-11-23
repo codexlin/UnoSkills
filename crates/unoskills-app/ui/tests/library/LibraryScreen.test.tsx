@@ -793,10 +793,12 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       },
     });
 
+    await app.waitFor("text:Everything is managed");
     const refresh = app.host.send("test.refresh");
+    let latestRefresh: ReturnType<typeof app.host.send> | undefined;
     try {
       await app.waitUntil(() => scans === 2);
-      await app.host.send("test.refresh");
+      latestRefresh = app.host.send("test.refresh");
       await app.waitFor("text:Current Local Skill");
       await app.press("Current Local Skill");
       expect(app.enabled("Add to library (1)")).toBe(true);
@@ -804,7 +806,7 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       oldScan.resolve({ ok: true, value: {
         candidates: [{ ...candidate, name: "Stale Local Skill", path: "/tmp/home/.claude/skills/stale" }],
       } });
-      await refresh;
+      await Promise.all([refresh, latestRefresh]);
     }
 
     await app.wait(50);
