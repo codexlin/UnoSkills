@@ -646,15 +646,17 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       },
     });
     await app.press("label:Skill actions");
-    await app.press("text:Delete from Library");
+    await app.press("text:Permanently Delete Skill");
     await app.waitFor("text:Claude Code · Demo Repo · apps/web");
+    expect(app.texts()).toContain("This permanently deletes the skill files from your UnoSkills library. This action cannot be undone.");
+    expect(app.texts()).toContain("This also uninstalls the skill from the locations below by removing its managed copies or symlinks. Shared paths still in use will be kept.");
     expect(app.texts()).toContain("Claude Code · Global");
     expect(app.texts()).toContain(global);
     expect(app.texts()).toContain(target);
-    const confirmation = app.press("label:Confirm Delete from Library");
+    const confirmation = app.press("label:Confirm Permanent Skill Deletion");
     try {
       await app.waitUntil(() => sent.length === 1);
-      expect(app.enabled("label:Confirm Delete from Library")).toBe(false);
+      expect(app.enabled("label:Confirm Permanent Skill Deletion")).toBe(false);
       expect(sent).toEqual([{ skill_id: alpha.id, deployments: [
         { id: "global", target_path: global }, { id: "project", target_path: target },
       ] }]);

@@ -1,12 +1,17 @@
 import type { Locale } from "./strings";
 
 const copy = {
-  deleteSkill: ["Delete from Library", "从技能库删除", "ライブラリから削除"],
-  confirmDelete: ["Confirm Delete from Library", "确认从技能库删除", "ライブラリからの削除を確定"],
+  deleteSkill: ["Permanently Delete Skill", "永久删除技能", "スキルを完全に削除"],
+  confirmDelete: ["Confirm Permanent Skill Deletion", "确认永久删除技能", "スキルの完全削除を確認"],
   deleteDescription: [
-    "This permanently deletes the library skill and removes the deployment entries below.",
-    "此操作将永久删除技能库中的技能，并移除以下部署记录。",
-    "ライブラリのスキルを完全に削除し、以下の配備を解除します。",
+    "This permanently deletes the skill files from your UnoSkills library. This action cannot be undone.",
+    "此操作会永久删除 UnoSkills 技能库中的技能文件，无法撤销。",
+    "UnoSkills ライブラリからスキルのファイルを完全に削除します。この操作は元に戻せません。",
+  ],
+  deleteDeployments: [
+    "This also uninstalls the skill from the locations below by removing its managed copies or symlinks. Shared paths still in use will be kept.",
+    "此技能也会从下列位置卸载，对应的受管副本或软链接会被移除。仍由其他部署使用的共享路径会保留。",
+    "以下の配備先からもスキルをアンインストールし、管理対象のコピーやシンボリックリンクを削除します。他の配備が使用する共有先は保持されます。",
   ],
   noDeployments: ["No deployment entries", "没有部署记录", "配備の記録はありません"],
   removeDeployment: ["Remove Project Deployment", "取消项目部署", "プロジェクトの配備を解除"],
