@@ -1,12 +1,10 @@
 use std::collections::HashSet;
 use std::fs;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
-use super::project_versions::{project_version_hash, rename_without_replacing};
 use super::{
     StackProjectTarget, UnoSkillsManager, inspect_stack_project_target, is_globally_available,
     project_scope_directory, project_scope_key, project_skills_dir, scoped_project_skills_dir,
@@ -15,9 +13,10 @@ use crate::domain::{
     DeployMode, StackManifest, StackProjectDeployStatus, StackProjectDeploySummary,
 };
 use crate::parser::sanitize_slug;
+use crate::parser::{managed_copy_fingerprint, project_version_hash};
 use crate::sync::{
-    ReplacePolicy, deploy_skill_dir, ensure_dst_not_overlapping_src, remove_managed_target,
-    verify_managed_target,
+    DirectoryIdentity, ReplacePolicy, deploy_skill_dir, ensure_dst_not_overlapping_src,
+    remove_managed_target, rename_without_replacing, verify_managed_target,
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
@@ -84,55 +83,10 @@ impl RegistrationTarget {
             link,
             hash: project_version_hash(contents)?,
             copy_hash: (mode == DeployMode::Copy)
-                .then(|| crate::parser::checked_directory_hash(target))
+                .then(|| managed_copy_fingerprint(target))
                 .transpose()?,
             mode,
         })
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(super) struct DirectoryIdentity {
-    path: PathBuf,
-    created: Option<std::time::SystemTime>,
-    #[cfg(unix)]
-    device: u64,
-    #[cfg(unix)]
-    inode: u64,
-}
-
-impl DirectoryIdentity {
-    pub(super) fn read(path: &Path) -> Result<Option<Self>> {
-        let metadata = match fs::symlink_metadata(path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        ensure!(
-            metadata.is_dir() && path.canonicalize()? == path,
-            "TARGET_CONFLICT: Invalid directory {}",
-            path.display()
-        );
-        Ok(Some(Self::from_metadata(path, &metadata)))
-    }
-
-    fn from_metadata(path: &Path, metadata: &fs::Metadata) -> Self {
-        #[cfg(unix)]
-        use std::os::unix::fs::MetadataExt;
-        Self {
-            path: path.into(),
-            created: metadata.created().ok(),
-            #[cfg(unix)]
-            device: metadata.dev(),
-            #[cfg(unix)]
-            inode: metadata.ino(),
-        }
-    }
-
-    pub(super) fn matches_at(&self, path: &Path) -> bool {
-        let mut expected = self.clone();
-        expected.path = path.into();
-        Self::read(path).is_ok_and(|value| value.as_ref() == Some(&expected))
     }
 }
 
@@ -439,7 +393,7 @@ impl UnoSkillsManager {
                     source
                 };
                 let copy_hash = (mode == DeployMode::Copy)
-                    .then(|| crate::parser::checked_directory_hash(&candidate))
+                    .then(|| managed_copy_fingerprint(&candidate))
                     .transpose()?;
                 let copy_identity = if mode == DeployMode::Copy {
                     DirectoryIdentity::read(&candidate)?
@@ -460,14 +414,22 @@ impl UnoSkillsManager {
                         "Could not place the reviewed deployment"
                     }
                 })?;
-                if let Err(error) = self.record_project_skill_deployment(
-                    &skill,
-                    &project,
-                    &agent,
-                    scope,
-                    target.clone(),
-                    mode,
-                ) {
+                let recorded = (|| -> Result<()> {
+                    let deployment = self.prepare_project_deployment(
+                        &skill,
+                        &project,
+                        &agent,
+                        scope,
+                        target.clone(),
+                        mode,
+                    )?;
+                    ensure!(
+                        deployment.copy_hash == copy_hash,
+                        "STALE_PROJECT_DEPLOY: The deployed copy changed before recording"
+                    );
+                    self.store.upsert_project_deployment(&deployment)
+                })();
+                if let Err(error) = recorded {
                     // A failed write must not remove a target that changed after placement.
                     let current = if mode == DeployMode::Copy {
                         target.as_path()

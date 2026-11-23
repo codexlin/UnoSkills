@@ -1,9 +1,12 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::domain::DeployMode;
-use crate::parser::checked_directory_hash;
+use crate::parser::{COPY_FINGERPRINT_PREFIX, checked_directory_hash, managed_copy_fingerprint};
 
 /// Classifies what currently exists at a deployment target using `symlink_metadata`
 /// so directory symlinks / Windows junctions are never confused with real directories.
@@ -62,6 +65,8 @@ pub fn ensure_dst_not_overlapping_src(src: &Path, dst: &Path) -> Result<()> {
     let dst_is_link = std::fs::symlink_metadata(dst)
         .map(|m| m.file_type().is_symlink())
         .unwrap_or(false);
+    #[cfg(windows)]
+    let dst_is_link = dst_is_link || junction::exists(dst).unwrap_or(false);
 
     let lexical_dst = || -> Option<PathBuf> {
         dst.ancestors().skip(1).find_map(|ancestor| {
@@ -199,8 +204,11 @@ pub(crate) fn verify_managed_target(
         TargetState::LinkToSource if recorded_mode == DeployMode::Symlink => Ok(state),
         TargetState::RealDir
             if recorded_mode == DeployMode::Copy
-                && checked_directory_hash(dst)
-                    .is_ok_and(|hash| Some(hash.as_str()) == expected_copy_hash) =>
+                && expected_copy_hash
+                    .and_then(|hash| copy_baseline(src, hash))
+                    .is_some_and(|expected| {
+                        managed_copy_fingerprint(dst).is_ok_and(|actual| actual == expected)
+                    }) =>
         {
             ensure_dst_not_overlapping_src(src, dst)?;
             Ok(state)
@@ -212,43 +220,308 @@ pub(crate) fn verify_managed_target(
     }
 }
 
+pub(crate) fn copy_baseline(source: &Path, recorded: &str) -> Option<String> {
+    if recorded.starts_with(COPY_FINGERPRINT_PREFIX) {
+        return Some(recorded.to_owned());
+    }
+    // A legacy digest can identify the source revision. Only the source tree
+    // can supply the directory and executable metadata that digest omitted.
+    if checked_directory_hash(source).is_ok_and(|hash| hash == recorded) {
+        return managed_copy_fingerprint(source).ok();
+    }
+    None
+}
+
 pub fn remove_managed_target(
     src: &Path,
     dst: &Path,
     recorded_mode: DeployMode,
     expected_copy_hash: Option<&str>,
 ) -> Result<bool> {
-    let state = verify_managed_target(src, dst, recorded_mode, expected_copy_hash)?;
-    match state {
-        TargetState::Absent => Ok(false),
-        TargetState::RealDir => {
-            let parent = dst
-                .parent()
-                .context("Missing deployment parent directory")?;
-            let mut staging = tempfile::Builder::new()
-                .prefix(".unoskills-undeploy-")
-                .tempdir_in(parent)?;
-            let preserved = staging.path().join("copy");
-            std::fs::rename(dst, &preserved)?;
-            if let Err(error) =
-                verify_managed_target(src, &preserved, recorded_mode, expected_copy_hash)
-            {
-                if let Err(restore_error) = std::fs::rename(&preserved, dst) {
-                    staging.disable_cleanup(true);
-                    return Err(error).context(format!(
-                        "Deployment preserved at {}: {restore_error}",
-                        preserved.display()
-                    ));
-                }
-                return Err(error);
+    let mut removal = RemovalBatch::default();
+    let added = removal.add_deployment(src, dst, recorded_mode, expected_copy_hash)?;
+    removal.commit(|| Ok(()))?;
+    Ok(added)
+}
+
+#[derive(Default)]
+pub(crate) struct RemovalBatch {
+    entries: Vec<StagedRemoval>,
+}
+
+enum RemovalTarget {
+    Directory(DirectoryIdentity),
+    Copy(DirectoryIdentity, String),
+    Link(PathBuf),
+}
+
+impl RemovalTarget {
+    fn matches(&self, path: &Path) -> bool {
+        match self {
+            Self::Directory(identity) => identity.matches_at(path),
+            Self::Copy(identity, expected) => {
+                identity.matches_at(path)
+                    && managed_copy_fingerprint(path).is_ok_and(|actual| actual == *expected)
             }
-            Ok(true)
-        }
-        _ => {
-            remove_path_safely(dst, state)?;
-            Ok(true)
+            Self::Link(destination) => {
+                read_removal_link(path).is_ok_and(|link| link == *destination)
+            }
         }
     }
+}
+
+struct StagedRemoval {
+    original: PathBuf,
+    physical: PathBuf,
+    parent: DirectoryIdentity,
+    staging: tempfile::TempDir,
+    target: RemovalTarget,
+    moved: bool,
+}
+
+impl StagedRemoval {
+    fn check_parent(&self) -> Result<()> {
+        ensure!(
+            physical_target_path(&self.original).as_ref() == Some(&self.physical)
+                && self.parent.matches_at(self.physical.parent().unwrap()),
+            "TARGET_CONFLICT: Removal parent changed: {}",
+            self.original.display()
+        );
+        Ok(())
+    }
+
+    fn stage(&mut self) -> Result<()> {
+        self.check_parent()?;
+        ensure!(
+            self.target.matches(&self.physical),
+            "TARGET_CONFLICT: Removal target changed: {}",
+            self.original.display()
+        );
+        let preserved = self.staging.path().join("original");
+        rename_without_replacing(&self.physical, &preserved)?;
+        self.moved = true;
+        self.staging.disable_cleanup(true);
+        ensure!(
+            self.target.matches(&preserved),
+            "TARGET_CONFLICT: Removal target changed: {}",
+            self.original.display()
+        );
+        Ok(())
+    }
+
+    fn restore(&mut self) -> Result<()> {
+        self.check_parent()?;
+        rename_without_replacing(&self.staging.path().join("original"), &self.physical)?;
+        self.staging.disable_cleanup(false);
+        Ok(())
+    }
+}
+
+impl RemovalBatch {
+    pub(crate) fn add_deployment(
+        &mut self,
+        source: &Path,
+        path: &Path,
+        mode: DeployMode,
+        recorded: Option<&str>,
+    ) -> Result<bool> {
+        let state = verify_managed_target(source, path, mode, recorded)?;
+        if state == TargetState::Absent {
+            return Ok(false);
+        }
+        ensure_dst_not_overlapping_src(source, path)?;
+        let physical = physical_target_path(path).context("Missing deployment parent")?;
+        let target = if state == TargetState::LinkToSource {
+            RemovalTarget::Link(read_removal_link(&physical)?)
+        } else {
+            let expected = recorded
+                .and_then(|hash| copy_baseline(source, hash))
+                .context("TARGET_CONFLICT: No trustworthy managed copy baseline")?;
+            RemovalTarget::Copy(
+                DirectoryIdentity::read(&physical)?.context("Deployment disappeared")?,
+                expected,
+            )
+        };
+        ensure!(
+            classify_target(source, &physical) == state && target.matches(&physical),
+            "TARGET_CONFLICT: Removal target changed: {}",
+            path.display()
+        );
+        self.add(path, physical, target)?;
+        Ok(true)
+    }
+
+    pub(crate) fn add_directory(&mut self, path: &Path, fingerprint: Option<String>) -> Result<()> {
+        match fs::symlink_metadata(path) {
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            result => result?,
+        };
+        let physical = physical_target_path(path).context("Missing removal parent")?;
+        let identity = DirectoryIdentity::read(&physical)?.context("Removal target disappeared")?;
+        let target = match fingerprint {
+            Some(hash) => RemovalTarget::Copy(identity, hash),
+            None => RemovalTarget::Directory(identity),
+        };
+        self.add(path, physical, target)
+    }
+
+    fn add(&mut self, original: &Path, physical: PathBuf, target: RemovalTarget) -> Result<()> {
+        ensure!(
+            self.entries
+                .iter()
+                .all(|entry| !paths_overlap(&entry.physical, &physical)),
+            "TARGET_CONFLICT: Overlapping removal targets at {}",
+            original.display()
+        );
+        let parent = physical.parent().context("Missing removal parent")?;
+        let entry = StagedRemoval {
+            original: original.to_owned(),
+            parent: DirectoryIdentity::read(parent)?.context("Missing removal parent")?,
+            staging: tempfile::Builder::new()
+                .prefix(".unoskills-undeploy-")
+                .tempdir_in(parent)
+                .with_context(|| format!("Cannot stage removal of {}", original.display()))?,
+            physical,
+            target,
+            moved: false,
+        };
+        self.entries.push(entry);
+        Ok(())
+    }
+
+    pub(crate) fn commit(mut self, persist: impl FnOnce() -> Result<()>) -> Result<()> {
+        let result = self
+            .entries
+            .iter_mut()
+            .try_for_each(StagedRemoval::stage)
+            .and_then(|()| persist());
+        if let Err(error) = result {
+            let mut preserved = Vec::new();
+            for entry in self.entries.iter_mut().rev().filter(|entry| entry.moved) {
+                if let Err(restore) = entry.restore() {
+                    preserved.push(format!(
+                        "{} ({restore:#})",
+                        entry.staging.path().join("original").display()
+                    ));
+                }
+            }
+            if !preserved.is_empty() {
+                return Err(error).context(format!(
+                    "Removal rollback could not restore files preserved at {}",
+                    preserved.join(", ")
+                ));
+            }
+            return Err(error);
+        }
+        for entry in &mut self.entries {
+            entry.staging.disable_cleanup(false);
+        }
+        Ok(())
+    }
+}
+
+fn read_removal_link(path: &Path) -> std::io::Result<PathBuf> {
+    #[cfg(windows)]
+    if junction::exists(path).unwrap_or(false) {
+        return junction::get_target(path);
+    }
+    fs::read_link(path)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DirectoryIdentity {
+    pub(crate) path: PathBuf,
+    created: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+
+impl DirectoryIdentity {
+    pub(crate) fn read(path: &Path) -> Result<Option<Self>> {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        ensure!(
+            metadata.is_dir() && path.canonicalize()? == path,
+            "TARGET_CONFLICT: Invalid directory {}",
+            path.display()
+        );
+        Ok(Some(Self::from_metadata(path, &metadata)))
+    }
+
+    pub(crate) fn from_metadata(path: &Path, metadata: &fs::Metadata) -> Self {
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Self {
+            path: path.into(),
+            created: metadata.created().ok(),
+            #[cfg(unix)]
+            device: metadata.dev(),
+            #[cfg(unix)]
+            inode: metadata.ino(),
+        }
+    }
+
+    pub(crate) fn matches_at(&self, path: &Path) -> bool {
+        let mut expected = self.clone();
+        expected.path = path.into();
+        Self::read(path).is_ok_and(|value| value.as_ref() == Some(&expected))
+    }
+}
+
+pub(crate) fn physical_target_path(path: &Path) -> Option<PathBuf> {
+    Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?))
+}
+
+pub(crate) fn paths_overlap(left: &Path, right: &Path) -> bool {
+    if cfg!(windows) {
+        let left = PathBuf::from(left.to_string_lossy().to_lowercase());
+        let right = PathBuf::from(right.to_string_lossy().to_lowercase());
+        left.starts_with(&right) || right.starts_with(&left)
+    } else {
+        left.starts_with(right) || right.starts_with(left)
+    }
+}
+
+pub(crate) fn rename_without_replacing(from: &Path, to: &Path) -> Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    rustix::fs::renameat_with(
+        rustix::fs::CWD,
+        from,
+        rustix::fs::CWD,
+        to,
+        rustix::fs::RenameFlags::NOREPLACE,
+    )?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+        let from = from
+            .as_os_str()
+            .encode_wide()
+            .chain([0])
+            .collect::<Vec<_>>();
+        let to = to.as_os_str().encode_wide().chain([0]).collect::<Vec<_>>();
+        // Both paths are NUL-terminated and live for the duration of the call.
+        if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        use std::io::ErrorKind;
+        ensure!(
+            fs::symlink_metadata(to).is_err_and(|error| error.kind() == ErrorKind::NotFound),
+            "TARGET_CONFLICT: An entry already exists: {}",
+            to.display()
+        );
+        fs::rename(from, to)?;
+    }
+    Ok(())
 }
 
 fn remove_path_safely(dst: &Path, state: TargetState) -> Result<()> {
@@ -360,5 +633,30 @@ mod tests {
         assert!(removed);
         assert!(!dst.exists());
         assert!(src.join("SKILL.md").exists());
+    }
+
+    #[test]
+    fn rollback_leaves_a_new_target_and_reports_the_recoverable_original() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("deployment");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("SKILL.md"), "original").unwrap();
+        let mut removal = RemovalBatch::default();
+        removal.add_directory(&target, None).unwrap();
+        let preserved = removal.entries[0].staging.path().join("original");
+        let error = removal
+            .commit(|| {
+                fs::create_dir(&target)?;
+                bail!("Simulated failure after a new target appeared");
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains(&preserved.display().to_string()));
+        assert!(target.is_dir());
+        assert!(fs::read_dir(&target).unwrap().next().is_none());
+        assert_eq!(
+            fs::read_to_string(preserved.join("SKILL.md")).unwrap(),
+            "original"
+        );
     }
 }

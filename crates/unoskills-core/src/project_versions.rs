@@ -5,17 +5,17 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, ensure};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
-use super::project_deploy_preview::DirectoryIdentity;
 use super::skill_revisions::SkillFileChangeKind;
 use super::{UnoSkillsManager, project_scope_key, safe_scoped_target, scoped_project_skills_dir};
 use crate::domain::{DeployMode, ProjectDeployment, Skill};
-use crate::parser::{checked_directory_hash, checked_entries, is_valid_skill_dir, sanitize_slug};
+pub(crate) use crate::parser::project_version_hash;
+use crate::parser::{TreeEntry, managed_copy_fingerprint, sanitize_slug, skill_tree};
 use crate::sync::{
-    ReplacePolicy, TargetState, copy_dir_recursive, deploy_skill_dir,
-    ensure_dst_not_overlapping_src, verify_managed_target,
+    DirectoryIdentity, RemovalBatch, ReplacePolicy, TargetState, classify_target,
+    copy_dir_recursive, deploy_skill_dir, ensure_dst_not_overlapping_src, paths_overlap,
+    physical_target_path, rename_without_replacing, verify_managed_target,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -60,7 +60,7 @@ impl PreparedProjectVersion {
 
 #[derive(Debug, PartialEq, Eq)]
 enum VersionPlacement {
-    Copy(DirectoryIdentity),
+    Copy(DirectoryIdentity, String),
     Link(PathBuf),
 }
 
@@ -78,9 +78,9 @@ struct VersionTarget {
 impl VersionTarget {
     fn matches(&self, path: &Path) -> bool {
         match &self.placement {
-            VersionPlacement::Copy(identity) => {
+            VersionPlacement::Copy(identity, fingerprint) => {
                 identity.matches_at(path)
-                    && project_version_hash(path).is_ok_and(|hash| hash == self.version)
+                    && managed_copy_fingerprint(path).is_ok_and(|actual| actual == *fingerprint)
             }
             VersionPlacement::Link(destination) => {
                 fs::read_link(path).is_ok_and(|link| &link == destination)
@@ -99,65 +99,6 @@ struct StagedTarget<'a> {
     mode: DeployMode,
     preserved: bool,
     placed: bool,
-}
-
-#[derive(Eq, PartialEq)]
-enum TreeEntry {
-    Directory,
-    File { hash: Vec<u8>, executable: bool },
-}
-
-fn skill_tree(path: &Path) -> Result<BTreeMap<PathBuf, TreeEntry>> {
-    ensure!(
-        fs::symlink_metadata(path)?.is_dir() && is_valid_skill_dir(path),
-        "Expected a complete skill directory at {}",
-        path.display()
-    );
-    let mut tree = BTreeMap::new();
-    for entry in checked_entries(path) {
-        let entry = entry?;
-        let relative = entry.path().strip_prefix(path)?;
-        if relative.as_os_str().is_empty() {
-            continue;
-        }
-        let item = if entry.file_type().is_dir() {
-            TreeEntry::Directory
-        } else {
-            let file = File::open(entry.path())?;
-            let mut hash = Sha256::new();
-            std::io::copy(&mut &file, &mut hash)?;
-            #[cfg(unix)]
-            let executable = {
-                use std::os::unix::fs::PermissionsExt;
-                file.metadata()?.permissions().mode() & 0o111 != 0
-            };
-            #[cfg(not(unix))]
-            let executable = false;
-            TreeEntry::File {
-                hash: hash.finalize().to_vec(),
-                executable,
-            }
-        };
-        tree.insert(relative.to_owned(), item);
-    }
-    Ok(tree)
-}
-
-pub(crate) fn project_version_hash(path: &Path) -> Result<String> {
-    let mut digest = Sha256::new();
-    for (relative, item) in skill_tree(path)? {
-        let name = relative.as_os_str().as_encoded_bytes();
-        digest.update((name.len() as u64).to_le_bytes());
-        digest.update(name);
-        match item {
-            TreeEntry::Directory => digest.update([0]),
-            TreeEntry::File { hash, executable } => {
-                digest.update([1, u8::from(executable)]);
-                digest.update(hash);
-            }
-        }
-    }
-    Ok(hex::encode(digest.finalize()))
 }
 
 impl UnoSkillsManager {
@@ -211,7 +152,8 @@ impl UnoSkillsManager {
         };
         if let Some(dep) = shared.clone().find(|dep| owns(dep)) {
             ensure!(
-                self.store.count_deployments_at_path(target, &dep.id)? == shared.count() - 1,
+                self.store.count_deployments_at_path(target, &dep.id)?
+                    == shared.clone().count() - 1,
                 "TARGET_CONFLICT: A different deployment owns this target"
             );
         } else {
@@ -224,6 +166,16 @@ impl UnoSkillsManager {
             shared_records_match(skill, target, project_id, scope, hash),
             "TARGET_CONFLICT: This target has inconsistent version records"
         );
+        if classify_target(&skill.central_path, target) == TargetState::RealDir {
+            for dep in shared {
+                verify_managed_target(
+                    &skill.central_path,
+                    target,
+                    dep.mode,
+                    Some(&self.locked_copy_baseline(dep)?),
+                )?;
+            }
+        }
         Ok(Some((self.checked_project_snapshot(hash)?, hash.into())))
     }
 
@@ -302,9 +254,12 @@ impl UnoSkillsManager {
         Ok((snapshot, true))
     }
 
-    fn remove_unreferenced_snapshot(&self, hash: &str) -> Result<()> {
+    pub(super) fn remove_unreferenced_snapshot(&self, hash: &str) -> Result<()> {
         if !self.store.project_snapshot_is_referenced(hash)? {
-            fs::remove_dir_all(self.checked_project_snapshot(hash)?)?;
+            let snapshot = self.checked_project_snapshot(hash)?;
+            let mut removal = RemovalBatch::default();
+            removal.add_directory(&snapshot, Some(managed_copy_fingerprint(&snapshot)?))?;
+            removal.commit(|| Ok(()))?;
         }
         Ok(())
     }
@@ -350,7 +305,7 @@ impl UnoSkillsManager {
             "STALE_PROJECT_VERSION: This project skill is already locked"
         );
         let source = match first.placement {
-            VersionPlacement::Copy(_) => &first.path,
+            VersionPlacement::Copy(..) => &first.path,
             VersionPlacement::Link(_) => &skill.central_path,
         };
         let staging = self.stage_project_version(source, &first.version)?;
@@ -515,26 +470,36 @@ impl UnoSkillsManager {
                         && dep.follow_mode == first.follow_mode),
                 "TARGET_CONFLICT: The deployment is shared with another project or has inconsistent records"
             );
+            let expected_copy_hash = |dep: &ProjectDeployment| -> Result<Option<String>> {
+                if dep.locked_hash.is_some() {
+                    self.locked_copy_baseline(dep).map(Some)
+                } else {
+                    Ok(dep.copy_hash.clone().or_else(|| skill.content_hash.clone()))
+                }
+            };
             let state = verify_managed_target(
                 &skill.central_path,
                 path,
                 first.mode,
-                first.copy_hash.as_deref().or(skill.content_hash.as_deref()),
+                expected_copy_hash(first)?.as_deref(),
             )?;
             let (placement, version) = match state {
                 TargetState::RealDir => {
                     let version = project_version_hash(path)?;
-                    ensure!(
-                        entries.iter().all(|dep| dep.copy_hash == first.copy_hash)
-                            && first
-                                .locked_hash
-                                .as_ref()
-                                .is_none_or(|hash| hash == &version),
-                        "TARGET_CONFLICT: The managed project copy has changed"
-                    );
+                    for dep in &entries[1..] {
+                        verify_managed_target(
+                            &skill.central_path,
+                            path,
+                            dep.mode,
+                            expected_copy_hash(dep)?.as_deref(),
+                        )?;
+                    }
                     let identity =
                         DirectoryIdentity::read(path)?.context("Project skill disappeared")?;
-                    (VersionPlacement::Copy(identity), version)
+                    (
+                        VersionPlacement::Copy(identity, managed_copy_fingerprint(path)?),
+                        version,
+                    )
                 }
                 TargetState::LinkToSource => {
                     self.check_library_path(&skill)?;
@@ -578,7 +543,7 @@ impl UnoSkillsManager {
         version: &str,
         keep_locked: bool,
     ) -> Result<()> {
-        let copy_hash = checked_directory_hash(snapshot)?;
+        let copy_hash = managed_copy_fingerprint(snapshot)?;
         let mut staged = Vec::with_capacity(targets.len());
         let mut records = Vec::new();
         for target in targets {
@@ -601,6 +566,14 @@ impl UnoSkillsManager {
             };
             let mode = deploy_skill_dir(source, &candidate, mode, ReplacePolicy::CreateOnly)?;
             check_candidate(skill, &candidate, mode, version)?;
+            let check_copy = |path: &Path| -> Result<()> {
+                ensure!(
+                    mode != DeployMode::Copy || managed_copy_fingerprint(path)? == copy_hash,
+                    "STALE_PROJECT_VERSION: The reviewed copy changed"
+                );
+                Ok(())
+            };
+            check_copy(&candidate)?;
             for mut dep in skill
                 .project_deployments
                 .iter()
@@ -649,6 +622,11 @@ impl UnoSkillsManager {
             );
             for stage in &staged {
                 check_candidate(skill, &stage.target.path, stage.mode, version)?;
+                ensure!(
+                    stage.mode != DeployMode::Copy
+                        || managed_copy_fingerprint(&stage.target.path)? == copy_hash,
+                    "STALE_PROJECT_VERSION: The deployed copy changed"
+                );
             }
             self.store
                 .update_project_versions(&records, keep_locked.then_some(version))
@@ -719,57 +697,6 @@ fn check_candidate(skill: &Skill, path: &Path, mode: DeployMode, version: &str) 
         "STALE_PROJECT_VERSION: The reviewed files changed"
     );
     Ok(())
-}
-
-pub(super) fn rename_without_replacing(from: &Path, to: &Path) -> Result<()> {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    rustix::fs::renameat_with(
-        rustix::fs::CWD,
-        from,
-        rustix::fs::CWD,
-        to,
-        rustix::fs::RenameFlags::NOREPLACE,
-    )?;
-    #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
-        let from = from
-            .as_os_str()
-            .encode_wide()
-            .chain([0])
-            .collect::<Vec<_>>();
-        let to = to.as_os_str().encode_wide().chain([0]).collect::<Vec<_>>();
-        // Both paths are NUL-terminated and live for the duration of the call.
-        if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } == 0 {
-            return Err(std::io::Error::last_os_error().into());
-        }
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-    {
-        use std::io::ErrorKind;
-        ensure!(
-            fs::symlink_metadata(to).is_err_and(|error| error.kind() == ErrorKind::NotFound),
-            "TARGET_CONFLICT: An entry already exists: {}",
-            to.display()
-        );
-        fs::rename(from, to)?;
-    }
-    Ok(())
-}
-
-pub(super) fn physical_target_path(path: &Path) -> Option<PathBuf> {
-    Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?))
-}
-
-pub(super) fn paths_overlap(left: &Path, right: &Path) -> bool {
-    if cfg!(windows) {
-        let left = PathBuf::from(left.to_string_lossy().to_lowercase());
-        let right = PathBuf::from(right.to_string_lossy().to_lowercase());
-        left.starts_with(&right) || right.starts_with(&left)
-    } else {
-        left.starts_with(right) || right.starts_with(left)
-    }
 }
 
 fn compare_versions(before: &Path, after: &Path) -> Result<Vec<ProjectVersionChange>> {

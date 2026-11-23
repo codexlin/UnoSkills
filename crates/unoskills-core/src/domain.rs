@@ -146,6 +146,7 @@ pub struct Deployment {
     pub agent_key: String,
     pub target_path: PathBuf,
     pub mode: DeployMode,
+    /// Opaque deployed-copy fingerprint. Older rows may hold a bare content digest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy_hash: Option<String>,
     pub synced_at: i64,
@@ -176,6 +177,7 @@ pub struct ProjectDeployment {
     pub scope_path: PathBuf,
     pub target_path: PathBuf,
     pub mode: DeployMode,
+    /// Opaque deployed-copy fingerprint, independent of the project version identity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

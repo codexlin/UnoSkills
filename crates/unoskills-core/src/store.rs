@@ -127,13 +127,43 @@ impl Store {
     }
 
     pub fn find_skill(&self, id_or_slug_or_name: &str) -> Result<Option<Skill>> {
-        let query = id_or_slug_or_name.trim().to_lowercase();
+        let input = id_or_slug_or_name.trim();
+        let query = input.to_lowercase();
         let all = self.list_skills()?;
-        Ok(all.into_iter().find(|s| {
-            s.id.to_lowercase() == query
-                || s.slug.to_lowercase() == query
-                || s.name.to_lowercase() == query
-        }))
+        if let Some(index) = all
+            .iter()
+            .position(|skill| skill.id == input)
+            .or_else(|| all.iter().position(|skill| skill.slug == input))
+            .or_else(|| {
+                all.iter()
+                    .position(|skill| skill.id.to_lowercase() == query)
+            })
+        {
+            return Ok(all.into_iter().nth(index));
+        }
+        let (slugs, remaining): (Vec<_>, Vec<_>) = all
+            .into_iter()
+            .partition(|skill| skill.slug.to_lowercase() == query);
+        let mut matches = if slugs.is_empty() {
+            remaining
+                .into_iter()
+                .filter(|skill| skill.name.to_lowercase() == query)
+                .collect()
+        } else {
+            slugs
+        };
+        if matches.len() > 1 {
+            matches.sort_by(|a, b| a.slug.cmp(&b.slug));
+            let choices = matches
+                .iter()
+                .map(|skill| format!("{} ({})", skill.slug, skill.id))
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::bail!(
+                "AMBIGUOUS_SKILL: {input:?} matches multiple skills. Use a skill ID from {choices}"
+            );
+        }
+        Ok(matches.pop())
     }
 
     pub fn delete_skill(&self, skill_id: &str) -> Result<()> {

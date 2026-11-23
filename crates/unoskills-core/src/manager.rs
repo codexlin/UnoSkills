@@ -1,6 +1,9 @@
 #[path = "backup_sync.rs"]
 mod backup_sync;
 
+#[path = "skill_removal.rs"]
+mod skill_removal;
+
 #[path = "skill_revisions.rs"]
 mod skill_revisions;
 pub use skill_revisions::{PreparedSkillRevision, SkillRevisionPreview};
@@ -26,8 +29,8 @@ use crate::domain::{
     StackManifest, StackProjectDeployStatus, StackProjectDeploySummary, StackSkillRef, StackSource,
 };
 use crate::parser::{
-    checked_directory_hash, find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir,
-    parse_skill_dir, sanitize_slug,
+    find_skill_entry, hash_directory, is_valid_skill_dir, lint_skill_dir, managed_copy_fingerprint,
+    parse_skill_dir, project_version_hash, sanitize_slug,
 };
 use crate::registry::{CustomAgentRecord, resolve_agents};
 use crate::source::{
@@ -42,7 +45,7 @@ use crate::stacks::{
 use crate::store::Store;
 use crate::sync::{
     ReplacePolicy, TargetState, classify_target, copy_dir_recursive, deploy_skill_dir,
-    ensure_dst_not_overlapping_src, remove_managed_target, verify_managed_target,
+    ensure_dst_not_overlapping_src, verify_managed_target,
 };
 use crate::updater::{
     DEFAULT_RELEASES_API_URL, DownloadedUpdate, PlatformKind, ReleaseAsset, UpdateCheckOutcome,
@@ -196,10 +199,7 @@ pub(crate) fn inspect_stack_project_target(
             TargetState::Absent => StackProjectTarget::Missing(Some(DeployMode::Copy)),
             TargetState::RealDir
                 if matching_records().next().is_some()
-                    && project_versions::project_version_hash(target)
-                        .ok()
-                        .as_deref()
-                        == scope_lock =>
+                    && project_version_hash(target).ok().as_deref() == scope_lock =>
             {
                 if matching_records().any(|dep| is_current(&dep)) {
                     StackProjectTarget::Deployed(DeployMode::Copy)
@@ -224,13 +224,14 @@ pub(crate) fn inspect_stack_project_target(
             if !is_valid_skill_dir(target) {
                 return StackProjectTarget::Conflict;
             }
-            let Ok(actual_hash) = checked_directory_hash(target) else {
-                return StackProjectTarget::Conflict;
-            };
-            if !matching_records().any(|dep| {
-                dep.mode == DeployMode::Copy
-                    && dep.copy_hash.as_deref().or(skill.content_hash.as_deref())
-                        == Some(actual_hash.as_str())
+            if !matching_records().all(|dep| {
+                verify_managed_target(
+                    &skill.central_path,
+                    target,
+                    dep.mode,
+                    dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
+                )
+                .is_ok_and(|state| state == TargetState::RealDir)
             }) {
                 return StackProjectTarget::Conflict;
             }
@@ -254,11 +255,10 @@ fn matches_skill_copy(skill: &Skill, target: &Path) -> bool {
     if !is_valid_skill_dir(target) {
         return false;
     }
-    let source_hash = skill
-        .content_hash
-        .clone()
-        .or_else(|| hash_directory(&skill.central_path).ok());
-    checked_directory_hash(target).is_ok_and(|hash| Some(hash) == source_hash)
+    managed_copy_fingerprint(&skill.central_path)
+        .ok()
+        .zip(managed_copy_fingerprint(target).ok())
+        .is_some_and(|(source, copy)| source == copy)
 }
 
 fn is_globally_available(skill: &Skill, agent: &AgentInfo) -> bool {
@@ -683,52 +683,6 @@ impl UnoSkillsManager {
         Ok(skill)
     }
 
-    pub fn remove_skill(&self, skill_id_or_slug: &str) -> Result<()> {
-        let _lock = self.lock_skills()?;
-        let skill = self
-            .store
-            .find_skill(skill_id_or_slug)?
-            .context("Skill not found")?;
-        for dep in &skill.deployments {
-            verify_managed_target(
-                &skill.central_path,
-                &dep.target_path,
-                dep.mode,
-                dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
-            )?;
-        }
-        for dep in &skill.project_deployments {
-            Self::verify_project_removal(&skill, dep)?;
-        }
-
-        // Undeploy from every global agent first (respecting shared directories).
-        let agent_keys: Vec<String> = skill
-            .deployments
-            .iter()
-            .map(|d| d.agent_key.clone())
-            .collect();
-        for agent_key in agent_keys {
-            self.undeploy_global(&skill.id, &agent_key)?;
-        }
-
-        // Also undeploy from every attached project workspace.
-        for dep in &skill.project_deployments {
-            self.remove_project_deployment(&skill, dep)?;
-        }
-
-        if skill.central_path.exists() {
-            std::fs::remove_dir_all(&skill.central_path)?;
-        }
-        self.store.delete_skill(&skill.id)?;
-        let previous = self.previous_revision_path(&skill.id);
-        if self.has_revisions_dir()
-            && std::fs::symlink_metadata(&previous).is_ok_and(|entry| entry.is_dir())
-        {
-            std::fs::remove_dir_all(previous)?;
-        }
-        Ok(())
-    }
-
     // ── Deployment (with shared-directory protection & ReplacePolicy) ──
 
     pub fn deploy_skill(
@@ -775,10 +729,20 @@ impl UnoSkillsManager {
                 TargetState::LinkToSource => Some(DeployMode::Symlink),
                 TargetState::RealDir
                     if recorded_mode == Some(DeployMode::Copy)
-                        && checked_directory_hash(&skill.central_path)
-                            .ok()
-                            .zip(checked_directory_hash(&target_path).ok())
-                            .is_some_and(|(central, deployed)| central == deployed) =>
+                        && matches_skill_copy(&skill, &target_path)
+                        && skill
+                            .deployments
+                            .iter()
+                            .filter(|dep| dep.target_path == target_path)
+                            .all(|dep| {
+                                verify_managed_target(
+                                    &skill.central_path,
+                                    &target_path,
+                                    dep.mode,
+                                    dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
+                                )
+                                .is_ok()
+                            }) =>
                 {
                     Some(DeployMode::Copy)
                 }
@@ -804,6 +768,9 @@ impl UnoSkillsManager {
             }
         };
 
+        let copy_hash = (actual_mode == DeployMode::Copy)
+            .then(|| managed_copy_fingerprint(&skill.central_path))
+            .transpose()?;
         let dep = Deployment {
             id: existing_dep
                 .map(|d| d.id.clone())
@@ -812,46 +779,11 @@ impl UnoSkillsManager {
             agent_key: agent.key.clone(),
             target_path,
             mode: actual_mode,
-            copy_hash: (actual_mode == DeployMode::Copy)
-                .then(|| checked_directory_hash(&skill.central_path).ok())
-                .flatten(),
+            copy_hash,
             synced_at: Utc::now().timestamp(),
         };
         self.store.upsert_deployment(&dep)?;
         Ok(dep)
-    }
-
-    pub fn undeploy_skill(&self, skill_id_or_slug: &str, agent_key: &str) -> Result<()> {
-        let _lock = self.lock_skills()?;
-        self.undeploy_global(skill_id_or_slug, agent_key)
-    }
-
-    fn undeploy_global(&self, skill_id_or_slug: &str, agent_key: &str) -> Result<()> {
-        let skill = self
-            .store
-            .find_skill(skill_id_or_slug)?
-            .context("Skill not found")?;
-        let Some(dep) = skill.deployments.iter().find(|d| d.agent_key == agent_key) else {
-            return Ok(());
-        };
-
-        // Shared directory ref-count guard: if another agent is actively deployed
-        // to the exact same path (e.g. amp & replit both using ~/.config/agents/skills),
-        // only remove the DB record and keep the on-disk link intact for the other agent!
-        let peer_count = self
-            .store
-            .count_deployments_at_path(&dep.target_path, &dep.id)?;
-        if peer_count == 0 {
-            self.ensure_unlocked_global_target(&dep.target_path)?;
-            remove_managed_target(
-                &skill.central_path,
-                &dep.target_path,
-                dep.mode,
-                dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
-            )?;
-        }
-        self.store.delete_deployment(&skill.id, agent_key)?;
-        Ok(())
     }
 
     // ── Project-Scope Workspaces & Deployments ──
@@ -907,37 +839,6 @@ impl UnoSkillsManager {
         };
         self.store.upsert_project(&workspace)?;
         Ok(workspace)
-    }
-
-    pub fn remove_project(&self, project_id_or_name: &str) -> Result<()> {
-        let _lock = self.lock_skills()?;
-        let project = self
-            .store
-            .find_project(project_id_or_name)?
-            .context("Project workspace not found")?;
-
-        // Cleanly undeploy every managed skill inside this project before detaching.
-        let deps = self
-            .store
-            .list_project_deployments_for_project(&project.id)?;
-        let skills: HashMap<_, _> = self
-            .list_skills()?
-            .into_iter()
-            .map(|skill| (skill.id.clone(), skill))
-            .collect();
-        for dep in &deps {
-            if let Some(skill) = skills.get(&dep.skill_id) {
-                Self::verify_project_removal(skill, dep)?;
-            }
-        }
-        for dep in &deps {
-            if let Some(skill) = skills.get(&dep.skill_id) {
-                self.remove_project_deployment(skill, dep)?;
-            }
-        }
-
-        self.store.delete_project(&project.id)?;
-        Ok(())
     }
 
     pub fn deploy_skill_to_project(
@@ -1004,21 +905,27 @@ impl UnoSkillsManager {
             mode_override
         };
         let desired_mode = mode_override.unwrap_or_else(|| self.default_deploy_mode());
-        let actual_mode = if force && locked.is_none() {
-            deploy_skill_dir(
-                &skill.central_path,
-                &target_path,
-                desired_mode,
-                ReplacePolicy::UserConfirmed,
-            )?
+        let (actual_mode, registering) = if force && locked.is_none() {
+            (
+                deploy_skill_dir(
+                    &skill.central_path,
+                    &target_path,
+                    desired_mode,
+                    ReplacePolicy::UserConfirmed,
+                )?,
+                false,
+            )
         } else {
             match inspect_stack_project_target(&skill, &project, agent, scope, &target_path) {
-                StackProjectTarget::Missing(recorded_mode) => deploy_skill_dir(
-                    source,
-                    &target_path,
-                    mode_override.or(recorded_mode).unwrap_or(desired_mode),
-                    ReplacePolicy::CreateOnly,
-                )?,
+                StackProjectTarget::Missing(recorded_mode) => (
+                    deploy_skill_dir(
+                        source,
+                        &target_path,
+                        mode_override.or(recorded_mode).unwrap_or(desired_mode),
+                        ReplacePolicy::CreateOnly,
+                    )?,
+                    false,
+                ),
                 StackProjectTarget::Deployed(mode)
                     if mode_override.is_none_or(|desired| desired == mode) =>
                 {
@@ -1037,16 +944,17 @@ impl UnoSkillsManager {
                 StackProjectTarget::Register(mode)
                     if mode_override.is_none_or(|desired| desired == mode) =>
                 {
-                    mode
+                    (mode, true)
                 }
-                StackProjectTarget::Deployed(mode) | StackProjectTarget::Register(mode) => {
+                StackProjectTarget::Deployed(mode) | StackProjectTarget::Register(mode) => (
                     deploy_skill_dir(
                         &skill.central_path,
                         &target_path,
                         desired_mode,
                         ReplacePolicy::Recorded(mode),
-                    )?
-                }
+                    )?,
+                    false,
+                ),
                 StackProjectTarget::Unavailable => {
                     bail!("The skill directory is no longer available")
                 }
@@ -1059,33 +967,20 @@ impl UnoSkillsManager {
             }
         };
 
-        self.record_project_skill_deployment(
+        let dep = self.prepare_project_deployment(
             &skill,
             &project,
             agent,
             scope,
             target_path,
             actual_mode,
-        )
-    }
-
-    fn record_project_skill_deployment(
-        &self,
-        skill: &Skill,
-        project: &ProjectWorkspace,
-        agent: &AgentInfo,
-        scope: &Path,
-        target_path: PathBuf,
-        actual_mode: DeployMode,
-    ) -> Result<ProjectDeployment> {
-        let dep = self.prepare_project_deployment(
-            skill,
-            project,
-            agent,
-            scope,
-            target_path,
-            actual_mode,
         )?;
+        if actual_mode == DeployMode::Copy && !registering {
+            ensure!(
+                dep.copy_hash.as_deref() == Some(managed_copy_fingerprint(source)?.as_str()),
+                "TARGET_CONFLICT: The deployed copy changed during installation"
+            );
+        }
         self.store.upsert_project_deployment(&dep)?;
         Ok(dep)
     }
@@ -1099,16 +994,14 @@ impl UnoSkillsManager {
         target_path: PathBuf,
         actual_mode: DeployMode,
     ) -> Result<ProjectDeployment> {
-        let copy_hash = if actual_mode == DeployMode::Copy {
-            checked_directory_hash(&target_path).ok()
-        } else {
-            None
-        };
+        let copy_hash = (actual_mode == DeployMode::Copy)
+            .then(|| managed_copy_fingerprint(&target_path))
+            .transpose()?;
         let locked_hash = skill.project_lock(&project.id, scope).map(str::to_owned);
         if let Some(hash) = &locked_hash {
             ensure!(
                 actual_mode == DeployMode::Copy
-                    && project_versions::project_version_hash(&target_path)? == *hash
+                    && project_version_hash(&target_path)? == *hash
                     && copy_hash.is_some(),
                 "STALE_PROJECT_VERSION: The deployed files differ from the project version"
             );
@@ -1147,81 +1040,6 @@ impl UnoSkillsManager {
             follow_mode,
             synced_at: Utc::now().timestamp(),
         })
-    }
-
-    pub fn undeploy_skill_from_project(
-        &self,
-        skill_id_or_slug: &str,
-        project_id_or_name: &str,
-        agent_key: &str,
-    ) -> Result<()> {
-        self.undeploy_skill_from_project_at(
-            skill_id_or_slug,
-            project_id_or_name,
-            Path::new(""),
-            agent_key,
-        )
-    }
-
-    pub fn undeploy_skill_from_project_at(
-        &self,
-        skill_id_or_slug: &str,
-        project_id_or_name: &str,
-        scope: &Path,
-        agent_key: &str,
-    ) -> Result<()> {
-        let _lock = self.lock_skills()?;
-        let skill = self
-            .store
-            .find_skill(skill_id_or_slug)?
-            .context("Skill not found")?;
-        let project = self
-            .store
-            .find_project(project_id_or_name)?
-            .context("Project workspace not found")?;
-        let Some(dep) = skill.project_deployments.iter().find(|d| {
-            d.project_id == project.id && d.agent_key == agent_key && d.scope_path == scope
-        }) else {
-            return Ok(());
-        };
-
-        self.remove_project_deployment(&skill, dep)
-    }
-
-    fn verify_project_removal(skill: &Skill, dep: &ProjectDeployment) -> Result<()> {
-        if safe_scoped_target(dep)? {
-            let state = verify_managed_target(
-                &skill.central_path,
-                &dep.target_path,
-                dep.mode,
-                dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
-            )?;
-            if state != TargetState::Absent
-                && let Some(hash) = &dep.locked_hash
-            {
-                ensure!(
-                    project_versions::project_version_hash(&dep.target_path)? == *hash,
-                    "TARGET_CONFLICT: The locked project copy has changed"
-                );
-            }
-        }
-        Ok(())
-    }
-
-    fn remove_project_deployment(&self, skill: &Skill, dep: &ProjectDeployment) -> Result<()> {
-        let peer_count = self
-            .store
-            .count_deployments_at_path(&dep.target_path, &dep.id)?;
-        if peer_count == 0 && safe_scoped_target(dep)? {
-            Self::verify_project_removal(skill, dep)?;
-            remove_managed_target(
-                &skill.central_path,
-                &dep.target_path,
-                dep.mode,
-                dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
-            )?;
-        }
-        self.store.delete_project_deployment(&dep.id)
     }
 
     // ── Adopt existing skills from installed agents ──
@@ -1274,9 +1092,9 @@ impl UnoSkillsManager {
             agent_key: candidate.agent_key.clone(),
             target_path: candidate.path.clone(),
             mode: actual_mode,
-            copy_hash: skill
-                .content_hash
-                .filter(|_| actual_mode == DeployMode::Copy),
+            copy_hash: (actual_mode == DeployMode::Copy)
+                .then(|| managed_copy_fingerprint(&skill.central_path))
+                .transpose()?,
             synced_at: Utc::now().timestamp(),
         };
         self.store.upsert_deployment(&dep)?;
@@ -1716,7 +1534,7 @@ impl UnoSkillsManager {
                 continue;
             }
             let target = directory.join(&skill.slug);
-            let mode = match inspect_stack_project_target(
+            let placement = match inspect_stack_project_target(
                 skill,
                 &project,
                 &agent,
@@ -1749,11 +1567,16 @@ impl UnoSkillsManager {
                                 recorded_mode.unwrap_or_else(|| self.default_deploy_mode()),
                             ),
                         };
-                        deploy_skill_dir(source, &target, mode, ReplacePolicy::CreateOnly)
+                        let mode =
+                            deploy_skill_dir(source, &target, mode, ReplacePolicy::CreateOnly)?;
+                        let expected = (mode == DeployMode::Copy)
+                            .then(|| managed_copy_fingerprint(source))
+                            .transpose()?;
+                        Ok((mode, expected))
                     }),
                 StackProjectTarget::Register(mode) => self
                     .project_deploy_snapshot(skill, &project.id, &scope, agent_key, &target)
-                    .map(|_| mode),
+                    .map(|_| (mode, None)),
                 StackProjectTarget::Conflict => Err(anyhow::anyhow!(
                     "TARGET_CONFLICT: Deployment target is occupied or has changed: {}",
                     target.display()
@@ -1763,8 +1586,14 @@ impl UnoSkillsManager {
                     continue;
                 }
             };
-            let deployment = mode.and_then(|mode| {
-                self.record_project_skill_deployment(skill, &project, &agent, &scope, target, mode)
+            let deployment = placement.and_then(|(mode, expected)| {
+                let dep =
+                    self.prepare_project_deployment(skill, &project, &agent, &scope, target, mode)?;
+                ensure!(
+                    expected.is_none_or(|hash| dep.copy_hash.as_ref() == Some(&hash)),
+                    "TARGET_CONFLICT: The deployed copy changed during installation"
+                );
+                self.store.upsert_project_deployment(&dep)
             });
             match deployment {
                 Ok(_) => {
