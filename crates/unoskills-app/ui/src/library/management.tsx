@@ -199,6 +199,9 @@ export function SkillManagementDialogs(props: {
           <If when={current().kind !== "conflict" ? current() as Extract<Review, { rows: DeploymentRow[] }> : undefined}>
             {(removal) => <>
               <Label theme={screen.theme} color={color()}>{removal().kind === "delete" ? t().deleteDescription : t().removeDescription}</Label>
+              <If when={removal().kind === "delete" && removal().rows.length > 0}>
+                <Label theme={screen.theme} color={color()}>{t().deleteDeployments}</Label>
+              </If>
               <If when={removal().rows.length === 0}><Label theme={screen.theme} muted>{t().noDeployments}</Label></If>
               <Each of={removal().rows} key={(row) => row.id}>
                 {(row) => <TargetDetails screen={screen} agent={row().agent} scope={row().scope} path={row().target_path} />}
