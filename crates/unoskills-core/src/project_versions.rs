@@ -971,8 +971,16 @@ fn check_candidate(skill: &Skill, path: &Path, mode: DeployMode, version: &str) 
 }
 
 fn compare_versions(before: &Path, after: &Path) -> Result<Vec<ProjectVersionChange>> {
-    let old = directory_tree(before)?;
-    let new = directory_tree(after)?;
+    ensure!(
+        before.symlink_metadata()?.is_dir() && after.symlink_metadata()?.is_dir(),
+        "Expected real directories for version comparison"
+    );
+    // Normalize platform aliases above the roots while keeping the per-file
+    // canonical path check that rejects redirected entries within each tree.
+    let before = before.canonicalize()?;
+    let after = after.canonicalize()?;
+    let old = directory_tree(&before)?;
+    let new = directory_tree(&after)?;
     let paths: BTreeSet<_> = old.keys().chain(new.keys()).collect();
     Ok(paths
         .into_iter()
@@ -987,8 +995,8 @@ fn compare_versions(before: &Path, after: &Path) -> Result<Vec<ProjectVersionCha
                 (_, None) => SkillFileChangeKind::Removed,
                 _ => SkillFileChangeKind::Modified,
             };
-            let left = review_text(before, path, old_item);
-            let right = review_text(after, path, new_item);
+            let left = review_text(&before, path, old_item);
+            let right = review_text(&after, path, new_item);
             let diff = left
                 .zip(right)
                 .and_then(|(left, right)| text_diff(&left, &right));
@@ -1068,4 +1076,29 @@ fn text_diff(left: &str, right: &str) -> Option<String> {
         diff.push('\n');
     }
     Some(diff)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_diff_handles_a_path_alias_above_the_library() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = temp.path().join("library");
+        let alias = temp.path().join("library-alias");
+        let project = temp.path().join("project");
+        fs::create_dir_all(library.join("reviewer")).unwrap();
+        fs::create_dir(&project).unwrap();
+        std::os::unix::fs::symlink(&library, &alias).unwrap();
+        fs::write(library.join("reviewer/SKILL.md"), "Library text\n").unwrap();
+        fs::write(project.join("SKILL.md"), "Project text\n").unwrap();
+
+        let changes = compare_versions(&project, &alias.join("reviewer")).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(
+            changes[0].diff.as_deref(),
+            Some("- Project text\n+ Library text\n")
+        );
+    }
 }
