@@ -17,7 +17,7 @@ use crate::parser::{
     checked_directory_hash as revision_hash, checked_entries, is_valid_skill_dir,
     managed_copy_fingerprint, parse_skill_dir, sanitize_slug,
 };
-use crate::source::{ResolvedSource, fetch_git_skill, resolve_source_ref};
+use crate::source::{ResolvedSource, resolve_source_ref};
 use crate::sync::{
     TargetState, classify_target, copy_baseline, copy_dir_recursive,
     ensure_dst_not_overlapping_src, paths_overlap, physical_target_path, rename_without_replacing,
@@ -153,13 +153,8 @@ impl UnoSkillsManager {
             } => {
                 let branch = branch.or_else(|| skill.source_branch.clone());
                 let subpath = subpath.or_else(|| skill.source_subpath.clone());
-                let proxy = self.http_proxy();
-                let result = fetch_git_skill(
-                    &repo_url,
-                    branch.as_deref(),
-                    subpath.as_deref(),
-                    proxy.as_deref(),
-                )?;
+                let result =
+                    self.fetch_git_skill(&repo_url, branch.as_deref(), subpath.as_deref())?;
                 (self.stage_revision(&result.skill_dir)?, branch, subpath)
             }
         };

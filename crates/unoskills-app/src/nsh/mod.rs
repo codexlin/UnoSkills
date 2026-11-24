@@ -128,7 +128,7 @@ fn dispatch(
     if command == "update.status" {
         return updates.status();
     }
-    let manager = open_manager()?;
+    let manager = open_manager()?.with_background_git_fetches();
     if let Some(result) = skill_revisions.dispatch(&manager, &command, &input) {
         return result;
     }

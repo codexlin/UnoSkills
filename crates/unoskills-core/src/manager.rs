@@ -38,8 +38,9 @@ use crate::parser::{
 };
 use crate::registry::{CustomAgentRecord, resolve_agents};
 use crate::source::{
-    ResolvedSource, fetch_git_skill, fetch_skillssh_leaderboard, fetch_skillssh_leaderboard_page,
-    resolve_source_ref, same_source, scan_adoptable_skills, search_skillssh,
+    FetchedSkillDir, ResolvedSource, fetch_git_skill_with_console_option,
+    fetch_skillssh_leaderboard, fetch_skillssh_leaderboard_page, resolve_source_ref, same_source,
+    scan_adoptable_skills, search_skillssh,
 };
 use crate::stacks::{
     DefaultStackRegistry, DeviceCodeRequest, StackRegistry, export_stack_to_toml,
@@ -61,6 +62,7 @@ pub struct UnoSkillsManager {
     root_dir: PathBuf,
     skills_dir: PathBuf,
     store: Store,
+    hide_git_fetch_console: bool,
 }
 
 pub(crate) enum StackProjectTarget {
@@ -300,7 +302,15 @@ impl UnoSkillsManager {
             root_dir,
             skills_dir,
             store,
+            hide_git_fetch_console: false,
         })
+    }
+
+    /// Suppresses console windows for Git skill fetches on Windows.
+    #[must_use]
+    pub fn with_background_git_fetches(mut self) -> Self {
+        self.hide_git_fetch_console = true;
+        self
     }
 
     pub fn root_dir(&self) -> &Path {
@@ -555,13 +565,8 @@ impl UnoSkillsManager {
                 display_ref,
                 source_type,
             } => {
-                let proxy = self.http_proxy();
-                let fetched = fetch_git_skill(
-                    &repo_url,
-                    branch.as_deref(),
-                    subpath.as_deref(),
-                    proxy.as_deref(),
-                )?;
+                let fetched =
+                    self.fetch_git_skill(&repo_url, branch.as_deref(), subpath.as_deref())?;
                 self.import_directory(
                     &fetched.skill_dir,
                     fetched.suggested_slug.as_deref(),
@@ -572,6 +577,21 @@ impl UnoSkillsManager {
                 )
             }
         }
+    }
+
+    fn fetch_git_skill(
+        &self,
+        repo_url: &str,
+        branch: Option<&str>,
+        subpath: Option<&str>,
+    ) -> Result<FetchedSkillDir> {
+        fetch_git_skill_with_console_option(
+            repo_url,
+            branch,
+            subpath,
+            self.http_proxy().as_deref(),
+            self.hide_git_fetch_console,
+        )
     }
 
     /// Update from the recorded source using the same checks as desktop revisions.

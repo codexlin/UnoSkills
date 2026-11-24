@@ -184,12 +184,32 @@ pub fn fetch_git_skill(
     subpath: Option<&str>,
     proxy_url: Option<&str>,
 ) -> Result<FetchedSkillDir> {
+    fetch_git_skill_with_console_option(repo_url, branch, subpath, proxy_url, false)
+}
+
+pub(crate) fn fetch_git_skill_with_console_option(
+    repo_url: &str,
+    branch: Option<&str>,
+    subpath: Option<&str>,
+    proxy_url: Option<&str>,
+    hide_console: bool,
+) -> Result<FetchedSkillDir> {
     let temp = tempfile::Builder::new()
         .prefix("unoskills-git-")
         .tempdir()
         .context("Failed to create temp directory for git clone")?;
 
     let mut cmd = Command::new("git");
+    #[cfg(windows)]
+    if hide_console {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = hide_console;
+
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     if let Some(proxy) = proxy_url.map(str::trim).filter(|s| !s.is_empty()) {
         cmd.arg("-c")
