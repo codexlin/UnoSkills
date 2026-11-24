@@ -164,6 +164,9 @@ export function Discover(props: ScreenProps) {
             adopting={adoption.adopting()}
             error={adoption.error()}
             failedBatch={adoption.failedBatch()}
+            mergeResults={adoption.mergeResults()}
+            onMerge={adoption.merge}
+            onRevealRecovery={adoption.revealRecovery}
             onSearchInputRef={(ref) => {
               adoptSearchRef = ref;
             }}

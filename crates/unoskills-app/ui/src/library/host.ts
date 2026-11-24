@@ -2,6 +2,8 @@ import { HostError, call, errorMessage } from "../shared";
 import type {
   AdoptBatchResponse,
   AdoptCandidate,
+  AdoptionMergeRequest,
+  AdoptionMergeResponse,
   DeployMode,
   Deployment,
   LeaderboardResponse,
@@ -234,4 +236,8 @@ export function adoptLocalSkills(candidates: AdoptCandidate[]): Promise<AdoptBat
   return call<{ candidates: AdoptCandidate[] }, AdoptBatchResponse>("discover.adopt", {
     candidates,
   });
+}
+
+export function mergeLocalSkills(requests: AdoptionMergeRequest[]): Promise<AdoptionMergeResponse> {
+  return call<{ requests: AdoptionMergeRequest[] }, AdoptionMergeResponse>("discover.merge_adoption", { requests });
 }

@@ -182,6 +182,49 @@ export interface AdoptFailure {
   name: string;
   path: string;
   error: string;
+  merge?: AdoptionMergePreview;
+  merge_issue?: string;
+  recovery_paths?: string[];
+}
+
+export type AdoptionMergeTarget = "existing" | "detected";
+export type AdoptionMergeChoice = "library" | "local";
+
+export interface AdoptionMergePreview {
+  token: string;
+  candidate: AdoptCandidate;
+  library_path: string;
+  existing_path: string;
+  existing_present: boolean;
+  keep_existing_for_peers: boolean;
+  targets: AdoptionMergeTarget[];
+  identical: boolean;
+  library_changes: SkillRevisionPreview["files"];
+  existing_changes: SkillRevisionPreview["files"];
+  skill_diff: string | null;
+  local_version_impacts: DeploymentImpact[];
+  shared_existing: string[];
+  shared_detected: string[];
+}
+
+export interface AdoptionMergeRequest {
+  candidate: AdoptCandidate;
+  token: string;
+  target: AdoptionMergeTarget;
+  content: AdoptionMergeChoice;
+  allow_copy: boolean;
+}
+
+export interface AdoptionMergeResult {
+  path: string;
+  deployment: Deployment;
+  backup: string | null;
+  deployment_issues: DeploymentImpact[];
+}
+
+export interface AdoptionMergeResponse {
+  merged: AdoptionMergeResult[];
+  failed: AdoptFailure[];
 }
 
 export interface AdoptBatchResponse {

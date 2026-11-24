@@ -34,6 +34,29 @@ impl Store {
     pub fn upsert_skill(&self, skill: &Skill) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let transaction = conn.transaction()?;
+        Self::write_skill(&transaction, skill)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn save_adoption_merge(
+        &self,
+        skill: Option<&Skill>,
+        deployments: &[Deployment],
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        if let Some(skill) = skill {
+            Self::write_skill(&transaction, skill)?;
+        }
+        for deployment in deployments {
+            Self::write_deployment(&transaction, deployment)?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    fn write_skill(transaction: &Connection, skill: &Skill) -> Result<()> {
         transaction.execute(
             "INSERT INTO skills (
                 id, slug, name, description, source_type, source_ref, source_subpath,
@@ -78,7 +101,6 @@ impl Store {
                 params![skill.id, tag.trim().to_lowercase()],
             )?;
         }
-        transaction.commit()?;
         Ok(())
     }
 
@@ -174,6 +196,10 @@ impl Store {
 
     pub fn upsert_deployment(&self, dep: &Deployment) -> Result<()> {
         let conn = self.conn.lock().unwrap();
+        Self::write_deployment(&conn, dep)
+    }
+
+    fn write_deployment(conn: &Connection, dep: &Deployment) -> Result<()> {
         conn.execute(
             "INSERT INTO deployments (id, skill_id, agent_key, target_path, mode, synced_at, copy_hash)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)

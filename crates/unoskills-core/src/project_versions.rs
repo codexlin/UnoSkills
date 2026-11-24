@@ -1035,7 +1035,7 @@ fn review_text(root: &Path, path: &Path, entry: Option<&TreeEntry>) -> Option<St
     }
 }
 
-fn text_diff(left: &str, right: &str) -> Option<String> {
+pub(super) fn text_diff(left: &str, right: &str) -> Option<String> {
     if left == right {
         return None;
     }

@@ -101,21 +101,47 @@ export function SkillInspector(props: {
               <Label theme={props.theme} color={props.theme.panel.foreground} heading size={18} truncate>
                 {skill().name}
               </Label>
-              <Text
-                tooltip={hintTooltip(
-                  () => props.theme,
-                  () =>
-                    `${skill().source_ref ?? skill().source_type} · ~${skill().estimated_tokens} tokens`,
-                )}
-                style={{
-                  numberOfLines: 1,
-                  textOverflow: "ellipsis",
-                  ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
-                  color: props.theme.muted,
-                }}
-              >
-                {`${skill().source_ref ?? skill().source_type} · ~${skill().estimated_tokens} tokens`}
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={{ flexShrink: 0 }}>
+                  <Label theme={props.theme} size={12} muted>{s().library_location}</Label>
+                </View>
+                <Text
+                  tooltip={hintTooltip(() => props.theme, () => skill().central_path)}
+                  style={{
+                    flex: 1, minWidth: 0,
+                    numberOfLines: 1, textOverflow: "ellipsis",
+                    ...textStyle(props.theme, { size: textSize(props.theme, 12), mono: true }),
+                    color: props.theme.panel.foreground,
+                  }}
+                >
+                  {skill().central_path}
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                <If when={skill().source_ref?.trim()}>
+                  {(source) => (
+                    <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <View style={{ flexShrink: 0 }}>
+                        <Label theme={props.theme} size={12} muted>{s().library_source}</Label>
+                      </View>
+                      <Text
+                        tooltip={hintTooltip(() => props.theme, source)}
+                        style={{
+                          flex: 1, minWidth: 0,
+                          numberOfLines: 1, textOverflow: "ellipsis",
+                          ...textStyle(props.theme, { size: textSize(props.theme, 12), mono: true }),
+                          color: props.theme.muted,
+                        }}
+                      >
+                        {source()}
+                      </Text>
+                    </View>
+                  )}
+                </If>
+                <View style={{ flexShrink: 0 }}>
+                  <Label theme={props.theme} size={12} muted>~{skill().estimated_tokens} tokens</Label>
+                </View>
+              </View>
               <If when={props.updatingSkillId === skill().id}>
                 <LoadingLine theme={props.theme} compact label={busyUpdatingSkill(props.locale, skill().name)} />
               </If>
@@ -151,7 +177,7 @@ export function SkillInspector(props: {
                     }} />
                     <MenuAction theme={props.theme} label={s().library_copy_path} onSelect={() => {
                       void Clipboard.writeText(skill().central_path)
-                        .then(() => props.onNotify(s().library_copy_path, "info"))
+                        .then(() => props.onNotify(s().library_path_copied, "info"))
                         .catch((error) => props.onNotify(errorMessage(error), "error"));
                     }} />
                     <MenuDivider theme={props.theme} />

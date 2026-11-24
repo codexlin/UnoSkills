@@ -1,6 +1,13 @@
 #[path = "backup_sync.rs"]
 mod backup_sync;
 
+#[path = "adoption_merge.rs"]
+mod adoption_merge;
+pub use adoption_merge::{
+    AdoptionMergeChoice, AdoptionMergeConflict, AdoptionMergePreview, AdoptionMergeRequest,
+    AdoptionMergeResult, AdoptionMergeTarget,
+};
+
 #[path = "skill_removal.rs"]
 mod skill_removal;
 
@@ -1170,13 +1177,13 @@ impl UnoSkillsManager {
             .into_iter()
             .find(|skill| skill.slug.eq_ignore_ascii_case(&slug));
         let (skill, actual_mode, copy_hash) = if let Some(skill) = existing {
-            ensure!(
-                !skill
-                    .deployments
-                    .iter()
-                    .any(|deployment| deployment.agent_key == candidate.agent_key),
-                "TARGET_CONFLICT: This agent already uses the library skill at another path"
-            );
+            if skill
+                .deployments
+                .iter()
+                .any(|deployment| deployment.agent_key == candidate.agent_key)
+            {
+                return Err(AdoptionMergeConflict.into());
+            }
             let fingerprint = managed_copy_fingerprint(&skill.central_path).ok();
             ensure!(
                 skill.central_path == self.skills_dir.join(&skill.slug)

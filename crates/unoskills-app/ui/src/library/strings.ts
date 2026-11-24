@@ -34,7 +34,10 @@ export interface LibraryStrings {
   library_skill_actions: string;
   btn_update_skill: string;
   tooltip_reveal_folder: string;
+  library_location: string;
+  library_source: string;
   library_copy_path: string;
+  library_path_copied: string;
   library_discard_title: string;
   library_discard_action: string;
   library_deployment_targets: string;
@@ -144,7 +147,10 @@ const EN: LibraryStrings = {
   library_skill_actions: "Skill actions",
   btn_update_skill: "Update",
   tooltip_reveal_folder: "Reveal in File Manager",
-  library_copy_path: "Copy path",
+  library_location: "Library location",
+  library_source: "Source",
+  library_copy_path: "Copy library path",
+  library_path_copied: "Library path copied.",
   library_discard_title: "Discard unsaved changes?",
   library_discard_action: "Discard changes",
   library_deployment_targets: "Deployment targets",
@@ -254,7 +260,10 @@ const ZH_CN: LibraryStrings = {
   library_skill_actions: "技能操作",
   btn_update_skill: "检查更新",
   tooltip_reveal_folder: "在文件管理器中打开目录",
-  library_copy_path: "复制路径",
+  library_location: "技能库位置",
+  library_source: "来源",
+  library_copy_path: "复制技能库路径",
+  library_path_copied: "已复制技能库路径。",
   library_discard_title: "放弃未保存的修改？",
   library_discard_action: "放弃修改",
   library_deployment_targets: "部署目标",
@@ -364,7 +373,10 @@ const JA: LibraryStrings = {
   library_skill_actions: "スキルの操作",
   btn_update_skill: "更新確認",
   tooltip_reveal_folder: "ファイルマネージャで開く",
-  library_copy_path: "パスをコピー",
+  library_location: "ライブラリの場所",
+  library_source: "提供元",
+  library_copy_path: "ライブラリのパスをコピー",
+  library_path_copied: "ライブラリのパスをコピーしました。",
   library_discard_title: "未保存の変更を破棄しますか？",
   library_discard_action: "変更を破棄",
   library_deployment_targets: "配備先",

@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.8.6] - 2026-11-24
+
+### Added / 新增
+
+- **Merge duplicate local skills / 合并并纳管**. Review the library location, the active deployment, and the newly detected path when the same Agent has a duplicate skill. Merge matching copies in a batch. If the files differ, review the changes and choose which version to use, with the other version kept for recovery. 同一 Agent 存在重复技能时，可预览技能库、现有部署和新发现的路径。内容相同可批量合并，内容不同时可查看差异并选择保留的版本，另一版本留作恢复。
+
+### Fixed / 修复
+
+- **Library paths / 技能库路径**. The Library shows the actual UnoSkills storage path, including custom locations. The skill details label its original source separately, and the copy and open actions use the library path. 技能库显示 UnoSkills 实际管理路径，支持自定义库目录。技能详情单独标注来源，复制和打开操作均指向实际管理位置。
+
 ## [v0.8.5] - 2026-11-24
 
 ### Fixed / 修复

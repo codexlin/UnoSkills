@@ -6909,7 +6909,7 @@ dependencies = [
 
 [[package]]
 name = "unoskills-app"
-version = "0.8.5"
+version = "0.8.6"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -6934,7 +6934,7 @@ dependencies = [
 
 [[package]]
 name = "unoskills-cli"
-version = "0.8.5"
+version = "0.8.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -6946,7 +6946,7 @@ dependencies = [
 
 [[package]]
 name = "unoskills-core"
-version = "0.8.5"
+version = "0.8.6"
 dependencies = [
  "anyhow",
  "chrono",

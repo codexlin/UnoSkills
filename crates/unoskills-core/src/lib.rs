@@ -12,9 +12,10 @@ pub mod updater;
 
 pub use domain::*;
 pub use manager::{
-    PreparedProjectConflict, PreparedProjectVersion, PreparedSkillRevision, ProjectConflictReview,
-    ProjectDeployOutcome, ProjectDeployPreview, ProjectDeployRow, ProjectVersionIntent,
-    ProjectVersionReview, RemovalProblem, ReviewedDeployment, SkillRevisionPreview,
-    UnoSkillsManager,
+    AdoptionMergeChoice, AdoptionMergeConflict, AdoptionMergePreview, AdoptionMergeRequest,
+    AdoptionMergeResult, AdoptionMergeTarget, PreparedProjectConflict, PreparedProjectVersion,
+    PreparedSkillRevision, ProjectConflictReview, ProjectDeployOutcome, ProjectDeployPreview,
+    ProjectDeployRow, ProjectVersionIntent, ProjectVersionReview, RemovalProblem,
+    ReviewedDeployment, SkillRevisionPreview, UnoSkillsManager,
 };
 pub use registry::CustomAgentRecord;
