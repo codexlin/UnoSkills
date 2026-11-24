@@ -814,9 +814,9 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
           path: `/home/demo/.codex/skills/${slug}`, estimated_tokens: 10,
         },
         library_path: `/home/demo/.unoskills/skills/${slug}`,
-        existing_path: `/home/demo/.agents/skills/${slug}`,
-        existing_present: true, keep_existing_for_peers: false,
-        targets: ["existing", "detected"],
+        existing_path: local ? null : `/home/demo/.agents/skills/${slug}`,
+        existing_present: !local, keep_existing_for_peers: false,
+        targets: local ? ["detected"] : ["existing", "detected"],
         identical: !local,
         library_changes: local ? [{ path: "SKILL.md", kind: "modified" }] : [],
         existing_changes: [],
@@ -842,7 +842,8 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
             if (command === "discover.adopt") {
               return { ok: true, value: { adopted: [], adopted_count: 0, failed: reviews.map((merge) => ({
                 name: merge.candidate.name, path: merge.candidate.path,
-                error: "TARGET_CONFLICT: Existing deployment", merge,
+                error: merge.existing_path ? "TARGET_CONFLICT: Existing deployment" : "SKILL_SLUG_CONFLICT: Existing folder name",
+                merge,
               })) } };
             }
             if (command === "discover.merge_adoption") {
@@ -854,7 +855,7 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
                   path: request.candidate.path,
                   deployment: {
                     id: review.token, skill_id: review.token, agent_key: "codex",
-                    target_path: request.target === "existing" ? review.existing_path : request.candidate.path,
+                    target_path: (request.target === "existing" ? review.existing_path : null) ?? request.candidate.path,
                     mode: "symlink", synced_at: 0,
                   },
                   backup: review.identical ? null : "/home/demo/.unoskills/.adoption-backups/merge-1",
@@ -884,14 +885,17 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     await app.waitUntil(() => merges.length === 1);
     expect(merges[0].map((request) => request.token)).toEqual(["review-0", "review-1"]);
     await app.waitFor("text:Added 2 skills to the library (1 failed).");
+    expect(app.texts()).toContain("The library already has a skill with this folder name. Review the two versions before merging.");
     await app.waitFor("text:Review and merge");
     await app.press("Review and merge");
     await app.waitFor("label:Version to keep");
     await app.press("label:Version to keep");
     await app.press("text:Use detected local version");
+    await app.press("label:Allow a managed copy");
     await app.press("Merge and manage");
     await app.waitUntil(() => merges.length === 2);
-    expect(merges[1][0]).toMatchObject({ token: "review-2", content: "local", target: "existing", allow_copy: false });
+    expect(merges[0].every((request) => !request.allow_copy)).toBe(true);
+    expect(merges[1][0]).toMatchObject({ token: "review-2", content: "local", target: "detected", allow_copy: true });
     await app.waitFor("text:View merge results");
     await app.press("View merge results");
     await app.waitFor("text:Show recovery folder");

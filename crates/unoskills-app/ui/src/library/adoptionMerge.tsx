@@ -21,7 +21,8 @@ const messages = {
   existingDiff: ["Existing deployment compared with the library", "现有部署与技能库的差异", "現在の配備とライブラリの差分"],
   impact: ["Other deployments affected by changing the library version", "采用本机版本会影响这些部署", "ライブラリ版の変更が影響する他の配備"],
   backup: ["Different versions will be saved in a recovery folder.", "不同的内容会存到恢复目录。", "内容が異なるバージョンは復元用フォルダーに保存されます。"],
-  copy: ["Allow a managed copy if a directory link cannot be created (two copies)", "目录链接不可用时允许保留受管副本（共两份）", "リンクを作れない場合は管理対象のコピーを許可する（2 つのコピー）"],
+  copy: ["Allow a managed copy", "允许使用受管副本", "管理対象のコピーを許可"],
+  copyDetail: ["If a directory link is unavailable, keep a copy in the Agent’s folder.", "无法创建目录链接时，在 Agent 目录保留一份副本。", "ディレクトリリンクを作成できない場合は、エージェントのフォルダーにコピーを残します。"],
   shared: ["Also used by", "此路径也被这些 Agent 使用", "このパスを併用するエージェント"],
   cancel: ["Cancel", "取消", "キャンセル"],
   close: ["Close", "关闭", "閉じる"],
@@ -42,6 +43,7 @@ const messages = {
   conflict: ["Local changes kept", "保留本地改动", "ローカル変更を保持"],
   refresh_failed: ["Could not refresh copy", "更新副本失败", "コピーの更新に失敗"],
   duplicate: ["This Agent has another deployment of this skill. Local files were kept.", "这个 Agent 在另一位置有部署记录，本机文件已保留。", "このエージェントには別の配備先があります。ローカルファイルは保持されました。"],
+  libraryConflict: ["The library already has a skill with this folder name. Review the two versions before merging.", "技能库已有同名技能。请先查看两份内容的差异，再确认合并。", "ライブラリに同名のスキルがあります。統合前に両方のバージョンを確認してください。"],
   protected: ["A shared or protected path prevents this merge. Local files were kept.", "这里涉及共享或受保护的目录，文件已保留。", "共有または保護されたパスのため統合できません。ローカルファイルは保持されました。"],
   stale: ["The files or deployment changed. Review the current state before merging.", "文件或部署已变化，请重新查看后再合并。", "ファイルまたは配備が変更されました。確認し直してください。"],
   unavailable: ["A link could not be created. Allow a managed copy to proceed.", "无法创建链接。允许受管副本后可继续。", "リンクを作れませんでした。続けるには管理対象のコピーを許可してください。"],
@@ -58,6 +60,7 @@ export function adoptionMergeError(locale: Locale, failure: AdoptFailure): strin
   if (failure.merge_issue || failure.error.startsWith("ADOPTION_MERGE_PROTECTED:") ||
       (failure.merge && failure.merge.targets.length === 0)) return mergeText(locale, "protected");
   if (failure.merge && failure.error.startsWith("TARGET_CONFLICT:")) return mergeText(locale, "duplicate");
+  if (failure.merge && failure.error.startsWith("SKILL_SLUG_CONFLICT:")) return mergeText(locale, "libraryConflict");
   return failure.error;
 }
 
@@ -76,7 +79,7 @@ export function AdoptionMergeDialog(props: {
   const single = () => props.reviews.length === 1;
   const review = () => props.reviews[0];
   const chosenPath = (plan: AdoptionMergePreview) =>
-    (single() ? target() : plan.targets[0]) === "existing" ? plan.existing_path : plan.candidate.path;
+    ((single() ? target() : plan.targets[0]) === "existing" ? plan.existing_path : null) ?? plan.candidate.path;
   const retiredPath = (plan: AdoptionMergePreview) =>
     chosenPath(plan) === plan.existing_path ? plan.candidate.path
       : plan.existing_present && !plan.keep_existing_for_peers ? plan.existing_path : null;
@@ -90,16 +93,18 @@ export function AdoptionMergeDialog(props: {
   const paths = (plan: () => AdoptionMergePreview, outcome: boolean) => <View style={{ gap: 7, minWidth: 0 }}>
     <Label theme={props.theme} weight="600">{plan().candidate.name} · {plan().candidate.agent_name}</Label>
     <PathLine theme={props.theme} title={t("library")} path={plan().library_path} />
-    <PathLine theme={props.theme} title={t("existing")} path={plan().existing_path}
-      note={plan().existing_present ? undefined : t("missingFolder")} />
+    <If when={plan().existing_path}>{(path) =>
+      <PathLine theme={props.theme} title={t("existing")} path={path()}
+        note={plan().existing_present ? undefined : t("missingFolder")} />
+    }</If>
     <If when={plan().shared_existing.length > 0}>
       <Label theme={props.theme} muted>{t("shared")} · {plan().shared_existing.join(", ")}</Label>
     </If>
-    <PathLine theme={props.theme} title={t("detected")} path={plan().candidate.path} />
+    <PathLine theme={props.theme} title={t(plan().existing_path ? "detected" : "target")} path={plan().candidate.path} />
     <If when={plan().shared_detected.length > 0}>
       <Label theme={props.theme} muted>{t("shared")} · {plan().shared_detected.join(", ")}</Label>
     </If>
-    <If when={outcome}>
+    <If when={outcome && plan().existing_path !== null}>
       <PathLine theme={props.theme} title={t("target")} path={chosenPath(plan())} />
       <If when={retiredPath(plan())}>{(path) =>
         <PathLine theme={props.theme} title={t("remove")} path={path()} />
@@ -125,7 +130,9 @@ export function AdoptionMergeDialog(props: {
             items={review().targets.map((value) => ({ value, title: t(value) }))}
             onChange={(value) => target.set(value as AdoptionMergeTarget)} />
         </If>
-        <PathLine theme={props.theme} title={t("target")} path={chosenPath(review())} />
+        <If when={review().existing_path !== null}>
+          <PathLine theme={props.theme} title={t("target")} path={chosenPath(review())} />
+        </If>
         <If when={retiredPath(review())}>{(path) =>
           <PathLine theme={props.theme} title={t("remove")} path={path()} />
         }</If>
@@ -157,10 +164,19 @@ export function AdoptionMergeDialog(props: {
         </If>
       </Scroll>
     </If>
-    <CheckControl theme={props.theme} checked={allowCopy()} disabled={props.busy}
-      accessibilityLabel={t("copy")} onChange={(checked) => allowCopy.set(checked)}>
-      <Label theme={props.theme}>{t("copy")}</Label>
-    </CheckControl>
+    <View style={{ gap: 2, paddingTop: 8, borderTopWidth: 1, borderColor: props.theme.border }}>
+      <CheckControl theme={props.theme} checked={allowCopy()} disabled={props.busy}
+        style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32, minWidth: 0,
+          paddingVertical: 4, paddingHorizontal: 8, borderRadius: props.theme.control.radius }}
+        accessibilityLabel={t("copy")} onChange={(checked) => allowCopy.set(checked)}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label theme={props.theme} color={props.theme.popup.foreground}>{t("copy")}</Label>
+        </View>
+      </CheckControl>
+      <View style={{ paddingLeft: 32 }}>
+        <Label theme={props.theme} muted>{t("copyDetail")}</Label>
+      </View>
+    </View>
     <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
       <Action theme={props.theme} label={t("cancel")} disabled={props.busy} onPress={props.onClose} />
       <Action theme={props.theme} label={t("confirm")} variant="primary" pending={props.busy} onPress={submit} />

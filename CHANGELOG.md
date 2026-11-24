@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.8.7] - 2026-11-24
+
+### Fixed / 修复
+
+- **Same-name local skills / 同名本机技能**. When the library already contains a skill with the same folder name, review the differences and merge even if this Agent has no existing deployment. The chosen version stays available at the Agent's original path and the other version is saved for recovery. 即使当前 Agent 没有部署记录，遇到库内同名技能也可以查看差异并确认合并。Agent 继续从原路径使用选中的版本，另一版留作恢复。
+- **Merge dialog / 合并弹窗**. Align the managed-copy checkbox and place its explanation on a separate line. 修正受管副本复选框的对齐，并将说明单独显示。
+
 ## [v0.8.6] - 2026-11-24
 
 ### Added / 新增

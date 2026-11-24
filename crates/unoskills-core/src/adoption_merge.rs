@@ -23,12 +23,22 @@ use crate::sync::{
 };
 
 #[derive(Debug)]
-pub struct AdoptionMergeConflict;
+pub enum AdoptionMergeConflict {
+    ExistingDeployment,
+    LibraryContents { slug: String },
+}
 
 impl std::fmt::Display for AdoptionMergeConflict {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .write_str("TARGET_CONFLICT: This agent already uses the library skill at another path")
+        match self {
+            Self::ExistingDeployment => formatter.write_str(
+                "TARGET_CONFLICT: This agent already uses the library skill at another path",
+            ),
+            Self::LibraryContents { slug } => write!(
+                formatter,
+                "SKILL_SLUG_CONFLICT: A different skill already uses the library directory '{slug}'"
+            ),
+        }
     }
 }
 
@@ -63,7 +73,7 @@ pub struct AdoptionMergePreview {
     pub token: String,
     pub candidate: AdoptCandidate,
     pub library_path: PathBuf,
-    pub existing_path: PathBuf,
+    pub existing_path: Option<PathBuf>,
     pub existing_present: bool,
     pub keep_existing_for_peers: bool,
     pub targets: Vec<AdoptionMergeTarget>,
@@ -142,7 +152,7 @@ impl ReviewedDirectory {
 struct AdoptionPlan {
     preview: AdoptionMergePreview,
     skill: Skill,
-    deployment: Deployment,
+    deployment: Option<Deployment>,
     library: ReviewedDirectory,
     detected: ReviewedDirectory,
     existing: Option<ReviewedDirectory>,
@@ -186,15 +196,14 @@ impl UnoSkillsManager {
         let deployment = skill
             .deployments
             .iter()
-            .find(|dep| dep.agent_key == agent.key)
-            .context("STALE_ADOPTION_MERGE: The agent's deployment is missing")?;
-        let existing_path = &deployment.target_path;
+            .find(|dep| dep.agent_key == agent.key);
+        let existing_path = deployment.map(|dep| &dep.target_path);
         ensure!(
-            !same_location(&candidate.path, existing_path),
+            existing_path.is_none_or(|path| !same_location(&candidate.path, path)),
             "STALE_ADOPTION_MERGE: This directory is already managed"
         );
         self.check_library_path(skill)?;
-        for path in [&candidate.path, existing_path] {
+        for path in std::iter::once(&candidate.path).chain(existing_path) {
             self.ensure_unlocked_global_target(path)?;
             ensure_dst_not_overlapping_src(&skill.central_path, path)?;
         }
@@ -203,25 +212,27 @@ impl UnoSkillsManager {
             ReviewedDirectory::read(&skill.central_path)?.context("Missing library directory")?;
         let detected =
             ReviewedDirectory::read(&candidate.path)?.context("Missing detected directory")?;
-        let existing = ReviewedDirectory::read(existing_path)?;
-        let existing_in_scan = agent_scans(agent, existing_path);
+        let existing = existing_path
+            .map(|path| ReviewedDirectory::read(path))
+            .transpose()?
+            .flatten();
+        let existing_in_scan = existing_path.is_some_and(|path| agent_scans(agent, path));
         ensure!(
             library.mode == DeployMode::Copy
-                && !locations_overlap(&candidate.path, existing_path)
                 && !locations_overlap(&candidate.path, &skill.central_path)
-                && !locations_overlap(existing_path, &skill.central_path)
-                && (existing.is_none()
-                    || existing_in_scan
-                    || verify_managed_target(
-                        &skill.central_path,
-                        existing_path,
-                        deployment.mode,
-                        deployment
-                            .copy_hash
-                            .as_deref()
-                            .or(skill.content_hash.as_deref())
-                    )
-                    .is_ok()),
+                && deployment.is_none_or(|dep| {
+                    !locations_overlap(&candidate.path, &dep.target_path)
+                        && !locations_overlap(&dep.target_path, &skill.central_path)
+                        && (existing.is_none()
+                            || existing_in_scan
+                            || verify_managed_target(
+                                &skill.central_path,
+                                &dep.target_path,
+                                dep.mode,
+                                dep.copy_hash.as_deref().or(skill.content_hash.as_deref()),
+                            )
+                            .is_ok())
+                }),
             "ADOPTION_MERGE_PROTECTED: The deployment overlaps a protected directory or has changed outside the agent's scan paths"
         );
 
@@ -237,7 +248,7 @@ impl UnoSkillsManager {
                 for record in item
                     .deployments
                     .iter()
-                    .filter(|record| record.id != deployment.id)
+                    .filter(|record| deployment.is_none_or(|dep| record.id != dep.id))
                 {
                     if locations_overlap(&record.target_path, path) {
                         ensure!(
@@ -262,7 +273,10 @@ impl UnoSkillsManager {
             }
             Ok(references.into_iter().collect())
         };
-        let shared_existing = shared(existing_path)?;
+        let shared_existing = existing_path
+            .map(|path| shared(path))
+            .transpose()?
+            .unwrap_or_default();
         let shared_detected = shared(&candidate.path)?;
         let keep_existing_for_peers = !existing_in_scan && !shared_existing.is_empty();
         let mut targets = Vec::new();
@@ -283,7 +297,8 @@ impl UnoSkillsManager {
             )
             .into_iter()
             .filter(|target| {
-                (keep_existing_for_peers || !same_location(&target.impact.path, existing_path))
+                (keep_existing_for_peers
+                    || existing_path.is_none_or(|path| !same_location(&target.impact.path, path)))
                     && !same_location(&target.impact.path, &candidate.path)
             })
             .map(|target| target.impact)
@@ -293,7 +308,7 @@ impl UnoSkillsManager {
             token: String::new(),
             candidate: candidate.clone(),
             library_path: skill.central_path.clone(),
-            existing_path: existing_path.clone(),
+            existing_path: existing_path.cloned(),
             existing_present: existing.is_some(),
             keep_existing_for_peers,
             targets,
@@ -322,7 +337,7 @@ impl UnoSkillsManager {
             .deployments
             .iter()
             .filter(|dep| {
-                same_location(&dep.target_path, existing_path)
+                existing_path.is_some_and(|path| same_location(&dep.target_path, path))
                     || same_location(&dep.target_path, &candidate.path)
             })
             .collect();
@@ -332,7 +347,7 @@ impl UnoSkillsManager {
         Ok(AdoptionPlan {
             preview,
             skill: skill.clone(),
-            deployment: deployment.clone(),
+            deployment: deployment.cloned(),
             library,
             detected,
             existing,
@@ -355,7 +370,7 @@ impl UnoSkillsManager {
         let AdoptionPlan {
             preview,
             mut skill,
-            mut deployment,
+            deployment,
             library,
             detected,
             existing,
@@ -372,7 +387,10 @@ impl UnoSkillsManager {
             && library.fingerprint != detected.fingerprint;
         let chosen = if update_library { &detected } else { &library };
         let destination = match request.target {
-            AdoptionMergeTarget::Existing => &preview.existing_path,
+            AdoptionMergeTarget::Existing => preview
+                .existing_path
+                .as_ref()
+                .context("STALE_ADOPTION_MERGE: The deployment path is missing")?,
             AdoptionMergeTarget::Detected => &preview.candidate.path,
         };
         let mut changes = RemovalBatch::default();
@@ -417,11 +435,13 @@ impl UnoSkillsManager {
         }
 
         let mut mode = DeployMode::Symlink;
-        for (path, review) in [
-            (&preview.existing_path, replace_existing),
-            (&preview.candidate.path, Some(&detected)),
-        ] {
-            let Some(review) = review else { continue };
+        let reviewed_paths = preview
+            .existing_path
+            .as_ref()
+            .zip(replace_existing)
+            .into_iter()
+            .chain([(&preview.candidate.path, &detected)]);
+        for (path, review) in reviewed_paths {
             if path == destination
                 && review.mode == DeployMode::Symlink
                 && review.source == library.source
@@ -444,10 +464,15 @@ impl UnoSkillsManager {
             }
         }
 
-        deployment.target_path = destination.clone();
-        deployment.mode = mode;
-        deployment.copy_hash = (mode == DeployMode::Copy).then(|| chosen.fingerprint.clone());
-        deployment.synced_at = Utc::now().timestamp();
+        let deployment = Deployment {
+            id: deployment.map_or_else(|| uuid::Uuid::new_v4().to_string(), |dep| dep.id),
+            skill_id: skill.id.clone(),
+            agent_key: preview.candidate.agent_key.clone(),
+            target_path: destination.clone(),
+            mode,
+            copy_hash: (mode == DeployMode::Copy).then(|| chosen.fingerprint.clone()),
+            synced_at: Utc::now().timestamp(),
+        };
         let mut new_deployments = vec![deployment.clone()];
         new_deployments.extend(
             skill
@@ -467,7 +492,7 @@ impl UnoSkillsManager {
             let retired = match request.target {
                 AdoptionMergeTarget::Existing => Some(&preview.candidate.path),
                 AdoptionMergeTarget::Detected if !preview.keep_existing_for_peers => {
-                    Some(&preview.existing_path)
+                    preview.existing_path.as_ref()
                 }
                 AdoptionMergeTarget::Detected => None,
             };
@@ -515,17 +540,17 @@ impl UnoSkillsManager {
         agents: &[AgentInfo],
     ) -> Result<Option<TempDir>> {
         let directories = [
-            ("library", Some(library), &preview.library_path),
-            ("detected", Some(detected), &preview.candidate.path),
-            ("deployment", existing, &preview.existing_path),
-        ];
+            ("library", library, &preview.library_path),
+            ("detected", detected, &preview.candidate.path),
+        ]
+        .into_iter()
+        .chain(
+            existing
+                .zip(preview.existing_path.as_ref())
+                .map(|(directory, path)| ("deployment", directory, path)),
+        );
         let differing: Vec<_> = directories
-            .into_iter()
-            .filter_map(|(label, directory, path)| {
-                directory
-                    .filter(|dir| dir.fingerprint != retained)
-                    .map(|dir| (label, dir, path))
-            })
+            .filter(|(_, directory, _)| directory.fingerprint != retained)
             .collect();
         if differing.is_empty() {
             return Ok(None);

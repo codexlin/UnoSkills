@@ -111,13 +111,14 @@ export function AdoptTab(props: {
         </View>
         <Modal theme={props.theme} label={s().adopt_failure_title} width={620} open={detailsOpen()} onClose={() => detailsOpen.set(false)}>
           <List each={failures()} keyExtractor={(failure) => failure.path} estimatedItemSize={82}
-            style={{ height: 280, minHeight: 0, flexShrink: 1 }}>
+            style={{ height: failures().length === 1 ? textSize(props.theme, failures()[0].merge ? 200 : 130) : 280,
+              minHeight: 0, flexShrink: 1 }}>
             {(failure) => (
               <View style={{ gap: 4, paddingVertical: 8, borderBottomWidth: 1, borderColor: props.theme.border }}>
                 <Label theme={props.theme} weight="600">{failure().name}</Label>
                 <Label theme={props.theme} muted mono>{failure().path}</Label>
                 <Label theme={props.theme}>
-                  {failure().error.startsWith("SKILL_SLUG_CONFLICT:") ? s().adopt_slug_conflict
+                  {!failure().merge && !failure().merge_issue && failure().error.startsWith("SKILL_SLUG_CONFLICT:") ? s().adopt_slug_conflict
                     : adoptionMergeError(props.locale, failure())}
                 </Label>
                 <Each of={failure().recovery_paths ?? []} key={(path) => path}>{(path) =>
@@ -129,8 +130,10 @@ export function AdoptTab(props: {
                 }</Each>
                 <If when={failure().merge}>{(review) =>
                   <View style={{ gap: 4, alignItems: "flex-start" }}>
-                    <Label theme={props.theme} muted>{mergeText(props.locale, "existing")}</Label>
-                    <Label theme={props.theme} mono>{review().existing_path}</Label>
+                    <Label theme={props.theme} muted>
+                      {mergeText(props.locale, review().existing_path ? "existing" : "library")}
+                    </Label>
+                    <Label theme={props.theme} mono>{review().existing_path ?? review().library_path}</Label>
                     <If when={review().targets.length > 0}>
                       <ActionButton theme={props.theme} kind="outline" label={mergeText(props.locale, "review")}
                         onPress={() => openMerge([review()])} />

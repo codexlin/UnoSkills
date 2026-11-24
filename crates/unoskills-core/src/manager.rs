@@ -1182,7 +1182,7 @@ impl UnoSkillsManager {
                 .iter()
                 .any(|deployment| deployment.agent_key == candidate.agent_key)
             {
-                return Err(AdoptionMergeConflict.into());
+                return Err(AdoptionMergeConflict::ExistingDeployment.into());
             }
             let fingerprint = managed_copy_fingerprint(&skill.central_path).ok();
             ensure!(
@@ -1191,13 +1191,14 @@ impl UnoSkillsManager {
                     && is_valid_skill_dir(&candidate.path)
                     && ensure_dst_not_overlapping_src(&skill.central_path, &candidate.path).is_ok()
                     && classify_target(&skill.central_path, &candidate.path)
-                        == TargetState::RealDir
-                    && fingerprint.as_ref().is_some_and(|expected| {
-                        managed_copy_fingerprint(&candidate.path)
-                            .is_ok_and(|actual| &actual == expected)
-                    }),
+                        == TargetState::RealDir,
                 "SKILL_SLUG_CONFLICT: A different skill already uses the library directory '{slug}'"
             );
+            if !fingerprint.as_ref().is_some_and(|expected| {
+                managed_copy_fingerprint(&candidate.path).is_ok_and(|actual| &actual == expected)
+            }) {
+                return Err(AdoptionMergeConflict::LibraryContents { slug }.into());
+            }
             // The existing local directory already matches the library exactly.
             // Register it as a managed copy without rewriting it or changing the library source.
             (skill, DeployMode::Copy, fingerprint)
