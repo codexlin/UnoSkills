@@ -1,9 +1,10 @@
 import { batch, cleanup, computed, signal } from "nsh";
 import { AlertDialog } from "nsh/base";
 import type { ScreenProps } from "../shared";
-import { adoptLocalSkills, errorMessage, loadLibraryState, scanAdoptableSkills } from "./host";
+import { adoptLocalSkills, errorMessage, loadLibraryState, mergeLocalSkills, revealPath, scanAdoptableSkills } from "./host";
+import { mergeText } from "./adoptionMerge";
 import { adoptConfirmTitle, getStrings, toastAdoptedAll } from "./strings";
-import type { AdoptBatchResponse, AdoptCandidate, Skill } from "./types";
+import type { AdoptBatchResponse, AdoptCandidate, AdoptionMergeRequest, AdoptionMergeResult, Skill } from "./types";
 
 export interface AdoptGroup {
   key: string;
@@ -31,6 +32,7 @@ export function createAdoption(
   const scanningAdopt = signal(false);
   const adoptError = signal<string | null>(null);
   const failedBatch = signal<AdoptBatchResponse | null>(null);
+  const mergeResults = signal<AdoptionMergeResult[]>([]);
 
   let scanSequence = 0;
   cleanup(() => { scanSequence += 1; });
@@ -210,6 +212,35 @@ export function createAdoption(
     }
   };
 
+  const merge = async (requests: AdoptionMergeRequest[]) => {
+    if (adopting()) return false;
+    const previous = failedBatch();
+    if (!previous) return false;
+    adopting.set(true);
+    try {
+      const result = await mergeLocalSkills(requests);
+      const byPath = new Map(result.failed.map((failure) => [failure.path, failure]));
+      const mergedPaths = new Set(result.merged.map((merged) => merged.path));
+      const remaining = previous.failed.filter((failure) => !mergedPaths.has(failure.path))
+        .map((failure) => byPath.get(failure.path) ?? failure);
+      failedBatch.set(remaining.length
+        ? { ...previous, adopted_count: previous.adopted_count + result.merged.length, failed: remaining }
+        : null);
+      if (result.merged.length > 0) {
+        mergeResults.set(result.merged);
+        screen.notify(mergeText(screen.locale, "done"), "success");
+        screen.refresh();
+        await scan();
+      }
+      return true;
+    } catch (error) {
+      screen.notify(errorMessage(error), "error");
+      return false;
+    } finally {
+      adopting.set(false);
+    }
+  };
+
   return {
     searchQuery: () => adoptSearch(),
     totalCandidates: () => adoptCandidates().length,
@@ -220,6 +251,11 @@ export function createAdoption(
     adopting: () => adopting(),
     error: () => adoptError(),
     failedBatch: () => failedBatch(),
+    mergeResults: () => mergeResults(),
+    merge,
+    revealRecovery: (path: string) => {
+      void revealPath(path).catch((error) => screen.notify(errorMessage(error), "error"));
+    },
     changeSearch: (value: string) => adoptSearch.set(value),
     clearSelection: () => selectedAdoptPaths.set({}),
     scan,

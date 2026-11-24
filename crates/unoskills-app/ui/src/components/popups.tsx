@@ -130,6 +130,7 @@ export function Choice(props: {
   inline?: boolean;
   searchable?: boolean;
   searchLabel?: string;
+  disabled?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
@@ -137,6 +138,7 @@ export function Choice(props: {
       {!props.inline ? <Label theme={props.theme}>{props.title}</Label> : null}
       {!props.inline && props.detail ? <Label theme={props.theme} muted>{props.detail}</Label> : null}
       <SelectControl theme={props.theme} label={props.title} items={props.items} value={props.value}
+        disabled={props.disabled}
         compact={props.inline} searchable={props.searchable} searchLabel={props.searchLabel}
         onChange={(value) => { if (value !== null) props.onChange(value); }} />
     </View>

@@ -3,7 +3,6 @@ import type {
   MarketplaceSkillItem,
   ProjectSkillStatus,
   Skill,
-  SourceType,
 } from "./types";
 
 export const TOKEN_BUDGET_WARN_THRESHOLD = 4000;
@@ -25,44 +24,11 @@ export function formatInstallCount(n: number): string {
   return String(n);
 }
 
-export function compactSource(source: string, sourceType: SourceType): string {
-  let repository: string | null = null;
-  if (sourceType === "skillssh") {
-    const atIndex = source.indexOf("@");
-    repository = atIndex >= 0 ? source.slice(0, atIndex) : source;
-  } else if (sourceType === "git") {
-    const prefixes = ["https://github.com/", "http://github.com/", "git@github.com:"];
-    for (const prefix of prefixes) {
-      if (source.startsWith(prefix)) {
-        repository = source.slice(prefix.length);
-        break;
-      }
-    }
-  } else {
-    const parts = source.replace(/\\/g, "/").split("/").filter(Boolean);
-    if (parts.length >= 3) {
-      const container = parts[parts.length - 3];
-      const folder = parts[parts.length - 2];
-      return `…/${container}/${folder}`;
-    }
-  }
-
-  if (repository) {
-    const slashIdx = repository.indexOf("/");
-    if (slashIdx > 0) {
-      const owner = repository.slice(0, slashIdx);
-      const rest = repository.slice(slashIdx + 1);
-      const firstSegment = rest.split("/")[0];
-      if (firstSegment) {
-        const repo = firstSegment.endsWith(".git")
-          ? firstSegment.slice(0, -4)
-          : firstSegment;
-        return `${owner}/${repo}`;
-      }
-    }
-  }
-
-  return source;
+export function compactLibraryPath(path: string): string {
+  const windows = !path.startsWith("/") && path.includes("\\");
+  const separator = windows ? "\\" : "/";
+  const parts = path.split(windows ? /[\\/]/ : "/").filter(Boolean);
+  return parts.length > 3 ? ["…", ...parts.slice(-3)].join(separator) : path;
 }
 
 export function isSkillDeployedTo(skill: Skill, agentKey: string): boolean {

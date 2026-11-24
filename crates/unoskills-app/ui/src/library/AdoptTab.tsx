@@ -2,8 +2,9 @@ import { type InputRef, List, type ListRef, signal, Text, View } from "nsh";
 import { ActionControl, AlertBanner, CheckControl, Icon, Label, LoadingLine, Modal, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, TokenBadge, hintTooltip } from "./controls";
+import { AdoptionMergeDialog, AdoptionMergeResults, adoptionMergeError, mergeText } from "./adoptionMerge";
 import { type Locale, adoptSelectedCount, busyAdoptingAll, getStrings, labelWithCount, toastAdoptedAll } from "./strings";
-import type { AdoptBatchResponse, AdoptCandidate } from "./types";
+import type { AdoptBatchResponse, AdoptCandidate, AdoptionMergePreview, AdoptionMergeRequest, AdoptionMergeResult } from "./types";
 import type { AdoptGroup, AdoptRow } from "./adoption";
 
 export function AdoptTab(props: {
@@ -18,6 +19,9 @@ export function AdoptTab(props: {
   adopting: boolean;
   error: string | null;
   failedBatch: AdoptBatchResponse | null;
+  mergeResults: AdoptionMergeResult[];
+  onMerge: (requests: AdoptionMergeRequest[]) => Promise<boolean>;
+  onRevealRecovery: (path: string) => void;
   onSearchInputRef: (ref: InputRef) => void;
   onListRef: (ref: ListRef) => void;
   onSearchChange: (value: string) => void;
@@ -30,7 +34,22 @@ export function AdoptTab(props: {
 }) {
   const s = () => getStrings(props.locale);
   const detailsOpen = signal(false);
+  const resultsOpen = signal(false);
+  const mergeReviews = signal<AdoptionMergePreview[] | null>(null);
   const failures = () => props.failedBatch?.failed ?? [];
+  const identical = () => failures().flatMap(({ merge }) =>
+    merge?.identical && merge.targets.length > 0 ? [merge] : []);
+  const openMerge = (reviews: AdoptionMergePreview[]) => {
+    detailsOpen.set(false);
+    mergeReviews.set(reviews);
+  };
+  const closeMerge = () => {
+    mergeReviews.set(null);
+    detailsOpen.set(failures().length > 0);
+  };
+  const confirmMerge = async (requests: AdoptionMergeRequest[]) => {
+    if (await props.onMerge(requests)) closeMerge();
+  };
 
   return (
     <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
@@ -69,6 +88,10 @@ export function AdoptTab(props: {
           disabled={props.scanning || props.adopting}
           onPress={props.onRescan}
         />
+        <If when={props.mergeResults.length > 0}>
+          <ActionButton theme={props.theme} kind="outline" label={mergeText(props.locale, "results")}
+            onPress={() => resultsOpen.set(true)} />
+        </If>
       </View>
 
       <If when={Boolean(props.error)}>
@@ -94,15 +117,46 @@ export function AdoptTab(props: {
                 <Label theme={props.theme} weight="600">{failure().name}</Label>
                 <Label theme={props.theme} muted mono>{failure().path}</Label>
                 <Label theme={props.theme}>
-                  {failure().error.startsWith("SKILL_SLUG_CONFLICT:") ? s().adopt_slug_conflict : failure().error}
+                  {failure().error.startsWith("SKILL_SLUG_CONFLICT:") ? s().adopt_slug_conflict
+                    : adoptionMergeError(props.locale, failure())}
                 </Label>
+                <Each of={failure().recovery_paths ?? []} key={(path) => path}>{(path) =>
+                  <View style={{ gap: 4, alignItems: "flex-start" }}>
+                    <Label theme={props.theme} mono>{path()}</Label>
+                    <ActionButton theme={props.theme} kind="outline" label={mergeText(props.locale, "recovery")}
+                      onPress={() => props.onRevealRecovery(path())} />
+                  </View>
+                }</Each>
+                <If when={failure().merge}>{(review) =>
+                  <View style={{ gap: 4, alignItems: "flex-start" }}>
+                    <Label theme={props.theme} muted>{mergeText(props.locale, "existing")}</Label>
+                    <Label theme={props.theme} mono>{review().existing_path}</Label>
+                    <If when={review().targets.length > 0}>
+                      <ActionButton theme={props.theme} kind="outline" label={mergeText(props.locale, "review")}
+                        onPress={() => openMerge([review()])} />
+                    </If>
+                  </View>
+                }</If>
               </View>
             )}
           </List>
-          <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
+            <If when={identical().length > 1}>
+              <ActionButton theme={props.theme} kind="outline"
+                label={labelWithCount(props.locale, mergeText(props.locale, "identical"), identical().length)}
+                onPress={() => openMerge(identical())} />
+            </If>
             <ActionButton theme={props.theme} kind="outline" label={s().adopt_close_failures} onPress={() => detailsOpen.set(false)} />
           </View>
         </Modal>
+      </If>
+      <If when={mergeReviews()}>{(reviews) =>
+        <AdoptionMergeDialog theme={props.theme} locale={props.locale} reviews={reviews()}
+          busy={props.adopting} onClose={closeMerge} onConfirm={(requests) => void confirmMerge(requests)} />
+      }</If>
+      <If when={resultsOpen()}>
+        <AdoptionMergeResults theme={props.theme} locale={props.locale} results={props.mergeResults}
+          onClose={() => resultsOpen.set(false)} onReveal={props.onRevealRecovery} />
       </If>
 
       <If

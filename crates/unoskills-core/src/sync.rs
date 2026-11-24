@@ -293,6 +293,8 @@ struct StagedRemoval {
     staging: tempfile::TempDir,
     target: RemovalTarget,
     moved: bool,
+    replacement: Option<RemovalTarget>,
+    installed: bool,
 }
 
 impl StagedRemoval {
@@ -322,11 +324,34 @@ impl StagedRemoval {
             "TARGET_CONFLICT: Removal target changed: {}",
             self.original.display()
         );
+        if let Some(replacement) = &self.replacement {
+            let prepared = self.staging.path().join("replacement");
+            ensure!(
+                replacement.matches(&prepared),
+                "Prepared replacement changed"
+            );
+            rename_without_replacing(&prepared, &self.physical)?;
+            self.installed = true;
+            ensure!(
+                replacement.matches(&self.physical),
+                "Installed replacement changed"
+            );
+        }
         Ok(())
     }
 
     fn restore(&mut self) -> Result<()> {
         self.check_parent()?;
+        if self.installed {
+            ensure!(
+                self.replacement
+                    .as_ref()
+                    .is_some_and(|target| target.matches(&self.physical)),
+                "TARGET_CONFLICT: Replacement changed during rollback: {}",
+                self.original.display()
+            );
+            rename_without_replacing(&self.physical, &self.staging.path().join("replacement"))?;
+        }
         rename_without_replacing(&self.staging.path().join("original"), &self.physical)?;
         self.staging.disable_cleanup(false);
         Ok(())
@@ -367,9 +392,13 @@ impl RemovalBatch {
         Ok(true)
     }
 
-    pub(crate) fn add_directory(&mut self, path: &Path, fingerprint: Option<String>) -> Result<()> {
+    pub(crate) fn add_directory(
+        &mut self,
+        path: &Path,
+        fingerprint: Option<String>,
+    ) -> Result<bool> {
         match fs::symlink_metadata(path) {
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
             result => result?,
         };
         let physical = physical_target_path(path).context("Missing removal parent")?;
@@ -378,7 +407,33 @@ impl RemovalBatch {
             Some(hash) => RemovalTarget::Copy(identity, hash),
             None => RemovalTarget::Directory(identity),
         };
-        self.add(path, physical, target)
+        self.add(path, physical, target)?;
+        Ok(true)
+    }
+
+    pub(crate) fn replace_last<T>(
+        &mut self,
+        target: &Path,
+        build: impl FnOnce(&Path) -> Result<T>,
+    ) -> Result<T> {
+        let entry = self
+            .entries
+            .last_mut()
+            .filter(|entry| entry.original == target)
+            .context("Missing replacement target")?;
+        let path = entry.staging.path().join("replacement");
+        let result = build(&path)?;
+        entry.replacement = Some(match classify_target(&path, &path) {
+            TargetState::LinkToSource | TargetState::ForeignLink => {
+                RemovalTarget::Link(read_removal_link(&path)?)
+            }
+            TargetState::RealDir => RemovalTarget::Copy(
+                DirectoryIdentity::read(&path)?.context("Replacement disappeared")?,
+                managed_copy_fingerprint(&path)?,
+            ),
+            _ => bail!("Invalid replacement at {}", path.display()),
+        });
+        Ok(result)
     }
 
     fn add(&mut self, original: &Path, physical: PathBuf, target: RemovalTarget) -> Result<()> {
@@ -400,6 +455,8 @@ impl RemovalBatch {
             physical,
             target,
             moved: false,
+            replacement: None,
+            installed: false,
         };
         self.entries.push(entry);
         Ok(())
@@ -457,6 +514,9 @@ pub(crate) struct DirectoryIdentity {
     device: u64,
     #[cfg(unix)]
     inode: u64,
+    #[cfg(windows)]
+    #[serde(default)]
+    file_id: Option<(u64, [u8; 16])>,
 }
 
 impl DirectoryIdentity {
@@ -477,13 +537,24 @@ impl DirectoryIdentity {
     pub(crate) fn from_metadata(path: &Path, metadata: &fs::Metadata) -> Self {
         #[cfg(unix)]
         use std::os::unix::fs::MetadataExt;
+        #[cfg(windows)]
+        let file_id = windows_directory_id(path);
         Self {
             path: path.into(),
+            #[cfg(not(windows))]
             created: metadata.created().ok(),
+            #[cfg(windows)]
+            created: if file_id.is_none() {
+                metadata.created().ok()
+            } else {
+                None
+            },
             #[cfg(unix)]
             device: metadata.dev(),
             #[cfg(unix)]
             inode: metadata.ino(),
+            #[cfg(windows)]
+            file_id,
         }
     }
 
@@ -492,6 +563,46 @@ impl DirectoryIdentity {
         expected.path = path.into();
         Self::read(path).is_ok_and(|value| value.as_ref() == Some(&expected))
     }
+}
+
+#[cfg(windows)]
+fn windows_directory_id(path: &Path) -> Option<(u64, [u8; 16])> {
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_ID_INFO, FILE_READ_ATTRIBUTES, FileIdInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx,
+    };
+
+    let directory = fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .ok()?;
+    let mut info = FILE_ID_INFO::default();
+    // The directory handle and its correctly sized, writable output buffers remain live for both calls.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            directory.as_raw_handle(),
+            FileIdInfo,
+            (&mut info as *mut FILE_ID_INFO).cast(),
+            std::mem::size_of::<FILE_ID_INFO>() as u32,
+        )
+    } != 0
+        && info.FileId.Identifier != [0; 16]
+    {
+        return Some((info.VolumeSerialNumber, info.FileId.Identifier));
+    }
+
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(directory.as_raw_handle(), &mut info) } == 0 {
+        return None;
+    }
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    (index != 0).then_some((
+        u64::from(info.dwVolumeSerialNumber),
+        u128::from(index).to_le_bytes(),
+    ))
 }
 
 pub(crate) fn physical_target_path(path: &Path) -> Option<PathBuf> {
@@ -576,7 +687,7 @@ fn remove_path_safely(dst: &Path, state: TargetState) -> Result<()> {
     }
 }
 
-fn create_dir_link(src: &Path, dst: &Path) -> Result<()> {
+pub(crate) fn create_dir_link(src: &Path, dst: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(src, dst)?;

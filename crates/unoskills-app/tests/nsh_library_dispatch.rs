@@ -418,6 +418,97 @@ fn discover_scan_and_adopt_local_skills() {
 }
 
 #[test]
+fn discover_adoption_merge_reports_a_stale_item_and_continues_the_batch() {
+    let ws = TempWorkspace::new("adopt-merge");
+    let mgr = ws.manager();
+    let existing = ws.path().join("existing");
+    let detected = ws.path().join("detected");
+    let names = ["first", "second"];
+    for name in names {
+        let source = ws.path().join("source").join(name);
+        let body = format!("---\nname: {name}\n---\nSame content\n");
+        write_skill_fixture(&source, &body);
+        write_skill_fixture(&detected.join(name), &body);
+        mgr.install_from_ref(source.to_str().unwrap()).unwrap();
+    }
+    mgr.add_custom_agent(&CustomAgentRecord {
+        key: "local-agent".into(),
+        display_name: "Local Agent".into(),
+        category: AgentCategory::Coding,
+        skills_dir: existing.to_string_lossy().into_owned(),
+    })
+    .unwrap();
+    for name in names {
+        mgr.deploy_skill(name, "local-agent", Some(DeployMode::Copy), false)
+            .unwrap();
+    }
+    mgr.add_custom_agent(&CustomAgentRecord {
+        key: "local-agent".into(),
+        display_name: "Local Agent".into(),
+        category: AgentCategory::Coding,
+        skills_dir: detected.to_string_lossy().into_owned(),
+    })
+    .unwrap();
+    let batch = nsh::dispatch(
+        &mgr,
+        "discover.adopt",
+        json!({
+            "paths": [detected.join("first"), detected.join("second")],
+        }),
+    )
+    .unwrap();
+    let failures = batch["failed"].as_array().unwrap();
+    assert_eq!(failures.len(), 2);
+    let mut requests = Vec::new();
+    for name in names {
+        let preview = &failures
+            .iter()
+            .find(|failure| failure["name"] == name)
+            .unwrap()["merge"];
+        assert_eq!(
+            preview["existing_path"],
+            existing.join(name).to_string_lossy().as_ref()
+        );
+        assert_eq!(
+            preview["library_path"],
+            mgr.skills_dir().join(name).to_string_lossy().as_ref()
+        );
+        requests.push(json!({
+            "candidate": preview["candidate"],
+            "token": preview["token"],
+            "target": "detected",
+            "content": "library",
+            "allow_copy": true,
+        }));
+    }
+    fs::write(detected.join("first/SKILL.md"), "Changed after review").unwrap();
+    let result = nsh::dispatch(
+        &mgr,
+        "discover.merge_adoption",
+        json!({ "requests": requests }),
+    )
+    .unwrap();
+    assert_eq!(result["failed"].as_array().unwrap().len(), 1);
+    assert!(
+        result["failed"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("STALE_ADOPTION_MERGE")
+    );
+    assert_eq!(result["merged"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        result["merged"][0]["deployment"]["target_path"],
+        detected.join("second").to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        fs::read_to_string(detected.join("first/SKILL.md")).unwrap(),
+        "Changed after review"
+    );
+    assert!(existing.join("first/SKILL.md").is_file());
+    assert!(!existing.join("second").exists());
+}
+
+#[test]
 fn rejects_invalid_commands_and_payloads() {
     let ws = TempWorkspace::new("validation");
     let mgr = ws.manager();

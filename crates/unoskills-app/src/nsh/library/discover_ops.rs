@@ -3,8 +3,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+use unoskills_core::sync::RemovalRollback;
 use unoskills_core::{
-    AdoptCandidate, MarketplaceSkill, UnoSkillsManager, source::skillssh_detail_url,
+    AdoptCandidate, AdoptionMergeConflict, AdoptionMergeRequest, MarketplaceSkill,
+    UnoSkillsManager, source::skillssh_detail_url,
 };
 
 use super::{optional_usize, required_str};
@@ -18,6 +20,7 @@ pub(super) fn dispatch(manager: &UnoSkillsManager, sub: &str, input: Value) -> R
         "search" => search_marketplace(manager, &input),
         "scan_adoptable" => scan_adoptable(manager),
         "adopt" => adopt_candidates(manager, &input),
+        "merge_adoption" => merge_adoption(manager, input),
         _ => bail!("Unknown discover host command: 'discover.{sub}'"),
     }
 }
@@ -97,11 +100,10 @@ fn adopt_candidates(manager: &UnoSkillsManager, input: &Value) -> Result<Value> 
     for candidate in &candidates {
         match manager.adopt_candidate(candidate) {
             Ok(skill) => adopted.push(skill),
-            Err(error) => failed.push(json!({
-                "name": candidate.name,
-                "path": candidate.path,
-                "error": error.to_string(),
-            })),
+            Err(error) => {
+                let review = error.is::<AdoptionMergeConflict>();
+                failed.push(adoption_failure(manager, candidate, error, review));
+            }
         }
     }
 
@@ -110,6 +112,49 @@ fn adopt_candidates(manager: &UnoSkillsManager, input: &Value) -> Result<Value> 
         "adopted_count": adopted.len(),
         "failed": failed,
     }))
+}
+
+fn merge_adoption(manager: &UnoSkillsManager, input: Value) -> Result<Value> {
+    #[derive(serde::Deserialize)]
+    struct Input {
+        requests: Vec<AdoptionMergeRequest>,
+    }
+    let Input { requests } =
+        serde_json::from_value(input).context("Missing adoption merge requests")?;
+    let mut merged = Vec::new();
+    let mut failed = Vec::new();
+    for request in requests {
+        let candidate = request.candidate.clone();
+        match manager.apply_adoption_merge(request) {
+            Ok(result) => merged.push(result),
+            Err(error) => failed.push(adoption_failure(manager, &candidate, error, true)),
+        }
+    }
+    Ok(json!({ "merged": merged, "failed": failed }))
+}
+
+fn adoption_failure(
+    manager: &UnoSkillsManager,
+    candidate: &AdoptCandidate,
+    error: anyhow::Error,
+    review: bool,
+) -> Value {
+    let mut failure = json!({
+        "name": candidate.name,
+        "path": candidate.path,
+        "error": format!("{error:#}"),
+    });
+    if let Some(rollback) = error.downcast_ref::<RemovalRollback>() {
+        failure["recovery_paths"] = json!(rollback.paths);
+        return failure;
+    }
+    if review {
+        match manager.preview_adoption_merge(candidate) {
+            Ok(preview) => failure["merge"] = json!(preview),
+            Err(error) => failure["merge_issue"] = json!(format!("{error:#}")),
+        }
+    }
+    failure
 }
 
 fn resolve_adopt_candidates(

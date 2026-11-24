@@ -2,6 +2,8 @@ import { describe, expect, open, test } from "nsh/test";
 import type {
   AdoptBatchResponse,
   AdoptCandidate,
+  AdoptionMergePreview,
+  AdoptionMergeRequest,
   AgentInfo,
   LeaderboardResponse,
   LibraryStateResponse,
@@ -145,6 +147,34 @@ function makeMarkdownReply(
 }
 
 describe("LibraryScreen markdown safety, scoped targets, and Discover flows", () => {
+  test("managed skills show the library path and keep their original source labeled", async () => {
+    const [alpha] = makeSkills();
+    alpha.source_type = "adopted";
+    alpha.source_ref = "C:\\Users\\Demo\\.claude\\skills\\alpha";
+    alpha.central_path = "D:\\UnoSkills Data\\private-library\\skills\\alpha";
+    const app = await open("./LibraryTestHarness.tsx", {
+      platform: "linux", width: 960, height: 600,
+      host: {
+        params: { locale: "zh-CN" },
+        handlers: {
+          "unoskills.command": ({ command }: CommandPayload) => {
+            if (command === "library.state") return makeLibraryState([alpha]);
+            return makeMarkdownReply(alpha.id, "# Alpha", "# Alpha");
+          },
+        },
+      },
+    });
+
+    await app.waitFor("text:技能库位置");
+    expect(app.texts()).toContain("…\\private-library\\skills\\alpha");
+    expect(app.texts()).toContain(alpha.central_path);
+    expect(app.texts()).toContain("来源");
+    expect(app.texts()).toContain(alpha.source_ref);
+    await app.press("label:技能操作");
+    await app.waitFor("text:复制技能库路径");
+    expect(app.texts()).toContain("在文件管理器中打开目录");
+  });
+
   test("failing read on skill B after viewing A clears A content and disables Edit", async () => {
     const skills = makeSkills();
     const app = await open("./LibraryTestHarness.tsx", {
@@ -770,6 +800,102 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
 
     const installCall = recorded.find((entry) => entry.command === "discover.install");
     expect(installCall?.input).toMatchObject({ source_ref: "owner/repo" });
+  });
+
+  test("local adoption reviews duplicate locations and keeps differing skills out of the bulk merge", async () => {
+    const names = ["Same One", "Same Two", "Different"];
+    const reviews: AdoptionMergePreview[] = names.map((name, index) => {
+      const slug = name.toLowerCase().replace(" ", "-");
+      const local = index === 2;
+      return {
+        token: `review-${index}`,
+        candidate: {
+          agent_key: "codex", agent_name: "Codex", name, description: null,
+          path: `/home/demo/.codex/skills/${slug}`, estimated_tokens: 10,
+        },
+        library_path: `/home/demo/.unoskills/skills/${slug}`,
+        existing_path: `/home/demo/.agents/skills/${slug}`,
+        existing_present: true, keep_existing_for_peers: false,
+        targets: ["existing", "detected"],
+        identical: !local,
+        library_changes: local ? [{ path: "SKILL.md", kind: "modified" }] : [],
+        existing_changes: [],
+        skill_diff: local ? "- Library version\n+ Local version\n" : null,
+        local_version_impacts: [],
+        shared_existing: [],
+        shared_detected: [],
+      };
+    });
+    let discovered = reviews.map((review) => review.candidate);
+    const merges: AdoptionMergeRequest[][] = [];
+    const app = await open("./LibraryTestHarness.tsx", {
+      platform: "linux",
+      width: 960,
+      height: 600,
+      host: {
+        params: { initialRoute: { page: "discover", tab: "adopt" } },
+        handlers: {
+          "unoskills.command": (raw: unknown) => {
+            const { command, input } = raw as CommandPayload;
+            if (command === "library.state") return makeLibraryState(makeSkills());
+            if (command === "discover.scan_adoptable") return { ok: true, value: { candidates: discovered } };
+            if (command === "discover.adopt") {
+              return { ok: true, value: { adopted: [], adopted_count: 0, failed: reviews.map((merge) => ({
+                name: merge.candidate.name, path: merge.candidate.path,
+                error: "TARGET_CONFLICT: Existing deployment", merge,
+              })) } };
+            }
+            if (command === "discover.merge_adoption") {
+              const requests = input?.requests as AdoptionMergeRequest[];
+              merges.push(requests);
+              const merged = requests.map((request) => {
+                const review = reviews.find(({ token }) => token === request.token)!;
+                return {
+                  path: request.candidate.path,
+                  deployment: {
+                    id: review.token, skill_id: review.token, agent_key: "codex",
+                    target_path: request.target === "existing" ? review.existing_path : request.candidate.path,
+                    mode: "symlink", synced_at: 0,
+                  },
+                  backup: review.identical ? null : "/home/demo/.unoskills/.adoption-backups/merge-1",
+                  deployment_issues: [],
+                };
+              });
+              discovered = discovered.filter(({ path }) => !merged.some((item) => item.path === path));
+              return { ok: true, value: { merged, failed: [] } };
+            }
+            return { ok: false, code: "UNKNOWN", message: command };
+          },
+        },
+      },
+    });
+
+    await app.waitFor("text:Same One");
+    for (const name of names) await app.press(name);
+    app.onDialog(() => "Add to library");
+    await app.press("Add to library (3)");
+    await app.waitFor("text:Added 0 skills to the library (3 failed).");
+    await app.press("View failures");
+    await app.press("Merge identical copies (2)");
+    await app.waitUntil(() => app.texts().includes(reviews[0].library_path));
+    expect(app.texts()).toContain(reviews[0].existing_path);
+    expect(app.texts()).toContain(reviews[0].candidate.path);
+    await app.press("Merge and manage");
+    await app.waitUntil(() => merges.length === 1);
+    expect(merges[0].map((request) => request.token)).toEqual(["review-0", "review-1"]);
+    await app.waitFor("text:Added 2 skills to the library (1 failed).");
+    await app.waitFor("text:Review and merge");
+    await app.press("Review and merge");
+    await app.waitFor("label:Version to keep");
+    await app.press("label:Version to keep");
+    await app.press("text:Use detected local version");
+    await app.press("Merge and manage");
+    await app.waitUntil(() => merges.length === 2);
+    expect(merges[1][0]).toMatchObject({ token: "review-2", content: "local", target: "existing", allow_copy: false });
+    await app.waitFor("text:View merge results");
+    await app.press("View merge results");
+    await app.waitFor("text:Show recovery folder");
+    expect(app.texts()).toContain("/home/demo/.unoskills/.adoption-backups/merge-1");
   });
 
   test("a delayed local skill scan cannot replace a newer list or its selection", async () => {

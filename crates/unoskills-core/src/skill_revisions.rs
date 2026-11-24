@@ -70,8 +70,8 @@ impl PreparedSkillRevision {
 }
 
 #[derive(PartialEq, Eq)]
-struct PlannedTarget {
-    impact: DeploymentImpact,
+pub(super) struct PlannedTarget {
+    pub(super) impact: DeploymentImpact,
     copy_baseline: Option<CopyBaseline>,
 }
 
@@ -358,11 +358,19 @@ impl UnoSkillsManager {
             return Err(error);
         }
 
+        Ok(self.refresh_revision_targets(skill, prepared.targets, &prepared.candidate_fingerprint))
+    }
+
+    pub(super) fn refresh_revision_targets(
+        &self,
+        mut skill: Skill,
+        targets: Vec<PlannedTarget>,
+        fingerprint: &str,
+    ) -> SkillUpdateResult {
         let mut refreshed_copies = 0;
         let mut deployment_issues = Vec::new();
-        for target in prepared.targets {
+        for target in targets {
             let mut impact = target.impact;
-            let fingerprint = &prepared.candidate_fingerprint;
             let recorded = match impact.kind {
                 DeploymentImpactKind::RefreshCopy => {
                     let baseline = target
@@ -377,7 +385,7 @@ impl UnoSkillsManager {
                 }
                 DeploymentImpactKind::Current => (|| {
                     ensure!(
-                        managed_copy_fingerprint(&impact.path)? == *fingerprint,
+                        managed_copy_fingerprint(&impact.path)? == fingerprint,
                         "TARGET_CONFLICT: The deployment changed"
                     );
                     self.store
@@ -397,26 +405,26 @@ impl UnoSkillsManager {
                     .iter_mut()
                     .filter(|dep| dep.mode == DeployMode::Copy && dep.target_path == impact.path)
                 {
-                    dep.copy_hash = Some(fingerprint.clone());
+                    dep.copy_hash = Some(fingerprint.to_owned());
                 }
                 for dep in skill
                     .project_deployments
                     .iter_mut()
                     .filter(|dep| dep.mode == DeployMode::Copy && dep.target_path == impact.path)
                 {
-                    dep.copy_hash = Some(fingerprint.clone());
+                    dep.copy_hash = Some(fingerprint.to_owned());
                 }
             } else {
                 impact.kind = DeploymentImpactKind::RefreshFailed;
                 deployment_issues.push(impact);
             }
         }
-        Ok(SkillUpdateResult {
+        SkillUpdateResult {
             skill,
             updated: true,
             refreshed_copies,
             deployment_issues,
-        })
+        }
     }
 
     fn refresh_revision_copy(
@@ -556,7 +564,7 @@ fn compare_files(current: &Path, candidate: &Path) -> Result<Vec<SkillFileChange
         .collect())
 }
 
-fn planned_targets(
+pub(super) fn planned_targets(
     skill: &Skill,
     candidate_fingerprint: &str,
     locked_paths: &[PathBuf],

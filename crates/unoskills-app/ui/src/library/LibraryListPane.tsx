@@ -2,8 +2,8 @@ import { List, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import { AlertBanner, Label, LoadingLine, controlMotionClass, focusOutline, interactionStyles, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
-import { ActionButton, EmptyState, TokenBadge } from "./controls";
-import { compactSource } from "./format";
+import { ActionButton, EmptyState, TokenBadge, hintTooltip } from "./controls";
+import { compactLibraryPath } from "./format";
 import { managementStrings } from "./managementStrings";
 import { type Locale, getStrings } from "./strings";
 import type { AgentInfo, ProjectSkillStatus, Skill } from "./types";
@@ -163,17 +163,18 @@ export function LibraryListPane(props: {
                           {skill().name}
                         </Text>
                         <Text
+                          tooltip={hintTooltip(
+                            () => props.theme,
+                            () => skill().central_path,
+                          )}
                           style={{
                             numberOfLines: 1,
                             textOverflow: "ellipsis",
-                            ...textStyle(props.theme, { size: textSize(props.theme, 12) }),
+                            ...textStyle(props.theme, { size: textSize(props.theme, 12), mono: true }),
                             color: selected() ? props.theme.onAccent : props.theme.muted,
                           }}
                         >
-                          {compactSource(
-                            skill().source_ref ?? skill().source_type,
-                            skill().source_type,
-                          )}
+                          {compactLibraryPath(skill().central_path)}
                         </Text>
                       </View>
 
