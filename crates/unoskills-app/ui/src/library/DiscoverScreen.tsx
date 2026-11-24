@@ -163,6 +163,7 @@ export function Discover(props: ScreenProps) {
             scanning={adoption.scanning()}
             adopting={adoption.adopting()}
             error={adoption.error()}
+            failedBatch={adoption.failedBatch()}
             onSearchInputRef={(ref) => {
               adoptSearchRef = ref;
             }}

@@ -3,7 +3,7 @@ import { AlertDialog } from "nsh/base";
 import type { ScreenProps } from "../shared";
 import { adoptLocalSkills, errorMessage, loadLibraryState, scanAdoptableSkills } from "./host";
 import { adoptConfirmTitle, getStrings, toastAdoptedAll } from "./strings";
-import type { AdoptCandidate, Skill } from "./types";
+import type { AdoptBatchResponse, AdoptCandidate, Skill } from "./types";
 
 export interface AdoptGroup {
   key: string;
@@ -30,6 +30,7 @@ export function createAdoption(
   const adopting = signal(false);
   const scanningAdopt = signal(false);
   const adoptError = signal<string | null>(null);
+  const failedBatch = signal<AdoptBatchResponse | null>(null);
 
   let scanSequence = 0;
   cleanup(() => { scanSequence += 1; });
@@ -188,17 +189,20 @@ export function createAdoption(
     }
 
     adopting.set(true);
+    failedBatch.set(null);
     try {
       const result = await adoptLocalSkills(chosen);
-      selectedAdoptPaths.set({});
+      const failedPaths = new Set(result.failed.map((failure) => failure.path));
+      selectedAdoptPaths.set(
+        Object.fromEntries(chosen.filter(({ path }) => failedPaths.has(path)).map(({ path }) => [path, true])),
+      );
+      if (result.failed.length > 0) {
+        failedBatch.set(result);
+      } else {
+        screen.notify(toastAdoptedAll(screen.locale, result.adopted_count, 0), "success");
+      }
       screen.refresh();
       await scan();
-      let message = toastAdoptedAll(screen.locale, result.adopted_count, result.failed.length);
-      if (result.failed.length > 0) {
-        const first = result.failed[0];
-        message += `\n${first.name} · ${first.error}`;
-      }
-      screen.notify(message, result.failed.length > 0 ? "error" : "success");
     } catch (error) {
       screen.notify(errorMessage(error), "error");
     } finally {
@@ -215,6 +219,7 @@ export function createAdoption(
     scanning: () => scanningAdopt(),
     adopting: () => adopting(),
     error: () => adoptError(),
+    failedBatch: () => failedBatch(),
     changeSearch: (value: string) => adoptSearch.set(value),
     clearSelection: () => selectedAdoptPaths.set({}),
     scan,

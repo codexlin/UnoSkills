@@ -404,6 +404,54 @@ fn adopt_from_additional_scan_dir_cleans_up_and_disappears_from_adopt_list() {
 }
 
 #[test]
+fn adopting_an_identical_local_copy_keeps_the_library_id_and_local_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();
+    let source = tmp.path().join("original/reviewer");
+    let local = tmp.path().join("agent/reviewer");
+    create_skill_dir(&source, "reviewer", "Original", &[]);
+    create_skill_dir(&local, "reviewer", "Original", &[]);
+    let installed = manager.install_from_ref(source.to_str().unwrap()).unwrap();
+    let candidate = unoskills_core::AdoptCandidate {
+        agent_key: "codex".into(),
+        agent_name: "Codex".into(),
+        name: "reviewer".into(),
+        description: None,
+        path: local.clone(),
+        estimated_tokens: 0,
+    };
+
+    let notes = local.join("extra.txt");
+    std::fs::write(&notes, "Custom checklist").unwrap();
+    let error = manager.adopt_candidate(&candidate).unwrap_err();
+    assert!(error.to_string().contains("SKILL_SLUG_CONFLICT"));
+    assert_eq!(std::fs::read_to_string(&notes).unwrap(), "Custom checklist");
+    assert!(manager.list_skills().unwrap()[0].deployments.is_empty());
+
+    std::fs::write(&notes, "supporting asset").unwrap();
+    let adopted = manager.adopt_candidate(&candidate).unwrap();
+    assert_eq!(adopted.id, installed.id);
+    assert_eq!(adopted.source_ref, installed.source_ref);
+    assert_eq!(adopted.deployments[0].mode, DeployMode::Copy);
+    assert!(std::fs::symlink_metadata(&local).unwrap().is_dir());
+    let replay = manager.adopt_candidate(&candidate).unwrap();
+    assert_eq!(replay.deployments.len(), 1);
+    assert_eq!(replay.deployments[0].id, adopted.deployments[0].id);
+
+    std::fs::write(&notes, "Edited after adoption").unwrap();
+    let error = manager.adopt_candidate(&candidate).unwrap_err();
+    assert!(error.to_string().contains("TARGET_CONFLICT"));
+    assert_eq!(
+        std::fs::read_to_string(&notes).unwrap(),
+        "Edited after adoption"
+    );
+    assert_eq!(
+        std::fs::read_to_string(installed.central_path.join("extra.txt")).unwrap(),
+        "supporting asset"
+    );
+}
+
+#[test]
 fn self_import_from_central_library_refuses_instead_of_deleting_source() {
     let tmp = tempfile::tempdir().unwrap();
     let mgr = UnoSkillsManager::open_at(tmp.path().join("uno")).unwrap();

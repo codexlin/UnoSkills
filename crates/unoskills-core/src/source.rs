@@ -8,6 +8,7 @@ use walkdir::WalkDir;
 
 use crate::domain::{AdoptCandidate, AgentInfo, MarketplacePage, MarketplaceSkill, SourceType};
 use crate::parser::{is_valid_skill_dir, parse_skill_dir};
+use crate::sync::physical_target_path;
 
 #[derive(Debug, Clone)]
 pub enum ResolvedSource {
@@ -347,6 +348,10 @@ pub fn scan_adoptable_skills(
     let mut candidates = Vec::new();
     let mut seen_paths = HashSet::new();
     let central_canon = central_skills_dir.canonicalize().ok();
+    let managed_entries: HashSet<_> = managed_target_paths
+        .iter()
+        .filter_map(|path| physical_target_path(path))
+        .collect();
 
     for agent in agents.iter().filter(|a| a.installed) {
         let mut roots = vec![agent.skills_dir.clone()];
@@ -363,9 +368,14 @@ pub fn scan_adoptable_skills(
             let Ok(entries) = std::fs::read_dir(&root) else {
                 continue;
             };
+            let physical_root = root.canonicalize().ok();
             for entry in entries.flatten() {
                 let path = entry.path();
-                if managed_target_paths.contains(&path) {
+                if managed_target_paths.contains(&path)
+                    || physical_root
+                        .as_ref()
+                        .is_some_and(|root| managed_entries.contains(&root.join(entry.file_name())))
+                {
                     continue;
                 }
                 if let (Some(c_root), Ok(p_canon)) = (&central_canon, path.canonicalize())

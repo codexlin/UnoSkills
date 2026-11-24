@@ -102,6 +102,10 @@ export interface LibraryStrings {
   adopt_clear_selection: string;
   adopt_confirm_benefit: string;
   adopt_confirm_description: string;
+  adopt_view_failures: string;
+  adopt_failure_title: string;
+  adopt_close_failures: string;
+  adopt_slug_conflict: string;
   empty_adopt_done_title: string;
   empty_adopt_done_desc: string;
   empty_adopt_filter_title: string;
@@ -207,7 +211,11 @@ const EN: LibraryStrings = {
   adopt_clear_selection: "Clear selection",
   adopt_confirm_benefit: "View and edit these skills in UnoSkills, then deploy them to other agents as needed.",
   adopt_confirm_description:
-    "UnoSkills copies the skills to the central library and replaces the original folders with links or managed copies. The original agents can still use them at the same paths.",
+    "UnoSkills copies new skills to the library and replaces the original folders with links or managed copies. An identical local copy is kept as is and linked to the existing library entry for management.",
+  adopt_view_failures: "View failures",
+  adopt_failure_title: "Skills that could not be added",
+  adopt_close_failures: "Close",
+  adopt_slug_conflict: "This folder name is already in use in the library. The local skill was kept.",
   empty_adopt_done_title: "Everything is managed",
   empty_adopt_done_desc: "All detected agent skills are already in your UnoSkills library.",
   empty_adopt_filter_title: "No matching local skills",
@@ -313,7 +321,11 @@ const ZH_CN: LibraryStrings = {
   adopt_clear_selection: "清除选择",
   adopt_confirm_benefit: "纳入后，你可以在 UnoSkills 里统一查看和编辑这些技能，也可以把它们部署给其他 Agent。",
   adopt_confirm_description:
-    "UnoSkills 会把技能复制到中央技能库，并将原目录替换为链接或受管理的副本。原 Agent 仍可从同一路径使用这些技能。",
+    "新技能会复制到技能库，原目录会替换为链接或受管理的副本。内容完全相同的本机副本会留在原处，关联到已有的技能库条目。",
+  adopt_view_failures: "查看失败详情",
+  adopt_failure_title: "未能纳入的技能",
+  adopt_close_failures: "关闭",
+  adopt_slug_conflict: "技能库已使用这个目录名。本机技能已保留。",
   empty_adopt_done_title: "全部已托管",
   empty_adopt_done_desc: "本机已检测到的 Agent 技能都已在 UnoSkills 技能库中统一管理。",
   empty_adopt_filter_title: "没有匹配的本机技能",
@@ -419,7 +431,11 @@ const JA: LibraryStrings = {
   adopt_clear_selection: "選択を解除",
   adopt_confirm_benefit: "追加すると、UnoSkills でこれらのスキルをまとめて確認・編集し、ほかのエージェントにも配備できます。",
   adopt_confirm_description:
-    "UnoSkills はスキルを中央ライブラリにコピーし、元のフォルダーをリンクまたは管理対象のコピーに置き換えます。元のエージェントは同じパスから引き続き利用できます。",
+    "新しいスキルはライブラリにコピーされ、元のフォルダーはリンクまたは管理対象のコピーに置き換わります。内容が完全に一致するローカルコピーはそのまま残し、既存のライブラリ項目に関連付けます。",
+  adopt_view_failures: "失敗の詳細を表示",
+  adopt_failure_title: "追加できなかったスキル",
+  adopt_close_failures: "閉じる",
+  adopt_slug_conflict: "このフォルダー名はライブラリで使用されています。ローカルのスキルは保持されました。",
   empty_adopt_done_title: "すべて管理済みです",
   empty_adopt_done_desc: "検出されたエージェントのスキルはすべて UnoSkills で管理されています。",
   empty_adopt_filter_title: "一致する未管理スキルがありません",
