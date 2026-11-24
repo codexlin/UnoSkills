@@ -1,4 +1,5 @@
 import { Text, View, host, mount, signal } from "nsh";
+import { Button } from "nsh/base";
 import type { Locale, Route, Theme, Tone } from "../../src/shared";
 import { Discover } from "../../src/library/DiscoverScreen";
 import { Library } from "../../src/library/LibraryScreen";
@@ -86,6 +87,11 @@ function HarnessApp() {
 
   return (
     <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
+      <If when={host.params.showRefreshControl === true}>
+        <Button accessibilityLabel="Refresh test screen" onPress={refresh}>
+          <Text>Refresh test screen</Text>
+        </Button>
+      </If>
       <If when={route().page === "discover"} else={<Library {...screenProps} />}>
         <Discover {...screenProps} />
       </If>

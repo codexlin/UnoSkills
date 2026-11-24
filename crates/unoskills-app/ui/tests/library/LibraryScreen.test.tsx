@@ -788,7 +788,7 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       width: 1200,
       height: 800,
       host: {
-        params: { initialRoute: { page: "discover", tab: "adopt" } },
+        params: { initialRoute: { page: "discover", tab: "adopt" }, showRefreshControl: true },
         handlers: {
           "unoskills.command": (raw: unknown) => {
             const { command } = raw as CommandPayload;
@@ -805,11 +805,11 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     });
 
     await app.waitFor("text:Everything is managed");
-    const refresh = app.host.send("test.refresh");
-    let latestRefresh: ReturnType<typeof app.host.send> | undefined;
+    const refresh = app.press("Refresh test screen");
+    let latestRefresh: typeof refresh | undefined;
     try {
       await app.waitUntil(() => scans === 2);
-      latestRefresh = app.host.send("test.refresh");
+      latestRefresh = app.press("Refresh test screen");
       await app.waitFor("text:Current Local Skill");
       await app.press("Current Local Skill");
       expect(app.enabled("Add to library (1)")).toBe(true);
