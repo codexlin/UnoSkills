@@ -194,7 +194,7 @@ export interface AdoptionMergePreview {
   token: string;
   candidate: AdoptCandidate;
   library_path: string;
-  existing_path: string;
+  existing_path: string | null;
   existing_present: boolean;
   keep_existing_for_peers: boolean;
   targets: AdoptionMergeTarget[];

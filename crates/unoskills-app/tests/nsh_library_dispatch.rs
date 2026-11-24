@@ -418,6 +418,89 @@ fn discover_scan_and_adopt_local_skills() {
 }
 
 #[test]
+fn discover_same_name_conflict_without_an_agent_deployment_allows_a_reviewed_merge() {
+    let ws = TempWorkspace::new("adopt-library-conflict");
+    let mgr = ws.manager();
+    let old_agent = ws.path().join("old-agent");
+    let new_agent = ws.path().join("new-agent");
+    for (key, path) in [("old-agent", &old_agent), ("new-agent", &new_agent)] {
+        fs::create_dir_all(path).unwrap();
+        mgr.add_custom_agent(&CustomAgentRecord {
+            key: key.into(),
+            display_name: key.into(),
+            category: AgentCategory::Coding,
+            skills_dir: path.to_string_lossy().into_owned(),
+        })
+        .unwrap();
+    }
+    let library_body = "---\nname: tabbit\n---\nLibrary version\n";
+    let local_body = "---\nname: tabbit\n---\nLocal version\n";
+    let source = ws.path().join("source/tabbit");
+    let detected = new_agent.join("tabbit");
+    write_skill_fixture(&source, library_body);
+    write_skill_fixture(&detected, local_body);
+    let skill = mgr.install_from_ref(source.to_str().unwrap()).unwrap();
+    let other = mgr
+        .deploy_skill(&skill.id, "old-agent", Some(DeployMode::Copy), false)
+        .unwrap();
+
+    let batch = nsh::dispatch(&mgr, "discover.adopt", json!({ "paths": [detected] })).unwrap();
+    assert_eq!(batch["adopted_count"], 0);
+    assert!(
+        batch["failed"][0]["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("SKILL_SLUG_CONFLICT:")
+    );
+    let preview = &batch["failed"][0]["merge"];
+    assert!(preview["existing_path"].is_null());
+    assert_eq!(preview["targets"], json!(["detected"]));
+    assert_eq!(preview["library_path"], json!(skill.central_path));
+    assert!(
+        preview["skill_diff"]
+            .as_str()
+            .unwrap()
+            .contains("+ Local version")
+    );
+    assert_eq!(
+        preview["local_version_impacts"][0]["path"],
+        json!(other.target_path)
+    );
+    assert_eq!(
+        fs::read_to_string(detected.join("SKILL.md")).unwrap(),
+        local_body
+    );
+
+    let result = nsh::dispatch(
+        &mgr,
+        "discover.merge_adoption",
+        json!({ "requests": [{
+            "candidate": preview["candidate"], "token": preview["token"],
+            "target": "detected", "content": "library", "allow_copy": true,
+        }] }),
+    )
+    .unwrap();
+    assert_eq!(result["failed"], json!([]), "{result}");
+    let merged = &result["merged"][0];
+    assert_eq!(merged["deployment"]["target_path"], json!(detected));
+    assert_eq!(merged["deployment"]["agent_key"], "new-agent");
+    let backup = std::path::Path::new(merged["backup"].as_str().unwrap());
+    assert_eq!(
+        fs::read_to_string(backup.join("detected/SKILL.md")).unwrap(),
+        local_body
+    );
+    for path in [&detected, &other.target_path, &skill.central_path] {
+        assert_eq!(
+            fs::read_to_string(path.join("SKILL.md")).unwrap(),
+            library_body
+        );
+    }
+    let skill = mgr.find_skill(&skill.id).unwrap().unwrap();
+    assert_eq!(skill.deployments.len(), 2);
+    assert!(skill.deployments.iter().any(|dep| dep.id == other.id));
+}
+
+#[test]
 fn discover_adoption_merge_reports_a_stale_item_and_continues_the_batch() {
     let ws = TempWorkspace::new("adopt-merge");
     let mgr = ws.manager();
