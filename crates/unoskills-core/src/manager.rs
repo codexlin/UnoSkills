@@ -38,8 +38,9 @@ use crate::parser::{
 };
 use crate::registry::{CustomAgentRecord, resolve_agents};
 use crate::source::{
-    ResolvedSource, fetch_git_skill, fetch_skillssh_leaderboard, fetch_skillssh_leaderboard_page,
-    resolve_source_ref, same_source, scan_adoptable_skills, search_skillssh,
+    FetchedSkillDir, ResolvedSource, fetch_git_skill_with_console_option,
+    fetch_skillssh_leaderboard, fetch_skillssh_leaderboard_page, resolve_source_ref, same_source,
+    scan_adoptable_skills, search_skillssh,
 };
 use crate::stacks::{
     DefaultStackRegistry, DeviceCodeRequest, StackRegistry, export_stack_to_toml,
@@ -49,7 +50,7 @@ use crate::stacks::{
 use crate::store::Store;
 use crate::sync::{
     ReplacePolicy, TargetState, classify_target, copy_dir_recursive, deploy_skill_dir,
-    ensure_dst_not_overlapping_src, verify_managed_target,
+    ensure_dst_not_overlapping_src, physical_target_path, verify_managed_target,
 };
 use crate::updater::{
     DEFAULT_RELEASES_API_URL, DownloadedUpdate, PlatformKind, ReleaseAsset, UpdateCheckOutcome,
@@ -61,6 +62,14 @@ pub struct UnoSkillsManager {
     root_dir: PathBuf,
     skills_dir: PathBuf,
     store: Store,
+    hide_git_fetch_console: bool,
+}
+
+struct SkillImportSource {
+    source_type: SourceType,
+    source_ref: Option<String>,
+    subpath: Option<String>,
+    branch: Option<String>,
 }
 
 pub(crate) enum StackProjectTarget {
@@ -300,7 +309,15 @@ impl UnoSkillsManager {
             root_dir,
             skills_dir,
             store,
+            hide_git_fetch_console: false,
         })
+    }
+
+    /// Suppresses console windows for Git skill fetches on Windows.
+    #[must_use]
+    pub fn with_background_git_fetches(mut self) -> Self {
+        self.hide_git_fetch_console = true;
+        self
     }
 
     pub fn root_dir(&self) -> &Path {
@@ -555,13 +572,8 @@ impl UnoSkillsManager {
                 display_ref,
                 source_type,
             } => {
-                let proxy = self.http_proxy();
-                let fetched = fetch_git_skill(
-                    &repo_url,
-                    branch.as_deref(),
-                    subpath.as_deref(),
-                    proxy.as_deref(),
-                )?;
+                let fetched =
+                    self.fetch_git_skill(&repo_url, branch.as_deref(), subpath.as_deref())?;
                 self.import_directory(
                     &fetched.skill_dir,
                     fetched.suggested_slug.as_deref(),
@@ -572,6 +584,21 @@ impl UnoSkillsManager {
                 )
             }
         }
+    }
+
+    fn fetch_git_skill(
+        &self,
+        repo_url: &str,
+        branch: Option<&str>,
+        subpath: Option<&str>,
+    ) -> Result<FetchedSkillDir> {
+        fetch_git_skill_with_console_option(
+            repo_url,
+            branch,
+            subpath,
+            self.http_proxy().as_deref(),
+            self.hide_git_fetch_console,
+        )
     }
 
     /// Update from the recorded source using the same checks as desktop revisions.
@@ -600,6 +627,30 @@ impl UnoSkillsManager {
         source_branch: Option<String>,
     ) -> Result<Skill> {
         let _lock = self.lock_skills()?;
+        self.import_directory_locked(
+            source_dir,
+            slug_hint,
+            SkillImportSource {
+                source_type,
+                source_ref,
+                subpath: source_subpath,
+                branch: source_branch,
+            },
+        )
+    }
+
+    fn import_directory_locked(
+        &self,
+        source_dir: &Path,
+        slug_hint: Option<&str>,
+        source: SkillImportSource,
+    ) -> Result<Skill> {
+        let SkillImportSource {
+            source_type,
+            source_ref,
+            subpath: source_subpath,
+            branch: source_branch,
+        } = source;
         if !is_valid_skill_dir(source_dir) {
             bail!(
                 "Invalid skill directory (missing SKILL.md): {}",
@@ -1087,42 +1138,93 @@ impl UnoSkillsManager {
     }
 
     pub fn adopt_candidate(&self, candidate: &AdoptCandidate) -> Result<Skill> {
-        self.ensure_unlocked_global_target(&candidate.path)?;
-        let skill = self.import_directory(
-            &candidate.path,
-            candidate.path.file_name().and_then(|s| s.to_str()),
-            SourceType::Adopted,
-            Some(candidate.path.to_string_lossy().to_string()),
-            None,
-            None,
-        )?;
         let _lock = self.lock_skills()?;
         self.ensure_unlocked_global_target(&candidate.path)?;
-        // Replace the exact discovered candidate path (whether inside the agent's
-        // primary `skills_dir` or an `additional_scan_dirs` entry like `~/.agents/skills`)
-        // with a managed link/copy to the central library so re-scans recognize it.
-        let desired_mode = self.default_deploy_mode();
-        let actual_mode = deploy_skill_dir(
-            &skill.central_path,
-            &candidate.path,
-            desired_mode,
-            ReplacePolicy::UserConfirmed,
-        )?;
-        let existing_dep = skill
-            .deployments
-            .iter()
-            .find(|d| d.agent_key == candidate.agent_key);
+        let file_name = candidate.path.file_name().and_then(|s| s.to_str());
+        let slug = file_name
+            .and_then(sanitize_slug)
+            .context("Could not derive a safe directory slug for skill")?;
+        let target = physical_target_path(&candidate.path)
+            .context("Could not resolve the parent of the local skill")?;
+        let skills = self.store.list_skills()?;
+        for skill in &skills {
+            if let Some(deployment) = skill.deployments.iter().find(|deployment| {
+                deployment.target_path == candidate.path
+                    || physical_target_path(&deployment.target_path).as_ref() == Some(&target)
+            }) {
+                ensure!(
+                    verify_managed_target(
+                        &skill.central_path,
+                        &candidate.path,
+                        deployment.mode,
+                        deployment.copy_hash.as_deref(),
+                    )? != TargetState::Absent,
+                    "TARGET_CONFLICT: The deployment no longer exists: {}",
+                    candidate.path.display()
+                );
+                return Ok(skill.clone());
+            }
+        }
+
+        let existing = skills
+            .into_iter()
+            .find(|skill| skill.slug.eq_ignore_ascii_case(&slug));
+        let (skill, actual_mode, copy_hash) = if let Some(skill) = existing {
+            ensure!(
+                !skill
+                    .deployments
+                    .iter()
+                    .any(|deployment| deployment.agent_key == candidate.agent_key),
+                "TARGET_CONFLICT: This agent already uses the library skill at another path"
+            );
+            let fingerprint = managed_copy_fingerprint(&skill.central_path).ok();
+            ensure!(
+                skill.central_path == self.skills_dir.join(&skill.slug)
+                    && is_valid_skill_dir(&skill.central_path)
+                    && is_valid_skill_dir(&candidate.path)
+                    && ensure_dst_not_overlapping_src(&skill.central_path, &candidate.path).is_ok()
+                    && classify_target(&skill.central_path, &candidate.path)
+                        == TargetState::RealDir
+                    && fingerprint.as_ref().is_some_and(|expected| {
+                        managed_copy_fingerprint(&candidate.path)
+                            .is_ok_and(|actual| &actual == expected)
+                    }),
+                "SKILL_SLUG_CONFLICT: A different skill already uses the library directory '{slug}'"
+            );
+            // The existing local directory already matches the library exactly.
+            // Register it as a managed copy without rewriting it or changing the library source.
+            (skill, DeployMode::Copy, fingerprint)
+        } else {
+            let skill = self.import_directory_locked(
+                &candidate.path,
+                file_name,
+                SkillImportSource {
+                    source_type: SourceType::Adopted,
+                    source_ref: Some(candidate.path.to_string_lossy().into_owned()),
+                    subpath: None,
+                    branch: None,
+                },
+            )?;
+            let mode = deploy_skill_dir(
+                &skill.central_path,
+                &candidate.path,
+                self.default_deploy_mode(),
+                ReplacePolicy::UserConfirmed,
+            )?;
+            let copy_hash = (mode == DeployMode::Copy)
+                .then(|| managed_copy_fingerprint(&skill.central_path))
+                .transpose()?;
+            (skill, mode, copy_hash)
+        };
+        // Record the exact discovered candidate path (whether inside the agent's
+        // primary `skills_dir` or an `additional_scan_dirs` entry like `~/.agents/skills`).
         let dep = Deployment {
-            id: existing_dep
-                .map(|d| d.id.clone())
-                .unwrap_or_else(|| Uuid::new_v4().to_string()),
+            id: Uuid::new_v4().to_string(),
             skill_id: skill.id.clone(),
             agent_key: candidate.agent_key.clone(),
             target_path: candidate.path.clone(),
             mode: actual_mode,
-            copy_hash: (actual_mode == DeployMode::Copy)
-                .then(|| managed_copy_fingerprint(&skill.central_path))
-                .transpose()?,
+            copy_hash,
             synced_at: Utc::now().timestamp(),
         };
         self.store.upsert_deployment(&dep)?;

@@ -34,8 +34,8 @@ Source: "..\..\dist\windows\unoskills-app.exe"; DestDir: "{app}"; Flags: ignorev
 Source: "..\..\dist\windows\unoskills.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\UnoSkills"; Filename: "{app}\{#AppExeName}"
-Name: "{autodesktop}\UnoSkills"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{group}\UnoSkills"; Filename: "{app}\{#AppExeName}"; AppUserModelID: "{#AppId}"
+Name: "{autodesktop}\UnoSkills"; Filename: "{app}\{#AppExeName}"; AppUserModelID: "{#AppId}"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"

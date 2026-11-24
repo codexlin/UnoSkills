@@ -8,6 +8,7 @@ use walkdir::WalkDir;
 
 use crate::domain::{AdoptCandidate, AgentInfo, MarketplacePage, MarketplaceSkill, SourceType};
 use crate::parser::{is_valid_skill_dir, parse_skill_dir};
+use crate::sync::physical_target_path;
 
 #[derive(Debug, Clone)]
 pub enum ResolvedSource {
@@ -184,12 +185,32 @@ pub fn fetch_git_skill(
     subpath: Option<&str>,
     proxy_url: Option<&str>,
 ) -> Result<FetchedSkillDir> {
+    fetch_git_skill_with_console_option(repo_url, branch, subpath, proxy_url, false)
+}
+
+pub(crate) fn fetch_git_skill_with_console_option(
+    repo_url: &str,
+    branch: Option<&str>,
+    subpath: Option<&str>,
+    proxy_url: Option<&str>,
+    hide_console: bool,
+) -> Result<FetchedSkillDir> {
     let temp = tempfile::Builder::new()
         .prefix("unoskills-git-")
         .tempdir()
         .context("Failed to create temp directory for git clone")?;
 
     let mut cmd = Command::new("git");
+    #[cfg(windows)]
+    if hide_console {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = hide_console;
+
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     if let Some(proxy) = proxy_url.map(str::trim).filter(|s| !s.is_empty()) {
         cmd.arg("-c")
@@ -327,6 +348,10 @@ pub fn scan_adoptable_skills(
     let mut candidates = Vec::new();
     let mut seen_paths = HashSet::new();
     let central_canon = central_skills_dir.canonicalize().ok();
+    let managed_entries: HashSet<_> = managed_target_paths
+        .iter()
+        .filter_map(|path| physical_target_path(path))
+        .collect();
 
     for agent in agents.iter().filter(|a| a.installed) {
         let mut roots = vec![agent.skills_dir.clone()];
@@ -343,9 +368,14 @@ pub fn scan_adoptable_skills(
             let Ok(entries) = std::fs::read_dir(&root) else {
                 continue;
             };
+            let physical_root = root.canonicalize().ok();
             for entry in entries.flatten() {
                 let path = entry.path();
-                if managed_target_paths.contains(&path) {
+                if managed_target_paths.contains(&path)
+                    || physical_root
+                        .as_ref()
+                        .is_some_and(|root| managed_entries.contains(&root.join(entry.file_name())))
+                {
                     continue;
                 }
                 if let (Some(c_root), Ok(p_canon)) = (&central_canon, path.canonicalize())

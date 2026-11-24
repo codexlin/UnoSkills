@@ -1,9 +1,9 @@
-import { type InputRef, List, type ListRef, Text, View } from "nsh";
-import { ActionControl, AlertBanner, CheckControl, Icon, Label, LoadingLine, textSize, textStyle } from "../components";
+import { type InputRef, List, type ListRef, signal, Text, View } from "nsh";
+import { ActionControl, AlertBanner, CheckControl, Icon, Label, LoadingLine, Modal, textSize, textStyle } from "../components";
 import type { Theme } from "../shared";
 import { ActionButton, EmptyState, SearchField, TokenBadge, hintTooltip } from "./controls";
-import { type Locale, adoptSelectedCount, busyAdoptingAll, getStrings, labelWithCount } from "./strings";
-import type { AdoptCandidate } from "./types";
+import { type Locale, adoptSelectedCount, busyAdoptingAll, getStrings, labelWithCount, toastAdoptedAll } from "./strings";
+import type { AdoptBatchResponse, AdoptCandidate } from "./types";
 import type { AdoptGroup, AdoptRow } from "./adoption";
 
 export function AdoptTab(props: {
@@ -17,6 +17,7 @@ export function AdoptTab(props: {
   scanning: boolean;
   adopting: boolean;
   error: string | null;
+  failedBatch: AdoptBatchResponse | null;
   onSearchInputRef: (ref: InputRef) => void;
   onListRef: (ref: ListRef) => void;
   onSearchChange: (value: string) => void;
@@ -28,6 +29,8 @@ export function AdoptTab(props: {
   onConfirmAdopt: () => void;
 }) {
   const s = () => getStrings(props.locale);
+  const detailsOpen = signal(false);
+  const failures = () => props.failedBatch?.failed ?? [];
 
   return (
     <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
@@ -72,6 +75,34 @@ export function AdoptTab(props: {
         <View style={{ paddingHorizontal: 20, paddingTop: 10 }}>
           <AlertBanner theme={props.theme} tone="error" message={props.error ?? ""} />
         </View>
+      </If>
+
+      <If when={failures().length > 0}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 8 }}>
+          <AlertBanner
+            theme={props.theme}
+            tone="warning"
+            message={toastAdoptedAll(props.locale, props.failedBatch?.adopted_count ?? 0, failures().length)}
+          />
+          <ActionButton theme={props.theme} kind="outline" label={s().adopt_view_failures} onPress={() => detailsOpen.set(true)} />
+        </View>
+        <Modal theme={props.theme} label={s().adopt_failure_title} width={620} open={detailsOpen()} onClose={() => detailsOpen.set(false)}>
+          <List each={failures()} keyExtractor={(failure) => failure.path} estimatedItemSize={82}
+            style={{ height: 280, minHeight: 0, flexShrink: 1 }}>
+            {(failure) => (
+              <View style={{ gap: 4, paddingVertical: 8, borderBottomWidth: 1, borderColor: props.theme.border }}>
+                <Label theme={props.theme} weight="600">{failure().name}</Label>
+                <Label theme={props.theme} muted mono>{failure().path}</Label>
+                <Label theme={props.theme}>
+                  {failure().error.startsWith("SKILL_SLUG_CONFLICT:") ? s().adopt_slug_conflict : failure().error}
+                </Label>
+              </View>
+            )}
+          </List>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+            <ActionButton theme={props.theme} kind="outline" label={s().adopt_close_failures} onPress={() => detailsOpen.set(false)} />
+          </View>
+        </Modal>
       </If>
 
       <If

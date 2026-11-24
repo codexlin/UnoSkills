@@ -684,6 +684,7 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       path: "/tmp/home/.claude/skills/unmanaged-one",
       estimated_tokens: 30,
     };
+    const otherCandidate = { ...candidate, name: "Unmanaged Two", path: `${candidate.path}-two` };
     const app = await open("./LibraryTestHarness.tsx", {
       platform: "macos",
       width: 1200,
@@ -699,14 +700,17 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
               return makeLibraryState(makeSkills());
             }
             if (command === "discover.scan_adoptable") {
-              const value: ScanAdoptableResponse = { candidates: [candidate] };
+              const value: ScanAdoptableResponse = { candidates: [candidate, otherCandidate] };
               return { ok: true, value };
             }
             if (command === "discover.adopt") {
               const value: AdoptBatchResponse = {
-                adopted: [makeSkills()[0]],
-                adopted_count: 1,
-                failed: [],
+                adopted: [],
+                adopted_count: 0,
+                failed: [
+                  { name: candidate.name, path: candidate.path, error: "SKILL_SLUG_CONFLICT: Existing entry" },
+                  { name: otherCandidate.name, path: otherCandidate.path, error: "Permission denied" },
+                ],
               };
               return { ok: true, value };
             }
@@ -731,14 +735,21 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
 
     await app.waitFor("text:Unmanaged One");
     await app.press("Unmanaged One");
+    await app.press("Unmanaged Two");
     app.onDialog(() => "Add to library");
-    await app.press("Add to library (1)");
+    await app.press("Add to library (2)");
     await app.waitUntil(() => recorded.some((entry) => entry.command === "discover.adopt"));
 
     const adoptCall = recorded.find((entry) => entry.command === "discover.adopt");
     expect(adoptCall?.input).toMatchObject({
-      candidates: [{ path: "/tmp/home/.claude/skills/unmanaged-one" }],
+      candidates: [{ path: candidate.path }, { path: otherCandidate.path }],
     });
+    await app.waitFor("text:Added 0 skills to the library (2 failed).");
+    await app.press("View failures");
+    await app.waitFor("text:This folder name is already in use in the library. The local skill was kept.");
+    await app.waitFor("text:Permission denied");
+    await app.press("Close");
+    await app.waitFor("text:Add to library (2)");
 
     // Switch to Quick Install route and submit a source.
     await app.host.send("test.navigate", { page: "discover", tab: "install" });
@@ -777,7 +788,7 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
       width: 1200,
       height: 800,
       host: {
-        params: { initialRoute: { page: "discover", tab: "adopt" } },
+        params: { initialRoute: { page: "discover", tab: "adopt" }, showRefreshControl: true },
         handlers: {
           "unoskills.command": (raw: unknown) => {
             const { command } = raw as CommandPayload;
@@ -794,11 +805,11 @@ describe("LibraryScreen markdown safety, scoped targets, and Discover flows", ()
     });
 
     await app.waitFor("text:Everything is managed");
-    const refresh = app.host.send("test.refresh");
-    let latestRefresh: ReturnType<typeof app.host.send> | undefined;
+    const refresh = app.press("Refresh test screen");
+    let latestRefresh: typeof refresh | undefined;
     try {
       await app.waitUntil(() => scans === 2);
-      latestRefresh = app.host.send("test.refresh");
+      latestRefresh = app.press("Refresh test screen");
       await app.waitFor("text:Current Local Skill");
       await app.press("Current Local Skill");
       expect(app.enabled("Add to library (1)")).toBe(true);

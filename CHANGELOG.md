@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.8.5] - 2026-11-24
+
+### Fixed / 修复
+
+- **Windows app icon / Windows 应用图标**. Windows executables include the UnoSkills icon. Start menu and desktop shortcuts use the same taskbar identity as the app. Windows 应用内嵌 UnoSkills 图标，开始菜单和桌面快捷方式与应用使用相同的任务栏标识。
+- **Windows skill downloads / Windows 技能下载**. Adding Git-hosted skills from the desktop app runs Git in the background and still reports download errors. 桌面端从 Git 仓库下载技能时在后台运行 Git，下载失败时仍会显示错误。
+- **Adopting local skills / 纳入本机技能**. UnoSkills can manage an identical local copy in place. If the content differs, it keeps the local files and continues with the rest of the batch. Review the reason for each failed item and retry the remaining selection. 内容完全一致的同名本机副本可以原地纳管。内容不同时会保留本机文件，继续处理本批次的其他技能。可逐项查看失败原因，失败项会保留勾选以便重试。
+
 ## [v0.8.4] - 2026-11-23
 
 ### Changed / 改进
