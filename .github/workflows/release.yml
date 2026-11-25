@@ -25,7 +25,8 @@ jobs:
             artifact_suffix: macos-arm64
             ext: ""
             deployment_target: "14.0"
-          - os: ubuntu-latest
+          # Keep the release CLI's minimum glibc at 2.39.
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             artifact_suffix: linux-x64
             ext: ""
@@ -173,6 +174,12 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Pin the CLI installer to this stable release
+        if: ${{ !contains(github.ref_name, '-') }}
+        run: |
+          sed "s/@RELEASE_TAG@/$GITHUB_REF_NAME/" packaging/cli/install.sh > release-assets/install.sh
+          sh -n release-assets/install.sh
+
       - name: Generate SHA256SUMS
         run: |
           cd release-assets
@@ -215,4 +222,5 @@ jobs:
         with:
           body_path: release-notes.md
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: release-assets/*

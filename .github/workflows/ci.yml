@@ -70,6 +70,39 @@ jobs:
       - name: Build unoskills-app binary
         run: cargo build -p unoskills-app --locked
 
+  cli-distribution:
+    name: CLI Distribution (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify installer failure cases
+        run: sh packaging/cli/test-install.sh
+      - name: Install the pinned CLI with Homebrew and curl
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"
+          fi
+          brew tap-new codexlin/tap --no-git
+          cp packaging/homebrew-tap/Formula/unoskills.rb "$(brew --repository codexlin/tap)/Formula/"
+          brew install codexlin/tap/unoskills
+          brew test codexlin/tap/unoskills
+
+          VERSION=$(brew info --json=v2 codexlin/tap/unoskills | jq -er '.formulae[0].versions.stable')
+          sed "s/@RELEASE_TAG@/v$VERSION/" packaging/cli/install.sh > "$RUNNER_TEMP/install.sh"
+          sh -n "$RUNNER_TEMP/install.sh"
+          mkdir "$RUNNER_TEMP/unoskills-home"
+          export HOME="$RUNNER_TEMP/unoskills-home"
+          export UNOSKILLS_INSTALL_DIR="$HOME/bin"
+          sh "$RUNNER_TEMP/install.sh"
+          test "$("$UNOSKILLS_INSTALL_DIR/unoskills" --version)" = "unoskills $VERSION"
+
   ui:
     name: NSH UI Type Check
     runs-on: ubuntu-latest

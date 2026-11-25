@@ -37,9 +37,31 @@ Download the installer for your platform from [GitHub Releases](https://github.c
 
 Portable archives, including the macOS CLI, are available on the same release page. macOS builds are currently ad-hoc signed.
 
+### CLI
+
+The prebuilt CLI runs on Apple Silicon with macOS 14 or later and on x86_64 Linux with glibc 2.39 or later (for example, Ubuntu 24.04). On Linux, Homebrew supplies OpenSSL 3. For the curl installer, install your distribution’s OpenSSL 3 runtime (`libssl.so.3` and `libcrypto.so.3`).
+
+**Homebrew**
+
+```sh
+brew install codexlin/tap/unoskills
+unoskills --version
+```
+
+**curl**
+
+```sh
+curl -fsSL https://github.com/codexlin/UnoSkills/releases/latest/download/install.sh -o unoskills-install.sh &&
+  sh unoskills-install.sh
+```
+
+Each `install.sh` downloads and verifies the CLI using `SHA256SUMS.txt` from its own release. It installs to `~/.local/bin` without `sudo`. Set `UNOSKILLS_INSTALL_DIR` to an absolute path to use a different directory, and add that directory to your `PATH` if needed.
+
 ### Upgrading
 
 Install the latest release over your existing UnoSkills installation. The desktop app and CLI continue to use your `~/.unoskills` library and settings. In **Settings → About & updates**, check for a release, download and verify the installer, then open it when ready.
+
+For the CLI, run `brew update && brew upgrade unoskills` or download and run the latest `install.sh` again, depending on how you installed it.
 
 ## Quick start
 
