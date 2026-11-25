@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.8.8] - 2026-11-25
+
+### Added / 新增
+
+- **CLI installation / CLI 安装**. Install UnoSkills with Homebrew or the versioned installer on Apple Silicon macOS 14+ and x86_64 Linux with glibc 2.39+. The installer checks SHA-256 before installing to `~/.local/bin` by default. Apple 芯片 macOS 14 及以上和使用 glibc 2.39 及以上的 x86_64 Linux 可通过 Homebrew 或版本专属脚本安装。脚本先校验 SHA-256，默认安装到 `~/.local/bin`。
+
+### Documentation / 文档
+
+- **CLI setup / CLI 使用说明**. The English and Chinese READMEs list the installation commands, Linux runtime dependencies, and how to upgrade. 中英文 README 补充了安装命令、Linux 运行依赖和升级方法。
+
 ## [v0.8.7] - 2026-11-24
 
 ### Fixed / 修复
