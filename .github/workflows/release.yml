@@ -1,10 +1,18 @@
 name: Release
+run-name: ${{ inputs.source_tag && format('Release recovery {0} ({1})', inputs.source_tag, inputs.request_id) || format('Release {0}', github.ref_name) }}
 
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      source_tag:
+        description: Stable tag to rebuild without publishing
+        type: string
+      request_id:
+        description: Unique identifier for a recovery run
+        type: string
 
 permissions:
   contents: write
@@ -36,6 +44,8 @@ jobs:
             ext: ".exe"
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_tag && format('refs/tags/{0}', inputs.source_tag) || github.sha }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -43,20 +53,30 @@ jobs:
 
       - name: Resolve release version
         shell: bash
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          REQUEST_ID: ${{ inputs.request_id }}
         run: |
           VERSION=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\([^"]*\)"$/\1/p' Cargo.toml)
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
-          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match workspace version $VERSION"
+          RELEASE_TAG="$SOURCE_TAG"
+          if [[ -n "$SOURCE_TAG" ]]; then
+            [[ "$SOURCE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && -n "$REQUEST_ID" ]]
+          elif [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            RELEASE_TAG="$GITHUB_REF_NAME"
+          fi
+          if [[ -n "$RELEASE_TAG" && "$RELEASE_TAG" != "v$VERSION" ]]; then
+            echo "::error::Tag $RELEASE_TAG does not match workspace version $VERSION"
             exit 1
           fi
+          git log -1 --format='Building source commit %H'
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Install Linux NSH dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libgtk-4-dev libssl-dev
+          sudo apt-get install -y dpkg-dev pkg-config libgtk-4-dev libssl-dev
 
       - name: Build release binaries (app + cli)
         env:
@@ -122,37 +142,31 @@ jobs:
         shell: bash
         run: |
           VERSION="$RELEASE_VERSION"
-          # Auto-resolve runtime Depends from the NEEDED entries of the built
-          # binaries against packages installed on this runner. Libraries that
-          # are not installed here are skipped; extend packaging/linux/control
-          # manually if users report missing runtime libraries.
-          NEEDED=$( { objdump -p "target/${{ matrix.target }}/release/unoskills-app"; \
-                      objdump -p "target/${{ matrix.target }}/release/unoskills"; } \
-            | awk '/NEEDED/ {print $2}' | sort -u \
-            | while read -r lib; do
-                path=$(ldconfig -p | grep -F "$lib (" | head -1 | awk '{print $NF}')
-                if [ -n "$path" ]; then
-                  dpkg -S "$path" 2>/dev/null | head -1 | cut -d: -f1
-                fi
-              done | sort -u | tr '\n' ',' | sed 's/,$//')
-          NEEDED=$(printf '%s' "$NEEDED" | sed -E 's/(^|,)libgtk-4-1(,|$)/\1/; s/,$//')
-          DEPENDS="libgtk-4-1 (>= 4.14)${NEEDED:+,$NEEDED}"
-          echo "Package Depends: $DEPENDS"
-          mkdir -p dist/deb-root/DEBIAN dist/deb-root/usr/bin \
+          mkdir -p dist/deb-root/DEBIAN dist/deb-root/usr/bin dist/debian \
             dist/deb-root/usr/share/applications \
             dist/deb-root/usr/share/icons/hicolor/256x256/apps
           install -m 0755 "target/${{ matrix.target }}/release/unoskills-app" dist/deb-root/usr/bin/unoskills-app
           install -m 0755 "target/${{ matrix.target }}/release/unoskills" dist/deb-root/usr/bin/unoskills
           install -m 0644 packaging/icons/unoskills-256.png dist/deb-root/usr/share/icons/hicolor/256x256/apps/unoskills.png
           install -m 0644 packaging/linux/unoskills.desktop dist/deb-root/usr/share/applications/unoskills.desktop
+          # Let Debian resolve library ownership and symbol versions across
+          # merged /usr paths. Keep the app's explicit GTK 4.14 floor.
+          printf 'Source: unoskills\n\nPackage: unoskills\nArchitecture: amd64\n' > dist/debian/control
+          NEEDED=$(cd dist && dpkg-shlibdeps -O -Sdeb-root -xlibgtk-4-1 \
+            -edeb-root/usr/bin/unoskills-app -edeb-root/usr/bin/unoskills \
+            | sed -n 's/^shlibs:Depends=//p')
+          test -n "$NEEDED"
+          DEPENDS="libgtk-4-1 (>= 4.14), $NEEDED"
+          echo "Package Depends: $DEPENDS"
           sed -e "s/@APP_VERSION@/${VERSION}/" -e "s/@DEPENDS@/${DEPENDS}/" \
             packaging/linux/control > dist/deb-root/DEBIAN/control
           dpkg-deb --root-owner-group --build dist/deb-root "dist/unoskills_${VERSION}_amd64.deb"
           dpkg-deb --info "dist/unoskills_${VERSION}_amd64.deb"
+          apt-get --simulate install "$PWD/dist/unoskills_${VERSION}_amd64.deb"
 
       - name: Clean staging directories
         shell: bash
-        run: rm -rf dist/deb-root dist/dmg-root dist/windows dist/UnoSkills.app
+        run: rm -rf dist/deb-root dist/debian dist/dmg-root dist/windows dist/UnoSkills.app
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -164,7 +178,7 @@ jobs:
     name: Publish GitHub Release
     needs: build-release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !inputs.source_tag
     steps:
       - uses: actions/checkout@v4
         with:
