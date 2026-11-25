@@ -37,9 +37,31 @@
 
 发布页也提供便携压缩包，其中包含 macOS CLI。macOS 构建目前采用临时签名。
 
+### 命令行工具
+
+预编译 CLI 支持 Apple 芯片的 macOS 14 及以上，以及使用 glibc 2.39 及以上的 x86_64 Linux（例如 Ubuntu 24.04）。在 Linux 上，Homebrew 会安装 OpenSSL 3。通过 curl 安装时，请先安装发行版提供的 OpenSSL 3 运行库（`libssl.so.3` 和 `libcrypto.so.3`）。
+
+**Homebrew**
+
+```sh
+brew install codexlin/tap/unoskills
+unoskills --version
+```
+
+**curl**
+
+```sh
+curl -fsSL https://github.com/codexlin/UnoSkills/releases/latest/download/install.sh -o unoskills-install.sh &&
+  sh unoskills-install.sh
+```
+
+每个 `install.sh` 都从自身所属的版本下载 CLI，并使用同一版本的 `SHA256SUMS.txt` 校验。默认安装到 `~/.local/bin`，无需 `sudo`。如需更改安装目录，将 `UNOSKILLS_INSTALL_DIR` 设为绝对路径，并按需将该目录加入 `PATH`。
+
 ### 升级
 
 在原有 UnoSkills 应用上安装最新版本。桌面端和 CLI 继续读取 `~/.unoskills` 中的技能库和设置。也可以在「设置 → 关于与更新」检查版本，下载并校验安装包，再打开安装。
+
+通过 Homebrew 安装 CLI 的用户可运行 `brew update && brew upgrade unoskills`；通过 curl 安装的用户可重新下载并运行最新的 `install.sh`。
 
 ## 快速上手
 
